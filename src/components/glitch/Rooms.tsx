@@ -176,29 +176,54 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
           </button>
         ) : (
           <>
-            <div className="relative flex-1">
+            <div className="flex-1">
               <button
-                onClick={() => setMenuOpen((v) => !v)}
+                onClick={() => setMenuOpen(true)}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.85_0.16_200)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
               >
                 <Plus className="w-4 h-4" /> Order
               </button>
               {menuOpen && (
-                <div className="absolute left-0 right-0 mt-2 z-20 glass-strong rounded-lg p-2 border border-white/10 shadow-2xl">
-                  {state.menu.map((m) => {
-                    const ok = canFulfill(m.id, 1);
-                    return (
-                      <button
-                        key={m.id}
-                        disabled={!ok}
-                        onClick={() => handleOrder(m.id)}
-                        className={`w-full flex justify-between items-center px-3 py-2 rounded text-sm ${ok ? "hover:bg-white/5" : "opacity-40 cursor-not-allowed"}`}
-                      >
-                        <span>{m.name}</span>
-                        <span className="font-mono text-xs text-muted-foreground">{fmtMoney(m.price)}</span>
+                <div
+                  className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <div
+                    className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)] shadow-[0_0_40px_oklch(0.7_0.19_260/0.4)]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                      <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+                        {room.name} · Add Order
+                      </div>
+                      <button onClick={() => setMenuOpen(false)} className="text-muted-foreground hover:text-white">
+                        <X className="w-4 h-4" />
                       </button>
-                    );
-                  })}
+                    </div>
+                    <div className="p-2 max-h-[60vh] overflow-y-auto">
+                      {state.menu.length === 0 && (
+                        <div className="text-center text-xs text-muted-foreground font-mono uppercase tracking-widest py-6">
+                          No menu items available
+                        </div>
+                      )}
+                      {state.menu.map((m) => {
+                        const ok = canFulfill(m.id, 1);
+                        return (
+                          <button
+                            key={m.id}
+                            disabled={!ok}
+                            onClick={() => handleOrder(m.id)}
+                            className={`w-full flex justify-between items-center px-3 py-2.5 rounded-lg text-sm transition ${
+                              ok ? "hover:bg-[oklch(0.7_0.19_260/0.15)] border border-transparent hover:border-[oklch(0.7_0.19_260/0.4)]" : "opacity-40 cursor-not-allowed"
+                            }`}
+                          >
+                            <span className="font-semibold">{m.name}</span>
+                            <span className="font-mono text-xs text-[oklch(0.78_0.2_155)]">{fmtMoney(m.price)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -235,7 +260,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
   const endD = new Date(session.endedAt);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+    <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-md glass-strong rounded-2xl border border-white/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.85_0.16_200)]">Receipt</div>

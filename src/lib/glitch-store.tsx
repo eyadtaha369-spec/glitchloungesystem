@@ -132,6 +132,7 @@ interface StoreContextValue {
   login: (u: string, p: string) => boolean;
   logout: () => void;
   addAccount: (a: Account) => boolean;
+  updateAccount: (originalUsername: string, patch: { username?: string; password?: string; role?: Role }) => { ok: boolean; error?: string };
   deleteAccount: (username: string) => void;
   setRoomRate: (roomId: string, rate: number) => void;
   startRoom: (roomId: string) => void;
@@ -200,6 +201,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const deleteAccount = (username: string) => {
     setState((s) => ({ ...s, accounts: s.accounts.filter((a) => a.username !== username) }));
+  };
+  const updateAccount: StoreContextValue["updateAccount"] = (originalUsername, patch) => {
+    const existing = state.accounts.find((a) => a.username === originalUsername);
+    if (!existing) return { ok: false, error: "Account not found" };
+    const nextUsername = patch.username?.trim() || existing.username;
+    if (nextUsername !== existing.username && state.accounts.some((a) => a.username === nextUsername)) {
+      return { ok: false, error: "Username already exists" };
+    }
+    const updated: Account = {
+      username: nextUsername,
+      password: patch.password && patch.password.length > 0 ? patch.password : existing.password,
+      role: patch.role ?? existing.role,
+    };
+    setState((s) => ({
+      ...s,
+      accounts: s.accounts.map((a) => (a.username === originalUsername ? updated : a)),
+      currentUser: s.currentUser?.username === originalUsername ? updated : s.currentUser,
+    }));
+    return { ok: true };
   };
 
   const setRoomRate = (roomId: string, rate: number) => {
@@ -310,7 +330,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const reset = () => setState(initialState());
 
   const value: StoreContextValue = {
-    state, login, logout, addAccount, deleteAccount,
+    state, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, startRoom, endRoom, addOrder,
     updateStockItem, addStockItem, deleteStockItem,
     addMenuItem, deleteMenuItem, setActualCash, canFulfill,
