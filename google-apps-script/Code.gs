@@ -136,8 +136,14 @@ function doPost(e) {
         return json_(addAccount_(body.newUsername, body.newPassword, body.newRole));
 
       case "updateAccount":
-        requireRole_(body.username, ["admin"]);
-        return json_(updateAccount_(body.originalUsername, body));
+     requireRole_(body.username, ["admin"]);
+      return json_(updateAccount_(body.originalUsername, {
+    username: body.username_new,
+    password: body.password,
+    role: body.role,
+  }));
+        
+  
 
       case "deleteAccount":
         requireRole_(body.username, ["admin"]);
