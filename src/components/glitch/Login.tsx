@@ -8,11 +8,18 @@ export function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const ok = login(username.trim(), password);
-    if (!ok) setErr("Invalid credentials. Try admin/admin123 or cashier1/cashier123");
+    setErr("");
+    setLoading(true);
+    try {
+      const ok = await login(username.trim(), password);
+      if (!ok) setErr("Invalid username or password.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -35,12 +42,12 @@ export function Login() {
               <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 autoFocus
-                type="password"
+                type="text"
                 autoComplete="off"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-lg pl-10 pr-3 py-2.5 outline-none focus:border-[oklch(0.7_0.19_260)] focus:shadow-[0_0_0_3px_oklch(0.7_0.19_260/0.25)] transition"
-                placeholder="admin"
+                placeholder="Username"
               />
             </div>
           </div>
@@ -60,16 +67,12 @@ export function Login() {
           {err && <div className="text-sm text-[oklch(0.7_0.22_25)] bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.4)] rounded-lg p-3">{err}</div>}
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold tracking-wider uppercase text-sm shadow-[0_0_25px_oklch(0.7_0.19_260/0.5)] hover:shadow-[0_0_40px_oklch(0.7_0.19_260/0.7)] transition"
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold tracking-wider uppercase text-sm shadow-[0_0_25px_oklch(0.7_0.19_260/0.5)] hover:shadow-[0_0_40px_oklch(0.7_0.19_260/0.7)] transition disabled:opacity-60"
           >
-            <LogIn className="w-4 h-4" /> Access Console
+            <LogIn className="w-4 h-4" /> {loading ? "Checking..." : "Access Console"}
           </button>
         </form>
-
-        <div className="mt-6 pt-6 border-t border-white/10 text-xs text-muted-foreground font-mono space-y-1">
-          <div>› admin / admin123</div>
-          <div>› cashier1 / cashier123</div>
-        </div>
       </div>
     </div>
   );

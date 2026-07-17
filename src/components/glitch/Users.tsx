@@ -21,18 +21,18 @@ export function UsersPage() {
   const [editPassword, setEditPassword] = useState("");
   const [rowMsg, setRowMsg] = useState<string | null>(null);
 
-  const submit = () => {
+  const submit = async () => {
     setErr("");
     if (!username || !password) { setErr("Fill both fields"); return; }
-    const ok = addAccount({ username, password, role });
+    const ok = await addAccount({ username, password, role });
     if (!ok) { setErr("Username already exists"); return; }
     setUsername(""); setPassword(""); setRole("cashier");
   };
 
-  const saveSelf = () => {
+  const saveSelf = async () => {
     setSelfMsg(null);
     if (!me) return;
-    const res = updateAccount(me.username, {
+    const res = await updateAccount(me.username, {
       username: selfUsername.trim() || me.username,
       password: selfPassword,
     });
@@ -42,14 +42,14 @@ export function UsersPage() {
     setTimeout(() => setSelfMsg(null), 2500);
   };
 
-  const beginEdit = (u: string, currentPw: string) => {
+  const beginEdit = (u: string) => {
     setEditing(u);
     setEditUsername(u);
-    setEditPassword(currentPw);
+    setEditPassword("");
     setRowMsg(null);
   };
-  const saveEdit = (original: string) => {
-    const res = updateAccount(original, { username: editUsername.trim(), password: editPassword });
+  const saveEdit = async (original: string) => {
+    const res = await updateAccount(original, { username: editUsername.trim(), password: editPassword || undefined });
     if (!res.ok) { setRowMsg(res.error ?? "Update failed"); return; }
     setEditing(null);
   };
@@ -187,6 +187,7 @@ export function UsersPage() {
                         <input
                           type="password"
                           autoComplete="new-password"
+                          placeholder="Leave blank to keep current"
                           value={editPassword}
                           onChange={(e) => setEditPassword(e.target.value)}
                           className="bg-black/40 rounded px-2 py-1 text-sm border border-white/10 w-full font-mono"
@@ -206,11 +207,11 @@ export function UsersPage() {
                           </>
                         ) : (
                           <>
-                            <button onClick={() => beginEdit(a.username, a.password)} className="text-[oklch(0.85_0.16_200)] hover:opacity-80" title="Edit">
+                            <button onClick={() => beginEdit(a.username)} className="text-[oklch(0.85_0.16_200)] hover:opacity-80" title="Edit">
                               <Pencil className="w-4 h-4" />
                             </button>
                             {!isSelf && (
-                              <button onClick={() => deleteAccount(a.username)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]" title="Delete">
+                              <button onClick={() => void deleteAccount(a.username)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]" title="Delete">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}

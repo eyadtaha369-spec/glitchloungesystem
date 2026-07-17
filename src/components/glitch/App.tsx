@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { StoreProvider, useStore } from "@/lib/glitch-store";
 import { Login } from "./Login";
 import { Sidebar, type View } from "./Sidebar";
@@ -9,12 +9,10 @@ import { UsersPage } from "./Users";
 import { Lock } from "lucide-react";
 
 function Shell() {
-  const { state } = useStore();
+  const { state, ready } = useStore();
   const [view, setView] = useState<View>("dashboard");
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
 
-  if (!mounted) return null;
+  if (!ready) return null;
   if (!state.currentUser) return <Login />;
 
   const isAdmin = state.currentUser.role === "admin";

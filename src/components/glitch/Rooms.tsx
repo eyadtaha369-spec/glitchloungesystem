@@ -48,8 +48,8 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
       ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
       : "border-white/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
 
-  const handleOrder = (menuItemId: string) => {
-    const r = addOrder(room.id, menuItemId, 1);
+  const handleOrder = async (menuItemId: string) => {
+    const r = await addOrder(room.id, menuItemId, 1);
     if (!r.ok) {
       setWarn(r.error ?? "Order failed");
       setTimeout(() => setWarn(null), 3000);
@@ -57,8 +57,8 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
     setMenuOpen(false);
   };
 
-  const handleEnd = () => {
-    const s = endRoom(room.id, split);
+  const handleEnd = async () => {
+    const s = await endRoom(room.id, split);
     if (s) onCheckout(s);
   };
 
@@ -102,7 +102,7 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
             />
             <button
               className="text-[oklch(0.78_0.2_155)] hover:underline"
-              onClick={() => { setRoomRate(room.id, parseFloat(rateInput) || 0); setEditingRate(false); }}
+              onClick={() => { void setRoomRate(room.id, parseFloat(rateInput) || 0); setEditingRate(false); }}
             >save</button>
           </>
         ) : (
