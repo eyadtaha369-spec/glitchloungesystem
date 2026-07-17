@@ -330,7 +330,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const reset = () => setState(initialState());
 
   const value: StoreContextValue = {
-    state, login, logout, addAccount, deleteAccount,
+    state, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, startRoom, endRoom, addOrder,
     updateStockItem, addStockItem, deleteStockItem,
     addMenuItem, deleteMenuItem, setActualCash, canFulfill,
