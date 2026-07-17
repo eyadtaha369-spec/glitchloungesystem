@@ -17,6 +17,8 @@ export function Login() {
     try {
       const ok = await login(username.trim(), password);
       if (!ok) setErr("Invalid username or password.");
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Something went wrong. Check server logs.");
     } finally {
       setLoading(false);
     }
