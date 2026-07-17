@@ -132,6 +132,7 @@ interface StoreContextValue {
   login: (u: string, p: string) => boolean;
   logout: () => void;
   addAccount: (a: Account) => boolean;
+  updateAccount: (originalUsername: string, patch: { username?: string; password?: string; role?: Role }) => { ok: boolean; error?: string };
   deleteAccount: (username: string) => void;
   setRoomRate: (roomId: string, rate: number) => void;
   startRoom: (roomId: string) => void;
