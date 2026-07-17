@@ -152,25 +152,30 @@
     background: #ffffff !important;
     color: #000000 !important;
   }
-  /* Hide EVERYTHING by default */
-  body * { display: none !important; }
-  /* Then re-show the print-root chain and its receipt content */
-  .print-root, .print-root .print-area, .print-area * {
-    display: revert !important;
+
+  /* Hide everything by default — but with visibility, not display.
+     display:none removes elements from the tree so children can never
+     override it back on; visibility:hidden keeps them in the tree so
+     a visible descendant CAN override a hidden ancestor. This is what
+     makes the fix work no matter how many wrapper divs sit between
+     .print-root and .print-area. */
+  body * {
+    visibility: hidden !important;
   }
-  .print-root {
-    position: absolute !important;
-    inset: 0 !important;
-    background: #ffffff !important;
-    padding: 0 !important;
-    z-index: 9999 !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
+
+  /* Re-show only the receipt and everything inside it */
+  .print-area,
+  .print-area * {
+    visibility: visible !important;
   }
-  .print-root .no-print,
-  .print-root .no-print * { display: none !important; }
+
+  /* visibility:hidden elements still take up layout space, so pull the
+     now-visible receipt out of the page flow and pin it to the top */
   .print-area {
+    visibility: visible !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
     display: block !important;
     background: #ffffff !important;
     color: #000000 !important;
@@ -178,7 +183,9 @@
     padding: 12px 16px !important;
     max-width: 320px;
     margin: 0 auto;
+    z-index: 9999 !important;
   }
+
   .print-area * {
     color: #000000 !important;
     background: transparent !important;
@@ -188,5 +195,12 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-}
 
+  /* Keep anything marked no-print hidden even if it's inside the receipt
+     (e.g. a Close/Print button) — this must come after the rules above
+     so it wins on equal specificity */
+  .no-print,
+  .no-print * {
+    visibility: hidden !important;
+  }
+}
