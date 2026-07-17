@@ -8,7 +8,7 @@ export const Route = createFileRoute("/")({
       { title: "GLITCH Lounge Manager" },
       { name: "description", content: "Premium PlayStation gaming lounge management console for GLITCH — rooms, billing, inventory, and reconciliation." },
       { property: "og:title", content: "GLITCH Lounge Manager" },
-      { property: "og:description", content: "Cyber-themed operations console for a premium PlayStation & lounge venue." },
+      { property: "og:description", content: "Premium PlayStation gaming lounge management console for GLITCH — rooms, billing, inventory, and reconciliation." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

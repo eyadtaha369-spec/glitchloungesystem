@@ -78,11 +78,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "GLITCH Lounge Manager" },
-      { name: "description", content: "Premium PlayStation gaming lounge management console." },
+      { name: "description", content: "Premium PlayStation gaming lounge management console for GLITCH — rooms, billing, inventory, and reconciliation." },
       { property: "og:title", content: "GLITCH Lounge Manager" },
-      { property: "og:description", content: "Premium PlayStation gaming lounge management console." },
+      { property: "og:description", content: "Premium PlayStation gaming lounge management console for GLITCH — rooms, billing, inventory, and reconciliation." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "GLITCH Lounge Manager" },
+      { name: "twitter:description", content: "Premium PlayStation gaming lounge management console for GLITCH — rooms, billing, inventory, and reconciliation." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/c5F1qwr6sYdGWQaRfjXEfQXtvBP2/social-images/social-1784295338572-GLITCH_LOGO.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/c5F1qwr6sYdGWQaRfjXEfQXtvBP2/social-images/social-1784295338572-GLITCH_LOGO.webp" },
     ],
     links: [
       {
