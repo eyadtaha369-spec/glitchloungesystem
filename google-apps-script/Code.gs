@@ -150,9 +150,8 @@ function doPost(e) {
         return json_(deleteAccount_(body.targetUsername));
 
       case "getState":
-        // Any logged-in user (admin or cashier) can read state
-        requireRole_(body.username, ["admin", "cashier"]);
-        return json_({ state: getState_() });
+  requireRole_(body.username, ["admin", "cashier"]);
+  return json_(getState_());
 
       case "setState":
         // Any logged-in user can write state (checkout, add orders, etc.)
