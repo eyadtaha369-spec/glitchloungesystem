@@ -35,6 +35,8 @@ export function Login() {
               <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 autoFocus
+                type="password"
+                autoComplete="off"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-lg pl-10 pr-3 py-2.5 outline-none focus:border-[oklch(0.7_0.19_260)] focus:shadow-[0_0_0_3px_oklch(0.7_0.19_260/0.25)] transition"
