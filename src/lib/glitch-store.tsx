@@ -65,6 +65,7 @@ interface StoreContextValue {
   setActualCash: (n: number) => Promise<void>;
   canFulfill: (menuItemId: string, qty: number) => boolean;
   computeElapsed: (room: Room) => number;
+  isPending: (key: string) => boolean;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -74,6 +75,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [accounts, setAccounts] = useState<PublicAccount[]>([]);
   const [ready, setReady] = useState(false);
+  const [pending, setPending] = useState<Set<string>>(new Set());
+
+  // Wraps any async action: marks `key` as pending immediately (so buttons
+  // can show a spinner / disable themselves the instant they're clicked),
+  // runs the real server call, then clears pending whether it succeeds or fails.
+  const withPending = useCallback(async <T,>(key: string, fn: () => Promise<T>): Promise<T> => {
+    setPending((prev) => new Set(prev).add(key));
+    try {
+      return await fn();
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, []);
+
+  const isPending = useCallback((key: string) => pending.has(key), [pending]);
 
   const refreshAccounts = useCallback(async (user: CurrentUser | null) => {
     if (user?.role === "admin") {
@@ -103,13 +123,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refreshAccounts]);
 
   const login: StoreContextValue["login"] = async (u, p) => {
-    const res = await loginFn({ data: { username: u, password: p } });
-    if (!res.ok) return false;
-    const user = { username: res.username, role: res.role };
-    setCurrentUser(user);
-    const [state] = await Promise.all([getStateFn(), refreshAccounts(user)]);
-    setAppState(state);
-    return true;
+    return withPending("login", async () => {
+      const res = await loginFn({ data: { username: u, password: p } });
+      if (!res.ok) return false;
+      const user = { username: res.username, role: res.role };
+      setCurrentUser(user);
+      const [state] = await Promise.all([getStateFn(), refreshAccounts(user)]);
+      setAppState(state);
+      return true;
+    });
   };
 
   const logout = async () => {
@@ -120,61 +142,87 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const addAccount: StoreContextValue["addAccount"] = async (a) => {
-    const res = await addAccountFn({ data: a });
-    if (res.ok) await refreshAccounts(currentUser);
-    return res.ok;
+    return withPending("addAccount", async () => {
+      const res = await addAccountFn({ data: a });
+      if (res.ok) await refreshAccounts(currentUser);
+      return res.ok;
+    });
   };
   const deleteAccount: StoreContextValue["deleteAccount"] = async (username) => {
-    await deleteAccountFn({ data: { username } });
-    await refreshAccounts(currentUser);
+    return withPending(`deleteAccount:${username}`, async () => {
+      await deleteAccountFn({ data: { username } });
+      await refreshAccounts(currentUser);
+    });
   };
   const updateAccount: StoreContextValue["updateAccount"] = async (originalUsername, patch) => {
-    const res = await updateAccountFn({ data: { originalUsername, ...patch } });
-    if (res.ok) {
-      await refreshAccounts(currentUser);
-      if (currentUser?.username === originalUsername) {
-        setCurrentUser({
-          username: patch.username?.trim() || currentUser.username,
-          role: patch.role ?? currentUser.role,
-        });
+    return withPending(`updateAccount:${originalUsername}`, async () => {
+      const res = await updateAccountFn({ data: { originalUsername, ...patch } });
+      if (res.ok) {
+        await refreshAccounts(currentUser);
+        if (currentUser?.username === originalUsername) {
+          setCurrentUser({
+            username: patch.username?.trim() || currentUser.username,
+            role: patch.role ?? currentUser.role,
+          });
+        }
       }
-    }
-    return res;
+      return res;
+    });
   };
 
   const setRoomRate: StoreContextValue["setRoomRate"] = async (roomId, rate) => {
-    setAppState(await setRoomRateFn({ data: { roomId, rate } }));
+    return withPending(`setRoomRate:${roomId}`, async () => {
+      setAppState(await setRoomRateFn({ data: { roomId, rate } }));
+    });
   };
   const startRoom: StoreContextValue["startRoom"] = async (roomId) => {
-    setAppState(await startRoomFn({ data: { roomId } }));
+    return withPending(`startRoom:${roomId}`, async () => {
+      setAppState(await startRoomFn({ data: { roomId } }));
+    });
   };
   const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill) => {
-    const res = await endRoomFn({ data: { roomId, splitBill } });
-    setAppState(res.state);
-    return res.session;
+    return withPending(`endRoom:${roomId}`, async () => {
+      const res = await endRoomFn({ data: { roomId, splitBill } });
+      setAppState(res.state);
+      return res.session;
+    });
   };
   const addOrder: StoreContextValue["addOrder"] = async (roomId, menuItemId, qty) => {
-    const res = await addOrderFn({ data: { roomId, menuItemId, qty } });
-    setAppState(res.state);
-    return { ok: res.ok, error: res.error };
+    return withPending(`addOrder:${roomId}`, async () => {
+      const res = await addOrderFn({ data: { roomId, menuItemId, qty } });
+      setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
   };
   const updateStockItem: StoreContextValue["updateStockItem"] = async (id, patch) => {
-    setAppState(await updateStockItemFn({ data: { id, patch } }));
+    return withPending(`updateStockItem:${id}`, async () => {
+      setAppState(await updateStockItemFn({ data: { id, patch } }));
+    });
   };
   const addStockItem: StoreContextValue["addStockItem"] = async (item) => {
-    setAppState(await addStockItemFn({ data: { item } }));
+    return withPending("addStockItem", async () => {
+      setAppState(await addStockItemFn({ data: { item } }));
+    });
   };
   const deleteStockItem: StoreContextValue["deleteStockItem"] = async (id) => {
-    setAppState(await deleteStockItemFn({ data: { id } }));
+    return withPending(`deleteStockItem:${id}`, async () => {
+      setAppState(await deleteStockItemFn({ data: { id } }));
+    });
   };
   const addMenuItem: StoreContextValue["addMenuItem"] = async (item) => {
-    setAppState(await addMenuItemFn({ data: { item } }));
+    return withPending("addMenuItem", async () => {
+      setAppState(await addMenuItemFn({ data: { item } }));
+    });
   };
   const deleteMenuItem: StoreContextValue["deleteMenuItem"] = async (id) => {
-    setAppState(await deleteMenuItemFn({ data: { id } }));
+    return withPending(`deleteMenuItem:${id}`, async () => {
+      setAppState(await deleteMenuItemFn({ data: { id } }));
+    });
   };
   const setActualCash: StoreContextValue["setActualCash"] = async (n) => {
-    setAppState(await setActualCashFn({ data: { amount: n } }));
+    return withPending("setActualCash", async () => {
+      setAppState(await setActualCashFn({ data: { amount: n } }));
+    });
   };
 
   // Pure client-side helpers — non-authoritative, just for instant UI feedback.
@@ -200,7 +248,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, startRoom, endRoom, addOrder,
     updateStockItem, addStockItem, deleteStockItem,
     addMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed,
+    computeElapsed, isPending,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
