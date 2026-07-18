@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney, isToday, monthKey, type MenuItem, type Session } from "@/lib/glitch-store";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check } from "lucide-react";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save } from "lucide-react";
 
 export function InventoryPage() {
-  const { state, updateStockItem, addStockItem, deleteStockItem, addMenuItem, deleteMenuItem, setActualCash } = useStore();
+  const {
+    state, updateStockItem, addStockItem, deleteStockItem, restockAll,
+    addMenuItem, updateMenuItem, deleteMenuItem, setActualCash,
+  } = useStore();
 
   const expectedToday = useMemo(
     () => state.sessions.filter((s) => isToday(s.endedAt)).reduce((a, s) => a + s.total, 0),
@@ -109,10 +112,11 @@ export function InventoryPage() {
         onUpdate={updateStockItem}
         onAdd={addStockItem}
         onDelete={deleteStockItem}
+        onRestockAll={restockAll}
       />
 
       {/* Recipes / Menu */}
-      <RecipeManager onAdd={addMenuItem} onDelete={deleteMenuItem} />
+      <RecipeManager onAdd={addMenuItem} onUpdate={updateMenuItem} onDelete={deleteMenuItem} />
 
       {/* Today's sales */}
       <div className="glass rounded-2xl p-6">
@@ -164,22 +168,42 @@ export function InventoryPage() {
   );
 }
 
-function StockTable({ onUpdate, onAdd, onDelete }: {
+function StockTable({ onUpdate, onAdd, onDelete, onRestockAll }: {
   onUpdate: ReturnType<typeof useStore>["updateStockItem"];
   onAdd: ReturnType<typeof useStore>["addStockItem"];
   onDelete: ReturnType<typeof useStore>["deleteStockItem"];
+  onRestockAll: ReturnType<typeof useStore>["restockAll"];
 }) {
   const { state } = useStore();
   const [showAdd, setShowAdd] = useState(false);
+  const [confirmRestock, setConfirmRestock] = useState(false);
   const [form, setForm] = useState({ id: "", name: "", unit: "pcs", initialStock: 0, minStock: 0 });
+
+  const doRestock = () => {
+    onRestockAll();
+    setConfirmRestock(false);
+  };
 
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Stock Inventory</h2>
-        <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
-          <Plus className="w-4 h-4" /> Add Item
-        </button>
+        <div className="flex items-center gap-2">
+          {confirmRestock ? (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Reset all "Used" to 0?</span>
+              <button onClick={doRestock} className="px-3 py-1.5 rounded-lg bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">Confirm</button>
+              <button onClick={() => setConfirmRestock(false)} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">Cancel</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmRestock(true)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+              <RotateCcw className="w-4 h-4" /> Restock All
+            </button>
+          )}
+          <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+            <Plus className="w-4 h-4" /> Add Item
+          </button>
+        </div>
       </div>
 
       {showAdd && (
@@ -255,8 +279,9 @@ function StockTable({ onUpdate, onAdd, onDelete }: {
   );
 }
 
-function RecipeManager({ onAdd, onDelete }: {
+function RecipeManager({ onAdd, onUpdate, onDelete }: {
   onAdd: (m: MenuItem) => void;
+  onUpdate: (id: string, patch: Partial<MenuItem>) => void;
   onDelete: (id: string) => void;
 }) {
   const { state } = useStore();
@@ -266,10 +291,27 @@ function RecipeManager({ onAdd, onDelete }: {
   const [price, setPrice] = useState(0);
   const [ings, setIngs] = useState<{ stockId: string; qty: number }[]>([]);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPrice, setEditPrice] = useState(0);
+  const [editIngs, setEditIngs] = useState<{ stockId: string; qty: number }[]>([]);
+
   const save = () => {
     if (!id || !name) return;
     onAdd({ id, name, price, ingredients: ings.filter((i) => i.stockId && i.qty > 0) });
     setId(""); setName(""); setPrice(0); setIngs([]); setShowForm(false);
+  };
+
+  const beginEdit = (m: MenuItem) => {
+    setEditingId(m.id);
+    setEditName(m.name);
+    setEditPrice(m.price);
+    setEditIngs(m.ingredients.map((i) => ({ ...i })));
+  };
+  const saveEdit = () => {
+    if (!editingId || !editName) return;
+    onUpdate(editingId, { name: editName, price: editPrice, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0) });
+    setEditingId(null);
   };
 
   return (
@@ -307,23 +349,55 @@ function RecipeManager({ onAdd, onDelete }: {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {state.menu.map((m) => (
-          <div key={m.id} className="bg-black/30 rounded-lg p-4 border border-white/5">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="font-semibold">{m.name}</div>
-                <div className="font-mono text-xs text-[oklch(0.85_0.16_200)] mt-0.5">{fmtMoney(m.price)}</div>
+        {state.menu.map((m) => {
+          const isEditing = editingId === m.id;
+          if (isEditing) {
+            return (
+              <div key={m.id} className="bg-black/30 rounded-lg p-4 border border-[oklch(0.7_0.19_260/0.5)] space-y-2">
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10 font-semibold" placeholder="Name" />
+                <input type="number" step="0.5" value={editPrice} onChange={(e) => setEditPrice(+e.target.value)} className="w-full bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10 font-mono" placeholder="Price" />
+                <div className="space-y-1.5">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>
+                  {editIngs.map((ing, idx) => (
+                    <div key={idx} className="grid grid-cols-3 gap-1.5">
+                      <select value={ing.stockId} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-black/40 rounded px-2 py-1 text-xs border border-white/10">
+                        <option value="">select stock...</option>
+                        {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
+                      </select>
+                      <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-black/40 rounded px-2 py-1 text-xs border border-white/10" />
+                      <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setEditIngs([...editIngs, { stockId: "", qty: 0 }])} className="text-xs px-2 py-1 rounded bg-white/5 border border-white/10">+ Ingredient</button>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button onClick={saveEdit} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"><Save className="w-3.5 h-3.5" /> Save</button>
+                  <button onClick={() => setEditingId(null)} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-white/5 border border-white/10"><X className="w-3.5 h-3.5" /> Cancel</button>
+                </div>
               </div>
-              <button onClick={() => onDelete(m.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-4 h-4" /></button>
+            );
+          }
+          return (
+            <div key={m.id} className="bg-black/30 rounded-lg p-4 border border-white/5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold">{m.name}</div>
+                  <div className="font-mono text-xs text-[oklch(0.85_0.16_200)] mt-0.5">{fmtMoney(m.price)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.85_0.16_200)]"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={() => onDelete(m.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              </div>
+              <div className="mt-3 text-xs font-mono space-y-0.5 text-muted-foreground">
+                {m.ingredients.map((ing) => {
+                  const stk = state.stock.find((s) => s.id === ing.stockId);
+                  return <div key={ing.stockId}>· {ing.qty}{stk?.unit ?? ""} {stk?.name ?? ing.stockId}</div>;
+                })}
+              </div>
             </div>
-            <div className="mt-3 text-xs font-mono space-y-0.5 text-muted-foreground">
-              {m.ingredients.map((ing) => {
-                const stk = state.stock.find((s) => s.id === ing.stockId);
-                return <div key={ing.stockId}>· {ing.qty}{stk?.unit ?? ""} {stk?.name ?? ing.stockId}</div>;
-              })}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

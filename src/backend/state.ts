@@ -1,123 +1,111 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import * as biz from "./business";
-import type { AppState, StockItem, MenuItem } from "@/lib/types";
-
-async function loadState(username: string): Promise<AppState> {
-  const res = await callAppsScript<{ state: AppState | null }>("getState", { username });
-  const state = res.state;
-  const looksUninitialized =
-    !state ||
-    ((state.rooms?.length ?? 0) === 0 &&
-      (state.stock?.length ?? 0) === 0 &&
-      (state.menu?.length ?? 0) === 0);
-  if (looksUninitialized) {
-    // Self-heal: this happens if the Sheet's AppState cell was never
-    // seeded, got corrupted, or an old Apps Script deployment returned
-    // an empty/mismatched response. Persist real defaults so it doesn't
-    // keep happening.
-    const fresh = biz.defaultAppState();
-    await saveState(fresh, username);
-    return fresh;
-  }
-  return state;
-}
-async function saveState(state: AppState, username: string): Promise<void> {
-  await callAppsScript("setState", { state, username });
-}
+import type { AppState, StockItem, MenuItem, Session } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
-  return loadState(user.username);
+  // Apps Script's own getState_() already falls back to real defaults if
+  // the Sheet cell is missing or corrupted, so no extra client-side repair
+  // step is needed here.
+  const res = await callAppsScript<{ state: AppState }>("getState", { username: user.username });
+  return res.state;
 });
 
 export const startRoomFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    const state = biz.startRoom(await loadState(user.username), data.roomId);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("startRoom", { ...data, username: user.username });
+    return res.state;
   });
 
 export const endRoomFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; splitBill: boolean }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    const { session, state } = biz.endRoom(await loadState(user.username), data.roomId, data.splitBill);
-    if (session) await saveState(state, user.username);
-    return { session, state };
+    return callAppsScript<{ session: Session | null; state: AppState }>("endRoom", {
+      ...data,
+      username: user.username,
+    });
   });
 
 export const addOrderFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; menuItemId: string; qty: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    const result = biz.addOrder(await loadState(user.username), data.roomId, data.menuItemId, data.qty);
-    if (result.ok) await saveState(result.state, user.username);
-    return result;
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("addOrder", {
+      ...data,
+      username: user.username,
+    });
   });
 
 export const setRoomRateFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; rate: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    const state = biz.setRoomRate(await loadState(user.username), data.roomId, data.rate);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("setRoomRate", { ...data, username: user.username });
+    return res.state;
   });
 
 export const updateStockItemFn = createServerFn({ method: "POST" })
   .validator((d: { id: string; patch: Partial<StockItem> }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    const state = biz.updateStockItem(await loadState(user.username), data.id, data.patch);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("updateStockItem", { ...data, username: user.username });
+    return res.state;
   });
 
 export const addStockItemFn = createServerFn({ method: "POST" })
   .validator((d: { item: Omit<StockItem, "used"> }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    const state = biz.addStockItem(await loadState(user.username), data.item);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("addStockItem", { ...data, username: user.username });
+    return res.state;
   });
 
 export const deleteStockItemFn = createServerFn({ method: "POST" })
   .validator((d: { id: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    const state = biz.deleteStockItem(await loadState(user.username), data.id);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("deleteStockItem", { ...data, username: user.username });
+    return res.state;
   });
+
+export const restockAllFn = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireAdmin();
+  const res = await callAppsScript<{ state: AppState }>("restockAll", { username: user.username });
+  return res.state;
+});
 
 export const addMenuItemFn = createServerFn({ method: "POST" })
   .validator((d: { item: MenuItem }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    const state = biz.addMenuItem(await loadState(user.username), data.item);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("addMenuItem", { ...data, username: user.username });
+    return res.state;
+  });
+
+export const updateMenuItemFn = createServerFn({ method: "POST" })
+  .validator((d: { id: string; patch: Partial<MenuItem> }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    const res = await callAppsScript<{ state: AppState }>("updateMenuItem", { ...data, username: user.username });
+    return res.state;
   });
 
 export const deleteMenuItemFn = createServerFn({ method: "POST" })
   .validator((d: { id: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    const state = biz.deleteMenuItem(await loadState(user.username), data.id);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("deleteMenuItem", { ...data, username: user.username });
+    return res.state;
   });
 
 export const setActualCashFn = createServerFn({ method: "POST" })
   .validator((d: { amount: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    const state = biz.setActualCash(await loadState(user.username), data.amount);
-    await saveState(state, user.username);
-    return state;
+    const res = await callAppsScript<{ state: AppState }>("setActualCash", { ...data, username: user.username });
+    return res.state;
   });

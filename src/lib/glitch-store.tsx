@@ -19,7 +19,9 @@ import {
   updateStockItemFn,
   addStockItemFn,
   deleteStockItemFn,
+  restockAllFn,
   addMenuItemFn,
+  updateMenuItemFn,
   deleteMenuItemFn,
   setActualCashFn,
 } from "@/backend/state";
@@ -60,7 +62,9 @@ interface StoreContextValue {
   updateStockItem: (id: string, patch: Partial<StockItem>) => Promise<void>;
   addStockItem: (s: Omit<StockItem, "used">) => Promise<void>;
   deleteStockItem: (id: string) => Promise<void>;
+  restockAll: () => Promise<void>;
   addMenuItem: (m: MenuItem) => Promise<void>;
+  updateMenuItem: (id: string, patch: Partial<MenuItem>) => Promise<void>;
   deleteMenuItem: (id: string) => Promise<void>;
   setActualCash: (n: number) => Promise<void>;
   canFulfill: (menuItemId: string, qty: number) => boolean;
@@ -246,9 +250,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAppState(await deleteStockItemFn({ data: { id } }));
     });
   };
+  const restockAll: StoreContextValue["restockAll"] = async () => {
+    return withPending("restockAll", async () => {
+      setAppState((prev) => ({ ...prev, stock: prev.stock.map((x) => ({ ...x, used: 0 })) }));
+      setAppState(await restockAllFn());
+    });
+  };
   const addMenuItem: StoreContextValue["addMenuItem"] = async (item) => {
     return withPending("addMenuItem", async () => {
       setAppState(await addMenuItemFn({ data: { item } }));
+    });
+  };
+  const updateMenuItem: StoreContextValue["updateMenuItem"] = async (id, patch) => {
+    return withPending(`updateMenuItem:${id}`, async () => {
+      setAppState((prev) => ({ ...prev, menu: prev.menu.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+      setAppState(await updateMenuItemFn({ data: { id, patch } }));
     });
   };
   const deleteMenuItem: StoreContextValue["deleteMenuItem"] = async (id) => {
@@ -285,8 +301,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, startRoom, endRoom, addOrder,
-    updateStockItem, addStockItem, deleteStockItem,
-    addMenuItem, deleteMenuItem, setActualCash, canFulfill,
+    updateStockItem, addStockItem, deleteStockItem, restockAll,
+    addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending,
   };
 

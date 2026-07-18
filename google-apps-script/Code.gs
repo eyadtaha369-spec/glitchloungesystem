@@ -1,32 +1,16 @@
 /**
  * GLITCH Lounge Manager — Apps Script backend.
  *
- * Setup (one time):
- * 1. Open your Google Sheet -> Extensions -> Apps Script.
- * 2. Delete any starter code, paste this whole file in as Code.gs.
- * 3. Project Settings (gear icon) -> Script Properties -> add a property named
- *    SECRET with a long random value. Use the SAME value as APPS_SCRIPT_SECRET
- *    in Vercel's environment variables.
- * 4. Select function "initSheets" in the dropdown at the top -> Run.
- *    (First run will ask you to authorize — approve it.) This creates the
- *    Accounts and AppState tabs with the default admin/cashier logins and
- *    starter lounge data.
- * 5. Deploy -> New deployment -> type "Web app".
- *      Execute as: Me
- *      Who has access: Anyone
- *    Deploy, then copy the Web App URL — that's your APPS_SCRIPT_URL.
- * 6. In Vercel, set env vars APPS_SCRIPT_URL and APPS_SCRIPT_SECRET, then redeploy.
+ * Every mutation (start room, add order, checkout, etc.) is handled ENTIRELY
+ * inside a single locked doPost call: read state, apply the change, write
+ * state back — all atomically. This is deliberate: if the read and write
+ * happened as two separate round trips from the web app, two near-simultaneous
+ * actions (e.g. clicking a menu item twice fast, or starting several rooms
+ * quickly) could read stale data and silently overwrite each other's changes.
  *
- * Whenever you edit this file in the Apps Script editor, you must create a
- * NEW deployment version (Deploy -> Manage deployments -> edit -> New version)
- * for changes to take effect on the live URL.
- *
- * SECURITY NOTE: every request must now include a `username` field (the
- * logged-in user's username) alongside `secret`. Account-management actions
- * (add/update/delete/list accounts) are restricted server-side to users
- * whose role in the Accounts sheet is "admin" — the client's claimed role
- * is never trusted, only what's actually stored in the sheet for that
- * username.
+ * Whenever you edit this file, you must create a NEW deployment version
+ * (Deploy -> Manage deployments -> pencil icon -> Version: New version -> Deploy)
+ * for changes to take effect on the live URL. Just saving is not enough.
  */
 
 const ACCOUNTS_SHEET = "Accounts";
@@ -91,10 +75,6 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// ---------- Role enforcement ----------
-// Looks up the CALLER's role from the Accounts sheet itself — never trusts
-// a role value the client claims to have. Throws if the username doesn't
-// exist or doesn't have an allowed role.
 function requireRole_(username, allowedRoles) {
   if (!username) throw new Error("Missing username");
   const { rows } = accountsRows_();
@@ -105,6 +85,127 @@ function requireRole_(username, allowedRoles) {
     throw new Error("Forbidden: '" + username + "' has role '" + actualRole + "', requires " + allowedRoles.join(" or "));
   }
   return actualRole;
+}
+
+// ---------- Business logic (pure functions over the state object) ----------
+
+function pushActivity_(state, message) {
+  state.activity = [
+    { id: "a-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6), ts: Date.now(), message: message },
+    ...state.activity,
+  ].slice(0, 100);
+  return state;
+}
+
+function bizSetRoomRate_(state, roomId, rate) {
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { hourlyRate: rate }) : r));
+  return state;
+}
+
+function bizStartRoom_(state, roomId) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room || room.status === "active") return state;
+  const now = Date.now();
+  state.rooms = state.rooms.map((r) =>
+    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: [] }) : r
+  );
+  return pushActivity_(state, room.name + " session started");
+}
+
+function bizCanFulfill_(state, menuItemId, qty) {
+  const item = state.menu.find((m) => m.id === menuItemId);
+  if (!item) return false;
+  return item.ingredients.every((ing) => {
+    const stk = state.stock.find((s) => s.id === ing.stockId);
+    if (!stk) return false;
+    return stk.initialStock - stk.used >= ing.qty * qty;
+  });
+}
+
+function bizAddOrder_(state, roomId, menuItemId, qty) {
+  const item = state.menu.find((m) => m.id === menuItemId);
+  if (!item) return { ok: false, error: "Item not found", state: state };
+  if (!bizCanFulfill_(state, menuItemId, qty)) {
+    return { ok: false, error: "Insufficient stock for " + item.name + "!", state: state };
+  }
+  state.stock = state.stock.map((stk) => {
+    const ing = item.ingredients.find((i) => i.stockId === stk.id);
+    if (!ing) return stk;
+    return Object.assign({}, stk, { used: stk.used + ing.qty * qty });
+  });
+  const room = state.rooms.find((r) => r.id === roomId);
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== roomId) return r;
+    const existing = r.orders.find((o) => o.menuItemId === menuItemId);
+    const newOrders = existing
+      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
+      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price }]);
+    return Object.assign({}, r, { orders: newOrders });
+  });
+  pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
+  return { ok: true, state: state };
+}
+
+function bizEndRoom_(state, roomId, splitBill) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state };
+  const endedAt = Date.now();
+  const durationSec = Math.max(1, Math.floor((endedAt - room.startedAt) / 1000));
+  const timeCost = (durationSec / 3600) * room.hourlyRate;
+  const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+  const total = timeCost + ordersCost;
+  const session = {
+    id: "sess-" + endedAt,
+    roomId: room.id,
+    roomName: room.name,
+    startedAt: room.startedAt,
+    endedAt: endedAt,
+    durationSec: durationSec,
+    timeCost: timeCost,
+    orders: room.orders,
+    ordersCost: ordersCost,
+    total: total,
+    splitBill: splitBill,
+  };
+  state.rooms = state.rooms.map((r) =>
+    r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r
+  );
+  state.sessions = [session].concat(state.sessions);
+  pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected");
+  return { session: session, state: state };
+}
+
+function bizUpdateStockItem_(state, id, patch) {
+  state.stock = state.stock.map((x) => (x.id === id ? Object.assign({}, x, patch) : x));
+  return state;
+}
+function bizAddStockItem_(state, item) {
+  state.stock = state.stock.concat([Object.assign({}, item, { used: 0 })]);
+  return state;
+}
+function bizDeleteStockItem_(state, id) {
+  state.stock = state.stock.filter((x) => x.id !== id);
+  return state;
+}
+function bizRestockAll_(state) {
+  state.stock = state.stock.map((x) => Object.assign({}, x, { used: 0 }));
+  return pushActivity_(state, "Stock fully restocked");
+}
+function bizAddMenuItem_(state, item) {
+  state.menu = state.menu.concat([item]);
+  return state;
+}
+function bizUpdateMenuItem_(state, id, patch) {
+  state.menu = state.menu.map((x) => (x.id === id ? Object.assign({}, x, patch) : x));
+  return state;
+}
+function bizDeleteMenuItem_(state, id) {
+  state.menu = state.menu.filter((x) => x.id !== id);
+  return state;
+}
+function bizSetActualCash_(state, n) {
+  state.actualCashInput = n;
+  return state;
 }
 
 function doPost(e) {
@@ -120,11 +221,10 @@ function doPost(e) {
   }
 
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  lock.waitLock(30000);
   try {
     switch (body.action) {
       case "login":
-        // No role check — this IS the role check (anyone with valid creds can log in)
         return json_(login_(body.username, body.password));
 
       case "getAccounts":
@@ -151,14 +251,80 @@ function doPost(e) {
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ state: getState_() });
 
-      case "setState":
-        // Any logged-in user can write state (checkout, add orders, etc.)
-        // NOTE: this does not yet distinguish WHICH part of the state changed —
-        // see the note below the code about splitting this into granular actions
-        // if you need e.g. "only admins can edit menu prices."
+      // ---- Atomic business actions: read + mutate + write in ONE locked call ----
+
+      case "setRoomRate": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizSetRoomRate_(getState_(), body.roomId, body.rate);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
-        setState_(body.state);
-        return json_({ ok: true });
+        const state = bizStartRoom_(getState_(), body.roomId);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "endRoom": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizEndRoom_(getState_(), body.roomId, body.splitBill);
+        if (result.session) setState_(result.state);
+        return json_({ session: result.session, state: result.state });
+      }
+      case "addOrder": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizAddOrder_(getState_(), body.roomId, body.menuItemId, body.qty);
+        if (result.ok) setState_(result.state);
+        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+      }
+      case "updateStockItem": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizUpdateStockItem_(getState_(), body.id, body.patch);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "addStockItem": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizAddStockItem_(getState_(), body.item);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "deleteStockItem": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizDeleteStockItem_(getState_(), body.id);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "restockAll": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizRestockAll_(getState_());
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "addMenuItem": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizAddMenuItem_(getState_(), body.item);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "updateMenuItem": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizUpdateMenuItem_(getState_(), body.id, body.patch);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "deleteMenuItem": {
+        requireRole_(body.username, ["admin"]);
+        const state = bizDeleteMenuItem_(getState_(), body.id);
+        setState_(state);
+        return json_({ state: state });
+      }
+      case "setActualCash": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const state = bizSetActualCash_(getState_(), body.amount);
+        setState_(state);
+        return json_({ state: state });
+      }
 
       default:
         return json_({ error: "Unknown action" });
@@ -174,7 +340,7 @@ function doPost(e) {
 function accountsRows_() {
   const sheet = getSheet_(ACCOUNTS_SHEET);
   const values = sheet.getDataRange().getValues();
-  return { sheet: sheet, rows: values.slice(1) }; // skip header
+  return { sheet: sheet, rows: values.slice(1) };
 }
 
 function login_(username, password) {
@@ -212,7 +378,7 @@ function updateAccount_(originalUsername, patch) {
   }
   const nextHash = patch.password && patch.password.length > 0 ? sha256Hex_(patch.password) : existing[1];
   const nextRole = patch.role || existing[2];
-  const rowIndex = idx + 2; // +1 header, +1 1-indexed
+  const rowIndex = idx + 2;
   sheet.getRange(rowIndex, 1, 1, 3).setValues([[nextUsername, nextHash, nextRole]]);
   return { ok: true };
 }
