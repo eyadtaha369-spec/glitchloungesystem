@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, StockItem, MenuItem, Session } from "@/lib/types";
+import type { AppState, StockItem, MenuItem, Session, PaymentMethod } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -16,12 +16,14 @@ export const startRoomFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    const res = await callAppsScript<{ state: AppState }>("startRoom", { ...data, username: user.username });
-    return res.state;
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("startRoom", {
+      ...data,
+      username: user.username,
+    });
   });
 
 export const endRoomFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; splitBill: boolean }) => d)
+  .validator((d: { roomId: string; splitBill: boolean; paymentMethod: PaymentMethod }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ session: Session | null; state: AppState }>("endRoom", {
@@ -35,6 +37,18 @@ export const addOrderFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("addOrder", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+// Sets an order line to an exact qty (used to fix a mis-added item before
+// checkout); qty <= 0 removes the line entirely.
+export const setOrderLineQtyFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; menuItemId: string; qty: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("setOrderLineQty", {
       ...data,
       username: user.username,
     });
@@ -107,5 +121,41 @@ export const setActualCashFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     const res = await callAppsScript<{ state: AppState }>("setActualCash", { ...data, username: user.username });
+    return res.state;
+  });
+
+// ---------- Shifts ----------
+
+export const openShiftFn = createServerFn({ method: "POST" })
+  .validator((d: { openingBalance: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("openShift", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+export const endShiftFn = createServerFn({ method: "POST" })
+  .validator((d: { actualCash: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("endShift", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+// Emergency override — admin only. Force-closes whatever shift is active
+// right now so the live dashboard counters reset to zero, without needing
+// the cashier present to confirm a cash count.
+export const forceEndShiftFn = createServerFn({ method: "POST" })
+  .validator((d: { actualCash?: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    const res = await callAppsScript<{ ok: boolean; state: AppState }>("forceEndShift", {
+      ...data,
+      username: user.username,
+    });
     return res.state;
   });

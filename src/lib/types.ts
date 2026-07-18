@@ -41,6 +41,8 @@ export interface OrderLine {
   price: number;
 }
 
+export type PaymentMethod = "cash" | "visa";
+
 export interface Room {
   id: string;
   name: string;
@@ -63,6 +65,8 @@ export interface Session {
   ordersCost: number;
   total: number;
   splitBill: boolean;
+  paymentMethod: PaymentMethod;
+  shiftId: string | null;
 }
 
 export interface ActivityEntry {
@@ -77,6 +81,23 @@ export interface CashRecord {
   actual: number;
 }
 
+// A shift is the unit of accountability for one cashier's time on the
+// register. Cash Reconciliation and the End-Of-Day Sales Log are scoped to
+// the ACTIVE shift for cashiers (so a new shift never sees the previous
+// one's numbers); admins can see across all shifts for the day, plus the
+// full historical archive.
+export interface Shift {
+  id: string;
+  cashierUsername: string;
+  openedAt: number;
+  closedAt: number | null;
+  openingBalance: number;
+  closingActualCash: number | null;
+  expectedCash: number | null;
+  discrepancy: number | null;
+  forced: boolean; // true if closed via the admin emergency-reset path
+}
+
 // The authoritative, server-owned business state (everything except accounts/session).
 export interface AppState {
   rooms: Room[];
@@ -86,4 +107,6 @@ export interface AppState {
   activity: ActivityEntry[];
   cashRecords: CashRecord[];
   actualCashInput: number;
+  shifts: Shift[];
+  activeShiftId: string | null;
 }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtDuration, fmtMoney, type Room, type Session } from "@/lib/glitch-store";
-import { Play, Square, Plus, Printer, X, Crown, Gamepad2 } from "lucide-react";
+import { useStore, fmtDuration, fmtMoney, type Room, type Session, type PaymentMethod } from "@/lib/glitch-store";
+import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard } from "lucide-react";
 
 export function RoomsPage() {
-  const { state, computeElapsed } = useStore();
+  const { state, computeElapsed, activeShift } = useStore();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
@@ -18,6 +18,12 @@ export function RoomsPage() {
         </p>
       </div>
 
+      {!activeShift && (
+        <div className="glass rounded-2xl p-4 border border-[oklch(0.82_0.16_85/0.4)] text-sm text-[oklch(0.82_0.16_85)]">
+          No shift is open — open one from the Dashboard before starting rooms or taking orders.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {state.rooms.map((r) => (
           <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} />
@@ -30,10 +36,11 @@ export function RoomsPage() {
 }
 
 function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; onCheckout: (s: Session) => void }) {
-  const { state, startRoom, endRoom, addOrder, setRoomRate, canFulfill } = useStore();
+  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setRoomRate, canFulfill } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [warn, setWarn] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
   const [rateInput, setRateInput] = useState(String(room.hourlyRate));
@@ -48,17 +55,30 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
       ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
       : "border-white/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
 
+  const flashWarn = (msg: string) => {
+    setWarn(msg);
+    setTimeout(() => setWarn(null), 3000);
+  };
+
+  const handleStart = async () => {
+    const r = await startRoom(room.id);
+    if (!r.ok) flashWarn(r.error ?? "Could not start room");
+  };
+
   const handleOrder = async (menuItemId: string) => {
     const r = await addOrder(room.id, menuItemId, 1);
-    if (!r.ok) {
-      setWarn(r.error ?? "Order failed");
-      setTimeout(() => setWarn(null), 3000);
-    }
+    if (!r.ok) flashWarn(r.error ?? "Order failed");
     setMenuOpen(false);
   };
 
-  const handleEnd = async () => {
-    const s = await endRoom(room.id, split);
+  const adjustQty = async (menuItemId: string, currentQty: number, delta: number) => {
+    const r = await setOrderLineQty(room.id, menuItemId, currentQty + delta);
+    if (!r.ok) flashWarn(r.error ?? "Could not update item");
+  };
+
+  const handleCheckout = async (paymentMethod: PaymentMethod) => {
+    const s = await endRoom(room.id, split, paymentMethod);
+    setCheckoutOpen(false);
     if (s) onCheckout(s);
   };
 
@@ -149,11 +169,35 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
 
       {/* Orders */}
       {room.orders.length > 0 && (
-        <div className="mt-3 text-xs font-mono space-y-1 max-h-24 overflow-y-auto">
+        <div className="mt-3 text-xs font-mono space-y-1.5 max-h-32 overflow-y-auto no-print">
           {room.orders.map((o) => (
-            <div key={o.menuItemId} className="flex justify-between text-muted-foreground">
-              <span>{o.qty}× {o.name}</span>
-              <span>{fmtMoney(o.qty * o.price)}</span>
+            <div key={o.menuItemId} className="flex items-center justify-between text-muted-foreground gap-2">
+              <span className="truncate">{o.name}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => adjustQty(o.menuItemId, o.qty, -1)}
+                  className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
+                  title={o.qty === 1 ? "Remove" : "Decrease"}
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <span className="w-4 text-center text-white">{o.qty}</span>
+                <button
+                  onClick={() => adjustQty(o.menuItemId, o.qty, 1)}
+                  className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
+                  title="Increase"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+                <span className="w-14 text-right">{fmtMoney(o.qty * o.price)}</span>
+                <button
+                  onClick={() => setOrderLineQty(room.id, o.menuItemId, 0)}
+                  className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"
+                  title="Remove item"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -169,7 +213,7 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {room.status === "available" ? (
           <button
-            onClick={() => startRoom(room.id)}
+            onClick={handleStart}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-bold uppercase tracking-wider text-xs shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)] hover:shadow-[0_0_30px_oklch(0.78_0.2_155/0.7)] transition"
           >
             <Play className="w-4 h-4" /> Start
@@ -228,7 +272,7 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
               )}
             </div>
             <button
-              onClick={handleEnd}
+              onClick={() => setCheckoutOpen(true)}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
             >
               <Square className="w-4 h-4" /> End
@@ -236,6 +280,38 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
           </>
         )}
       </div>
+
+      {checkoutOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={() => setCheckoutOpen(false)}>
+          <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.75_0.22_25)]">{room.name} · Checkout</div>
+              <button onClick={() => setCheckoutOpen(false)} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="text-center">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Due</div>
+                <div className="text-3xl font-mono font-bold mt-1">{fmtMoney(total)}</div>
+              </div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground pt-2">Payment Method</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleCheckout("cash")}
+                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] hover:bg-[oklch(0.78_0.2_155/0.25)] transition"
+                >
+                  <Banknote className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">Cash</span>
+                </button>
+                <button
+                  onClick={() => handleCheckout("visa")}
+                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
+                >
+                  <CreditCard className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">Visa</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Split toggle */}
       <label className="mt-3 flex items-center gap-2 cursor-pointer text-xs text-muted-foreground select-none">
@@ -277,6 +353,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             <div className="flex justify-between"><span>Start</span><span>{startD.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>End</span><span>{endD.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>Duration</span><span>{fmtDuration(session.durationSec)}</span></div>
+            <div className="flex justify-between"><span>Payment</span><span className="uppercase">{session.paymentMethod}</span></div>
           </div>
 
           {session.splitBill ? (

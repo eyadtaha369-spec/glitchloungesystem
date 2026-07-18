@@ -1,13 +1,14 @@
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
 import logo from "@/assets/glitch-logo.jpg";
 
-export type View = "dashboard" | "rooms" | "inventory" | "users";
+export type View = "dashboard" | "rooms" | "inventory" | "users" | "reports";
 
 const items: { id: View; label: string; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "rooms", label: "Rooms", icon: Gamepad2 },
   { id: "inventory", label: "Inventory", icon: Package, adminOnly: true },
+  { id: "reports", label: "Reports", icon: FileBarChart, adminOnly: true },
   { id: "users", label: "Users", icon: Users, adminOnly: true },
 ];
 

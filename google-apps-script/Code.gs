@@ -1,12 +1,11 @@
 /**
  * GLITCH Lounge Manager — Apps Script backend.
  *
- * Every mutation (start room, add order, checkout, etc.) is handled ENTIRELY
- * inside a single locked doPost call: read state, apply the change, write
- * state back — all atomically. This is deliberate: if the read and write
- * happened as two separate round trips from the web app, two near-simultaneous
- * actions (e.g. clicking a menu item twice fast, or starting several rooms
- * quickly) could read stale data and silently overwrite each other's changes.
+ * Every mutation (start room, add order, checkout, open/close shift, etc.)
+ * is handled ENTIRELY inside a single locked doPost call: read state, apply
+ * the change, write state back — all atomically. This is deliberate: if the
+ * read and write happened as two separate round trips, two near-simultaneous
+ * actions could read stale data and silently clobber each other's writes.
  *
  * Whenever you edit this file, you must create a NEW deployment version
  * (Deploy -> Manage deployments -> pencil icon -> Version: New version -> Deploy)
@@ -68,7 +67,10 @@ function defaultAppState_() {
     rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 5, status: "available", startedAt: null, orders: [] });
   }
   rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 10, status: "available", startedAt: null, orders: [] });
-  return { rooms: rooms, stock: stock, menu: menu, sessions: [], activity: [], cashRecords: [], actualCashInput: 0 };
+  return {
+    rooms: rooms, stock: stock, menu: menu, sessions: [], activity: [], cashRecords: [],
+    actualCashInput: 0, shifts: [], activeShiftId: null,
+  };
 }
 
 function json_(obj) {
@@ -87,7 +89,7 @@ function requireRole_(username, allowedRoles) {
   return actualRole;
 }
 
-// ---------- Business logic (pure functions over the state object) ----------
+// ---------- Business logic (pure-ish functions over the state object) ----------
 
 function pushActivity_(state, message) {
   state.activity = [
@@ -103,13 +105,15 @@ function bizSetRoomRate_(state, roomId, rate) {
 }
 
 function bizStartRoom_(state, roomId) {
+  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before starting a room.", state: state };
   const room = state.rooms.find((r) => r.id === roomId);
-  if (!room || room.status === "active") return state;
+  if (!room || room.status === "active") return { ok: true, state: state };
   const now = Date.now();
   state.rooms = state.rooms.map((r) =>
     r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: [] }) : r
   );
-  return pushActivity_(state, room.name + " session started");
+  pushActivity_(state, room.name + " session started");
+  return { ok: true, state: state };
 }
 
 function bizCanFulfill_(state, menuItemId, qty) {
@@ -123,6 +127,7 @@ function bizCanFulfill_(state, menuItemId, qty) {
 }
 
 function bizAddOrder_(state, roomId, menuItemId, qty) {
+  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state: state };
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return { ok: false, error: "Item not found", state: state };
   if (!bizCanFulfill_(state, menuItemId, qty)) {
@@ -146,7 +151,47 @@ function bizAddOrder_(state, roomId, menuItemId, qty) {
   return { ok: true, state: state };
 }
 
-function bizEndRoom_(state, roomId, splitBill) {
+// Sets an order line to an EXACT qty (not incremented). qty <= 0 removes the
+// line entirely. Adjusts stock.used by the delta, refunding stock if the
+// qty went down. Lets a cashier/admin fix a mis-added item before checkout.
+function bizSetOrderLineQty_(state, roomId, menuItemId, qty) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state: state };
+  const line = room.orders.find((o) => o.menuItemId === menuItemId);
+  if (!line) return { ok: false, error: "Item not on this check", state: state };
+  const item = state.menu.find((m) => m.id === menuItemId);
+  const oldQty = line.qty;
+  const newQty = Math.max(0, Math.floor(qty));
+  const delta = newQty - oldQty;
+
+  if (delta > 0 && item && !bizCanFulfill_(state, menuItemId, delta)) {
+    return { ok: false, error: "Insufficient stock to increase " + item.name, state: state };
+  }
+
+  if (item) {
+    state.stock = state.stock.map((stk) => {
+      const ing = item.ingredients.find((i) => i.stockId === stk.id);
+      if (!ing) return stk;
+      return Object.assign({}, stk, { used: Math.max(0, stk.used + ing.qty * delta) });
+    });
+  }
+
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== roomId) return r;
+    const orders = newQty <= 0
+      ? r.orders.filter((o) => o.menuItemId !== menuItemId)
+      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
+    return Object.assign({}, r, { orders: orders });
+  });
+
+  pushActivity_(
+    state,
+    room.name + ": " + (newQty <= 0 ? "removed " + line.name : "set " + line.name + " to x" + newQty),
+  );
+  return { ok: true, state: state };
+}
+
+function bizEndRoom_(state, roomId, splitBill, paymentMethod) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state };
   const endedAt = Date.now();
@@ -165,13 +210,15 @@ function bizEndRoom_(state, roomId, splitBill) {
     orders: room.orders,
     ordersCost: ordersCost,
     total: total,
-    splitBill: splitBill,
+    splitBill: !!splitBill,
+    paymentMethod: paymentMethod === "visa" ? "visa" : "cash",
+    shiftId: state.activeShiftId || null,
   };
   state.rooms = state.rooms.map((r) =>
     r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r
   );
   state.sessions = [session].concat(state.sessions);
-  pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected");
+  pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected (" + session.paymentMethod + ")");
   return { session: session, state: state };
 }
 
@@ -206,6 +253,62 @@ function bizDeleteMenuItem_(state, id) {
 function bizSetActualCash_(state, n) {
   state.actualCashInput = n;
   return state;
+}
+
+// ---------- Shifts ----------
+
+function bizOpenShift_(state, username, openingBalance) {
+  if (state.activeShiftId) return { ok: false, error: "A shift is already open", state: state };
+  const id = "shift-" + Date.now();
+  const shift = {
+    id: id,
+    cashierUsername: username,
+    openedAt: Date.now(),
+    closedAt: null,
+    openingBalance: openingBalance || 0,
+    closingActualCash: null,
+    expectedCash: null,
+    discrepancy: null,
+    forced: false,
+  };
+  state.shifts = [shift].concat(state.shifts);
+  state.activeShiftId = id;
+  state.actualCashInput = 0;
+  pushActivity_(state, username + " opened a shift (opening balance $" + (openingBalance || 0).toFixed(2) + ")");
+  return { ok: true, state: state };
+}
+
+// Closes the currently active shift. `forced` = true means this came from
+// the admin emergency-reset path rather than a cashier's normal End Shift.
+function bizCloseActiveShift_(state, actualCash, forced) {
+  if (!state.activeShiftId) return { ok: false, error: "No active shift to close", state: state };
+  const shiftId = state.activeShiftId;
+  const shiftSessions = state.sessions.filter((s) => s.shiftId === shiftId);
+  const expectedCash = shiftSessions
+    .filter((s) => s.paymentMethod === "cash")
+    .reduce((a, s) => a + s.total, 0);
+  const closingActualCash = typeof actualCash === "number" ? actualCash : (state.actualCashInput || 0);
+  const discrepancy = closingActualCash - expectedCash;
+
+  state.shifts = state.shifts.map((sh) =>
+    sh.id === shiftId
+      ? Object.assign({}, sh, {
+          closedAt: Date.now(),
+          closingActualCash: closingActualCash,
+          expectedCash: expectedCash,
+          discrepancy: discrepancy,
+          forced: !!forced,
+        })
+      : sh
+  );
+  state.activeShiftId = null;
+  state.actualCashInput = 0;
+  pushActivity_(
+    state,
+    (forced ? "Admin force-closed shift" : "Shift closed") +
+      " — expected $" + expectedCash.toFixed(2) + ", counted $" + closingActualCash.toFixed(2),
+  );
+  return { ok: true, state: state };
 }
 
 function doPost(e) {
@@ -261,19 +364,25 @@ function doPost(e) {
       }
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const state = bizStartRoom_(getState_(), body.roomId);
-        setState_(state);
-        return json_({ state: state });
+        const result = bizStartRoom_(getState_(), body.roomId);
+        if (result.ok) setState_(result.state);
+        return json_({ ok: result.ok, error: result.error || null, state: result.state });
       }
       case "endRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizEndRoom_(getState_(), body.roomId, body.splitBill);
+        const result = bizEndRoom_(getState_(), body.roomId, body.splitBill, body.paymentMethod);
         if (result.session) setState_(result.state);
         return json_({ session: result.session, state: result.state });
       }
       case "addOrder": {
         requireRole_(body.username, ["admin", "cashier"]);
         const result = bizAddOrder_(getState_(), body.roomId, body.menuItemId, body.qty);
+        if (result.ok) setState_(result.state);
+        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+      }
+      case "setOrderLineQty": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizSetOrderLineQty_(getState_(), body.roomId, body.menuItemId, body.qty);
         if (result.ok) setState_(result.state);
         return json_({ ok: result.ok, error: result.error || null, state: result.state });
       }
@@ -324,6 +433,29 @@ function doPost(e) {
         const state = bizSetActualCash_(getState_(), body.amount);
         setState_(state);
         return json_({ state: state });
+      }
+      case "openShift": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizOpenShift_(getState_(), body.username, body.openingBalance);
+        if (result.ok) setState_(result.state);
+        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+      }
+      case "endShift": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizCloseActiveShift_(getState_(), body.actualCash, false);
+        if (result.ok) setState_(result.state);
+        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+      }
+      case "forceEndShift": {
+        // Emergency override — admin only. Closes whatever shift is active
+        // right now (if any) so the live counters go back to zero, without
+        // requiring the cashier to be present to confirm a cash count.
+        requireRole_(body.username, ["admin"]);
+        const state = getState_();
+        if (!state.activeShiftId) return json_({ ok: true, state: state });
+        const result = bizCloseActiveShift_(state, body.actualCash, true);
+        setState_(result.state);
+        return json_({ ok: true, state: result.state });
       }
 
       default:
@@ -398,7 +530,11 @@ function getState_() {
   for (let i = 1; i < values.length; i++) {
     if (values[i][0] === "app") {
       try {
-        return JSON.parse(values[i][1]);
+        const parsed = JSON.parse(values[i][1]);
+        // Backfill fields for states saved before shifts existed.
+        if (!parsed.shifts) parsed.shifts = [];
+        if (parsed.activeShiftId === undefined) parsed.activeShiftId = null;
+        return parsed;
       } catch (e) {
         return defaultAppState_();
       }

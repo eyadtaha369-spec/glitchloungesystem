@@ -7,6 +7,8 @@ import type {
   Room,
   Session,
   AppState,
+  Shift,
+  PaymentMethod,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -15,6 +17,7 @@ import {
   startRoomFn,
   endRoomFn,
   addOrderFn,
+  setOrderLineQtyFn,
   setRoomRateFn,
   updateStockItemFn,
   addStockItemFn,
@@ -24,9 +27,12 @@ import {
   updateMenuItemFn,
   deleteMenuItemFn,
   setActualCashFn,
+  openShiftFn,
+  endShiftFn,
+  forceEndShiftFn,
 } from "@/backend/state";
 
-export type { Role, StockItem, MenuItem, Room, Session, AppState } from "./types";
+export type { Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -42,6 +48,8 @@ const emptyAppState: AppState = {
   activity: [],
   cashRecords: [],
   actualCashInput: 0,
+  shifts: [],
+  activeShiftId: null,
 };
 
 interface StoreContextValue {
@@ -56,9 +64,11 @@ interface StoreContextValue {
   ) => Promise<{ ok: boolean; error?: string }>;
   deleteAccount: (username: string) => Promise<void>;
   setRoomRate: (roomId: string, rate: number) => Promise<void>;
-  startRoom: (roomId: string) => Promise<void>;
-  endRoom: (roomId: string, splitBill: boolean) => Promise<Session | null>;
+  startRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod) => Promise<Session | null>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
+  setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
+  removeOrderLine: (roomId: string, menuItemId: string) => Promise<{ ok: boolean; error?: string }>;
   updateStockItem: (id: string, patch: Partial<StockItem>) => Promise<void>;
   addStockItem: (s: Omit<StockItem, "used">) => Promise<void>;
   deleteStockItem: (id: string) => Promise<void>;
@@ -70,6 +80,10 @@ interface StoreContextValue {
   canFulfill: (menuItemId: string, qty: number) => boolean;
   computeElapsed: (room: Room) => number;
   isPending: (key: string) => boolean;
+  activeShift: Shift | null;
+  openShift: (openingBalance: number) => Promise<{ ok: boolean; error?: string }>;
+  endShift: (actualCash: number) => Promise<{ ok: boolean; error?: string }>;
+  forceEndShift: (actualCash?: number) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -192,10 +206,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           r.id === roomId && r.status !== "active" ? { ...r, status: "active", startedAt: now, orders: [] } : r,
         ),
       }));
-      setAppState(await startRoomFn({ data: { roomId } }));
+      const res = await startRoomFn({ data: { roomId } });
+      setAppState(res.state);
+      return { ok: res.ok, error: res.error };
     });
   };
-  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill) => {
+  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod) => {
     return withPending(`endRoom:${roomId}`, async () => {
       setAppState((prev) => ({
         ...prev,
@@ -203,7 +219,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           r.id === roomId ? { ...r, status: "available", startedAt: null, orders: [] } : r,
         ),
       }));
-      const res = await endRoomFn({ data: { roomId, splitBill } });
+      const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod } });
       setAppState(res.state);
       return res.session;
     });
@@ -233,6 +249,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  // Fixes a mis-added item on a live check before it's printed/checked out —
+  // set an exact quantity (or 0 to remove) rather than incrementing.
+  const setOrderLineQty: StoreContextValue["setOrderLineQty"] = async (roomId, menuItemId, qty) => {
+    return withPending(`orderLine:${roomId}:${menuItemId}`, async () => {
+      setAppState((prev) => ({
+        ...prev,
+        rooms: prev.rooms.map((r) => {
+          if (r.id !== roomId) return r;
+          const orders = qty <= 0
+            ? r.orders.filter((o) => o.menuItemId !== menuItemId)
+            : r.orders.map((o) => (o.menuItemId === menuItemId ? { ...o, qty } : o));
+          return { ...r, orders };
+        }),
+      }));
+      const res = await setOrderLineQtyFn({ data: { roomId, menuItemId, qty } });
+      setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const removeOrderLine: StoreContextValue["removeOrderLine"] = (roomId, menuItemId) =>
+    setOrderLineQty(roomId, menuItemId, 0);
   const updateStockItem: StoreContextValue["updateStockItem"] = async (id, patch) => {
     return withPending(`updateStockItem:${id}`, async () => {
       setAppState((prev) => ({ ...prev, stock: prev.stock.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
@@ -280,6 +317,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const openShift: StoreContextValue["openShift"] = async (openingBalance) => {
+    return withPending("openShift", async () => {
+      const res = await openShiftFn({ data: { openingBalance } });
+      setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const endShift: StoreContextValue["endShift"] = async (actualCash) => {
+    return withPending("endShift", async () => {
+      const res = await endShiftFn({ data: { actualCash } });
+      // Strict reset: once a shift closes, wipe any locally-cached view of
+      // it immediately so the next shift never glimpses the previous one's
+      // numbers, even for the instant before the fresh state arrives.
+      setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const forceEndShift: StoreContextValue["forceEndShift"] = async (actualCash) => {
+    return withPending("forceEndShift", async () => {
+      setAppState(await forceEndShiftFn({ data: { actualCash } }));
+    });
+  };
+
   // Pure client-side helpers — non-authoritative, just for instant UI feedback.
   // Every mutation is re-validated on the server regardless of what these return.
   const canFulfill: StoreContextValue["canFulfill"] = (menuItemId, qty) => {
@@ -297,13 +357,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const state: State = { ...appState, currentUser, accounts };
+  const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, startRoom, endRoom, addOrder,
+    setRoomRate, startRoom, endRoom, addOrder, setOrderLineQty, removeOrderLine,
     updateStockItem, addStockItem, deleteStockItem, restockAll,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending,
+    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

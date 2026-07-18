@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney, isToday, monthKey, type MenuItem, type Session } from "@/lib/glitch-store";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save } from "lucide-react";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon } from "lucide-react";
 
 export function InventoryPage() {
   const {
     state, updateStockItem, addStockItem, deleteStockItem, restockAll,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash,
+    activeShift, forceEndShift,
   } = useStore();
 
   const expectedToday = useMemo(
@@ -49,6 +50,8 @@ export function InventoryPage() {
           Stock · Recipes · Financials
         </p>
       </div>
+
+      <EmergencyResetPanel activeShift={activeShift} forceEndShift={forceEndShift} />
 
       {/* Cash reconciliation */}
       <div className="glass rounded-2xl p-6">
@@ -164,6 +167,60 @@ export function InventoryPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmergencyResetPanel({ activeShift, forceEndShift }: {
+  activeShift: ReturnType<typeof useStore>["activeShift"];
+  forceEndShift: ReturnType<typeof useStore>["forceEndShift"];
+}) {
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+
+  const run = async () => {
+    await forceEndShift();
+    setConfirmKey(null);
+  };
+
+  const buttons = [
+    { key: "cash", label: "Reset Cash Reconciliation" },
+    { key: "sales", label: "Reset End of Day Sales" },
+    { key: "revenue", label: "Reset Revenue Today" },
+  ];
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.62_0.24_25/0.35)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.75_0.22_25)]" />
+        <h2 className="text-lg font-semibold">Emergency Reset</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        These force-close the currently open shift and start today's counters fresh. Nothing is deleted — the closed shift and its sales stay permanently in the History Archive on the Reports page. Use this only if the numbers are stuck or a cashier forgot to end their shift.
+      </p>
+      {!activeShift ? (
+        <div className="text-xs font-mono text-muted-foreground">No active shift right now — nothing to reset.</div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {buttons.map((b) => (
+            <div key={b.key}>
+              {confirmKey === b.key ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Force close the active shift?</span>
+                  <button onClick={run} className="px-3 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">Confirm</button>
+                  <button onClick={() => setConfirmKey(null)} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmKey(b.key)}
+                  className="text-xs px-3 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.1)] border border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)] hover:bg-[oklch(0.62_0.24_25/0.2)] transition"
+                >
+                  {b.label}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

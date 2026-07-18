@@ -1,25 +1,36 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtMoney, isToday } from "@/lib/glitch-store";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle } from "lucide-react";
+import { ShiftBar } from "./ShiftBar";
 
 export function Dashboard() {
-  const { state, computeElapsed } = useStore();
+  const { state, computeElapsed, activeShift } = useStore();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
+  const isAdmin = state.currentUser?.role === "admin";
   const activeRooms = state.rooms.filter((r) => r.status === "active");
   const available = state.rooms.length - activeRooms.length;
 
-  const revenueToday = state.sessions.filter((s) => isToday(s.endedAt)).reduce((a, s) => a + s.total, 0);
+  // Cashiers only ever see numbers for their OWN active shift — the previous
+  // shift's sales and stats are fully hidden the moment it's closed. Admins
+  // see the full day (and can drill into full history on the Reports page).
+  const visibleSessions = isAdmin
+    ? state.sessions.filter((s) => isToday(s.endedAt))
+    : state.sessions.filter((s) => activeShift && s.shiftId === activeShift.id);
+  const revenueLabel = isAdmin ? "Revenue Today" : "Revenue This Shift";
+  const revenueToday = visibleSessions.reduce((a, s) => a + s.total, 0);
 
   const stockAlerts = state.stock.filter((s) => {
     const remaining = s.initialStock - s.used;
     return remaining < s.minStock || remaining < s.initialStock * 0.2;
   });
 
-  // Revenue by room (from completed sessions)
+  // Revenue by room (from completed sessions). Admins see all-time performance
+  // per room; cashiers only see what happened during their own shift.
+  const roomSessionPool = isAdmin ? state.sessions : visibleSessions;
   const revByRoom = state.rooms.map((r) => {
-    const past = state.sessions.filter((s) => s.roomId === r.id).reduce((a, s) => a + s.total, 0);
+    const past = roomSessionPool.filter((s) => s.roomId === r.id).reduce((a, s) => a + s.total, 0);
     let live = 0;
     if (r.status === "active" && r.startedAt) {
       const dur = computeElapsed(r);
@@ -36,6 +47,8 @@ export function Dashboard() {
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">Realtime Lounge Metrics</p>
       </div>
 
+      <ShiftBar />
+
       {/* Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard
@@ -45,7 +58,7 @@ export function Dashboard() {
           accent="cyan"
         />
         <MetricCard
-          label="Revenue Today"
+          label={revenueLabel}
           value={fmtMoney(revenueToday)}
           icon={DollarSign}
           accent="green"
@@ -113,17 +126,22 @@ export function Dashboard() {
             <h2 className="text-lg font-semibold">Activity Feed</h2>
           </div>
           <div className="flex-1 overflow-y-auto space-y-2 max-h-[420px] pr-1">
-            {state.activity.length === 0 && (
-              <div className="text-sm text-muted-foreground font-mono">No activity yet.</div>
-            )}
-            {state.activity.slice(0, 30).map((a) => (
-              <div key={a.id} className="text-sm p-3 rounded-lg bg-black/30 border border-white/5 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
-                <div className="text-foreground">{a.message}</div>
-                <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-wider">
-                  {new Date(a.ts).toLocaleTimeString()}
+            {(() => {
+              const visibleActivity = isAdmin
+                ? state.activity
+                : state.activity.filter((a) => activeShift && a.ts >= activeShift.openedAt);
+              if (visibleActivity.length === 0) {
+                return <div className="text-sm text-muted-foreground font-mono">No activity yet.</div>;
+              }
+              return visibleActivity.slice(0, 30).map((a) => (
+                <div key={a.id} className="text-sm p-3 rounded-lg bg-black/30 border border-white/5 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
+                  <div className="text-foreground">{a.message}</div>
+                  <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-wider">
+                    {new Date(a.ts).toLocaleTimeString()}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ));
+            })()}
           </div>
         </div>
       </div>
