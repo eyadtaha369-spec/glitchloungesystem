@@ -20,6 +20,13 @@
  * Whenever you edit this file in the Apps Script editor, you must create a
  * NEW deployment version (Deploy -> Manage deployments -> edit -> New version)
  * for changes to take effect on the live URL.
+ *
+ * SECURITY NOTE: every request must now include a `username` field (the
+ * logged-in user's username) alongside `secret`. Account-management actions
+ * (add/update/delete/list accounts) are restricted server-side to users
+ * whose role in the Accounts sheet is "admin" — the client's claimed role
+ * is never trusted, only what's actually stored in the sheet for that
+ * username.
  */
 
 const ACCOUNTS_SHEET = "Accounts";
@@ -84,6 +91,22 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// ---------- Role enforcement ----------
+// Looks up the CALLER's role from the Accounts sheet itself — never trusts
+// a role value the client claims to have. Throws if the username doesn't
+// exist or doesn't have an allowed role.
+function requireRole_(username, allowedRoles) {
+  if (!username) throw new Error("Missing username");
+  const { rows } = accountsRows_();
+  const row = rows.find((r) => r[0] === username);
+  if (!row) throw new Error("Unknown user: " + username);
+  const actualRole = row[2];
+  if (allowedRoles.indexOf(actualRole) === -1) {
+    throw new Error("Forbidden: '" + username + "' has role '" + actualRole + "', requires " + allowedRoles.join(" or "));
+  }
+  return actualRole;
+}
+
 function doPost(e) {
   let body;
   try {
@@ -101,20 +124,42 @@ function doPost(e) {
   try {
     switch (body.action) {
       case "login":
+        // No role check — this IS the role check (anyone with valid creds can log in)
         return json_(login_(body.username, body.password));
+
       case "getAccounts":
+        requireRole_(body.username, ["admin"]);
         return json_({ accounts: getAccounts_() });
+
       case "addAccount":
-        return json_(addAccount_(body.username, body.password, body.role));
+        requireRole_(body.username, ["admin"]);
+        return json_(addAccount_(body.newUsername, body.newPassword, body.newRole));
+
       case "updateAccount":
-        return json_(updateAccount_(body.originalUsername, body));
+        requireRole_(body.username, ["admin"]);
+        return json_(updateAccount_(body.originalUsername, {
+          username: body.username_new,
+          password: body.password,
+          role: body.role,
+        }));
+
       case "deleteAccount":
-        return json_(deleteAccount_(body.username));
+        requireRole_(body.username, ["admin"]);
+        return json_(deleteAccount_(body.targetUsername));
+
       case "getState":
+        requireRole_(body.username, ["admin", "cashier"]);
         return json_({ state: getState_() });
+
       case "setState":
+        // Any logged-in user can write state (checkout, add orders, etc.)
+        // NOTE: this does not yet distinguish WHICH part of the state changed —
+        // see the note below the code about splitting this into granular actions
+        // if you need e.g. "only admins can edit menu prices."
+        requireRole_(body.username, ["admin", "cashier"]);
         setState_(body.state);
         return json_({ ok: true });
+
       default:
         return json_({ error: "Unknown action" });
     }

@@ -152,25 +152,41 @@
     background: #ffffff !important;
     color: #000000 !important;
   }
-  /* Hide EVERYTHING by default */
-  body * { display: none !important; }
-  /* Re-show the entire print-root subtree (not just print-area — the wrapper
-     divs between print-root and print-area also need to be un-hidden, or
-     print-area stays invisible even though its own display is "revert"). */
-  .print-root, .print-root * {
-    display: revert !important;
+
+  /* Hide everything by default — but with visibility, not display.
+     display:none removes elements from the tree so children can never
+     override it back on; visibility:hidden keeps them in the tree so
+     a visible descendant CAN override a hidden ancestor. This is what
+     makes the fix work no matter how many wrapper divs sit between
+     .print-root and .print-area. */
+  body * {
+    visibility: hidden !important;
   }
-  .print-root {
+
+  /* Re-show only the receipt and everything inside it */
+  .print-area,
+  .print-area * {
+    visibility: visible !important;
+  }
+
+  /* visibility:hidden elements still take up layout space, so pull the
+     now-visible receipt out of the page flow and pin it to the top */
+  .print-area {
+    visibility: visible !important;
     position: absolute !important;
-    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    display: block !important;
     background: #ffffff !important;
-    padding: 0 !important;
+    color: #000000 !important;
+    font-family: "JetBrains Mono", ui-monospace, monospace !important;
+    padding: 12px 16px !important;
+    max-width: 320px;
+    margin: 0 auto;
     z-index: 9999 !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
   }
-  .print-root * {
+
+  .print-area * {
     color: #000000 !important;
     background: transparent !important;
     box-shadow: none !important;
@@ -179,15 +195,12 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .print-root .no-print,
-  .print-root .no-print * { display: none !important; }
-  .print-area {
-    display: block !important;
-    background: #ffffff !important;
-    font-family: "JetBrains Mono", ui-monospace, monospace !important;
-    padding: 12px 16px !important;
-    max-width: 320px;
-    margin: 0 auto;
+
+  /* Keep anything marked no-print hidden even if it's inside the receipt
+     (e.g. a Close/Print button) — this must come after the rules above
+     so it wins on equal specificity */
+  .no-print,
+  .no-print * {
+    visibility: hidden !important;
   }
 }
-
