@@ -143,37 +143,76 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const setRoomRate: StoreContextValue["setRoomRate"] = async (roomId, rate) => {
+    setAppState((prev) => ({
+      ...prev,
+      rooms: prev.rooms.map((r) => (r.id === roomId ? { ...r, hourlyRate: rate } : r)),
+    }));
     setAppState(await setRoomRateFn({ data: { roomId, rate } }));
   };
   const startRoom: StoreContextValue["startRoom"] = async (roomId) => {
+    const now = Date.now();
+    setAppState((prev) => ({
+      ...prev,
+      rooms: prev.rooms.map((r) =>
+        r.id === roomId && r.status !== "active" ? { ...r, status: "active", startedAt: now, orders: [] } : r,
+      ),
+    }));
     setAppState(await startRoomFn({ data: { roomId } }));
   };
   const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill) => {
+    setAppState((prev) => ({
+      ...prev,
+      rooms: prev.rooms.map((r) =>
+        r.id === roomId ? { ...r, status: "available", startedAt: null, orders: [] } : r,
+      ),
+    }));
     const res = await endRoomFn({ data: { roomId, splitBill } });
     setAppState(res.state);
     return res.session;
   };
   const addOrder: StoreContextValue["addOrder"] = async (roomId, menuItemId, qty) => {
+    const item = appState.menu.find((m) => m.id === menuItemId);
+    if (item && canFulfill(menuItemId, qty)) {
+      setAppState((prev) => {
+        const newStock = prev.stock.map((stk) => {
+          const ing = item.ingredients.find((i) => i.stockId === stk.id);
+          return ing ? { ...stk, used: stk.used + ing.qty * qty } : stk;
+        });
+        const rooms = prev.rooms.map((r) => {
+          if (r.id !== roomId) return r;
+          const existing = r.orders.find((o) => o.menuItemId === menuItemId);
+          const newOrders = existing
+            ? r.orders.map((o) => (o.menuItemId === menuItemId ? { ...o, qty: o.qty + qty } : o))
+            : [...r.orders, { menuItemId, name: item.name, qty, price: item.price }];
+          return { ...r, orders: newOrders };
+        });
+        return { ...prev, rooms, stock: newStock };
+      });
+    }
     const res = await addOrderFn({ data: { roomId, menuItemId, qty } });
     setAppState(res.state);
     return { ok: res.ok, error: res.error };
   };
   const updateStockItem: StoreContextValue["updateStockItem"] = async (id, patch) => {
+    setAppState((prev) => ({ ...prev, stock: prev.stock.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
     setAppState(await updateStockItemFn({ data: { id, patch } }));
   };
   const addStockItem: StoreContextValue["addStockItem"] = async (item) => {
     setAppState(await addStockItemFn({ data: { item } }));
   };
   const deleteStockItem: StoreContextValue["deleteStockItem"] = async (id) => {
+    setAppState((prev) => ({ ...prev, stock: prev.stock.filter((x) => x.id !== id) }));
     setAppState(await deleteStockItemFn({ data: { id } }));
   };
   const addMenuItem: StoreContextValue["addMenuItem"] = async (item) => {
     setAppState(await addMenuItemFn({ data: { item } }));
   };
   const deleteMenuItem: StoreContextValue["deleteMenuItem"] = async (id) => {
+    setAppState((prev) => ({ ...prev, menu: prev.menu.filter((x) => x.id !== id) }));
     setAppState(await deleteMenuItemFn({ data: { id } }));
   };
   const setActualCash: StoreContextValue["setActualCash"] = async (n) => {
+    setAppState((prev) => ({ ...prev, actualCashInput: n }));
     setAppState(await setActualCashFn({ data: { amount: n } }));
   };
 

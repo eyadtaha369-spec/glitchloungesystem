@@ -6,7 +6,21 @@ import type { AppState, StockItem, MenuItem } from "@/lib/types";
 
 async function loadState(): Promise<AppState> {
   const res = await callAppsScript<{ state: AppState | null }>("getState");
-  return res.state ?? biz.defaultAppState();
+  const state = res.state;
+  const looksUninitialized =
+    !state ||
+    ((state.rooms?.length ?? 0) === 0 &&
+      (state.stock?.length ?? 0) === 0 &&
+      (state.menu?.length ?? 0) === 0);
+  if (looksUninitialized) {
+    // Self-heal: this happens if the Sheet's AppState cell was never
+    // seeded, got corrupted, or an old Apps Script deployment returned
+    // an empty object. Persist real defaults so it doesn't keep happening.
+    const fresh = biz.defaultAppState();
+    await saveState(fresh);
+    return fresh;
+  }
+  return state;
 }
 async function saveState(state: AppState): Promise<void> {
   await callAppsScript("setState", { state });
