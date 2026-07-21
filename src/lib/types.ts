@@ -64,6 +64,7 @@ export interface Session {
   orders: OrderLine[];
   ordersCost: number;
   total: number;
+  cogs: number;
   splitBill: boolean;
   paymentMethod: PaymentMethod;
   shiftId: string | null;
@@ -109,4 +110,73 @@ export interface AppState {
   actualCashInput: number;
   shifts: Shift[];
   activeShiftId: string | null;
+}
+
+// ---------- Costing / procurement / anti-theft ledger ----------
+// These live as real rows in dedicated Sheet tabs (not the AppState JSON
+// blob) because a growing financial ledger would eventually exceed a
+// single Sheet cell's 50,000-character limit.
+
+export interface RawMaterial {
+  id: string;
+  name: string;
+  unit: string;
+  minStockAlert: number;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contact: string;
+  category: string;
+}
+
+export interface RecurringExpense {
+  id: string;
+  name: string;
+  amount: number;
+  active: boolean;
+}
+
+// One FIFO purchase lot for a raw material. Consumption always draws from
+// the oldest batch with qtyRemaining > 0 first, so COGS reflects the real
+// price paid for the units actually used.
+export interface Batch {
+  id: string;
+  materialId: string;
+  supplierId: string | null;
+  qtyPurchased: number;
+  qtyRemaining: number;
+  unitCost: number;
+  purchasedAt: number;
+  source: "stockedBatch" | "dailyFresh";
+}
+
+export type LedgerType =
+  | "sale"
+  | "stockedBatch"
+  | "dailyFresh"
+  | "midShiftPurchase"
+  | "recurringExpense"
+  | "manualAdjustment";
+export type LedgerStatus = "approved" | "pending" | "rejected";
+export type LedgerDirection = "inflow" | "outflow";
+
+export interface LedgerEntry {
+  id: string;
+  ts: number;
+  amount: number;
+  direction: LedgerDirection;
+  type: LedgerType;
+  category: string;
+  description: string;
+  supplierId: string | null;
+  staffUsername: string;
+  status: LedgerStatus;
+  receiptUrl: string | null;
+  paidFromDrawer: boolean;
+  shiftId: string | null;
+  materialId: string | null;
+  qty: number | null;
+  unitCost: number | null;
 }

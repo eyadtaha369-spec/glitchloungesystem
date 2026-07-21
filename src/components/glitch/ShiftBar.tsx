@@ -11,7 +11,7 @@ export function ShiftBar() {
   const [closedSummary, setClosedSummary] = useState<{ expected: number; actual: number; discrepancy: number } | null>(null);
 
   const shiftSessions = activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id) : [];
-  const expectedCash = shiftSessions.filter((s) => s.paymentMethod === "cash").reduce((a, s) => a + s.total, 0);
+  const cashSalesOnly = shiftSessions.filter((s) => s.paymentMethod === "cash").reduce((a, s) => a + s.total, 0);
   const shiftRevenue = shiftSessions.reduce((a, s) => a + s.total, 0);
 
   const handleOpen = async () => {
@@ -25,7 +25,9 @@ export function ShiftBar() {
     const cash = parseFloat(actualCash) || 0;
     const res = await endShift(cash);
     if (!res.ok) { setErr(res.error ?? "Could not end shift"); return; }
-    setClosedSummary({ expected: expectedCash, actual: cash, discrepancy: cash - expectedCash });
+    if (res.closedShift && res.closedShift.expectedCash !== null && res.closedShift.discrepancy !== null) {
+      setClosedSummary({ expected: res.closedShift.expectedCash, actual: cash, discrepancy: res.closedShift.discrepancy });
+    }
     setEndOpen(false);
     setActualCash("0");
   };
@@ -97,8 +99,8 @@ export function ShiftBar() {
           <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(shiftRevenue)}</div>
         </div>
         <div className="bg-black/30 rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Expected Cash</div>
-          <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(expectedCash)}</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cash Sales</div>
+          <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(cashSalesOnly)}</div>
         </div>
         <div className="bg-black/30 rounded-lg p-3 border border-white/5">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Orders Closed</div>
@@ -113,9 +115,10 @@ export function ShiftBar() {
               <DollarSign className="w-5 h-5 text-[oklch(0.75_0.22_25)]" />
               <h3 className="text-lg font-semibold">Close Out Shift</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">Count your cash drawer and enter the actual amount. This closes the shift permanently and resets counters for the next cashier.</p>
+            <p className="text-xs text-muted-foreground mb-4">Count your cash drawer and enter the actual amount. Expected cash = opening balance + cash sales − any approved drawer expenses, computed when you confirm. This closes the shift permanently and resets counters for the next cashier.</p>
+
             <div className="flex justify-between text-sm font-mono mb-3 p-3 rounded-lg bg-black/30 border border-white/5">
-              <span className="text-muted-foreground">Expected Cash</span><span>{fmtMoney(expectedCash)}</span>
+              <span className="text-muted-foreground">Cash Sales So Far</span><span>{fmtMoney(cashSalesOnly)}</span>
             </div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Actual Cash Counted</label>
             <input

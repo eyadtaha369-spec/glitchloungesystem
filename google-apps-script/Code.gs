@@ -1,11 +1,26 @@
 /**
  * GLITCH Lounge Manager — Apps Script backend.
  *
- * Every mutation (start room, add order, checkout, open/close shift, etc.)
- * is handled ENTIRELY inside a single locked doPost call: read state, apply
- * the change, write state back — all atomically. This is deliberate: if the
- * read and write happened as two separate round trips, two near-simultaneous
- * actions could read stale data and silently clobber each other's writes.
+ * Two storage strategies are used deliberately:
+ *  - AppState (rooms/stock-view/menu/sessions/shifts) stays as one JSON
+ *    blob in a single cell — it's small and bounded.
+ *  - RawMaterials / Suppliers / RecurringExpenses / Batches / Ledger are
+ *    real rows in their own sheet tabs. A financial ledger grows forever,
+ *    and a single Sheet cell caps out at 50,000 characters — row storage
+ *    is the only sane way to keep an ever-growing ledger.
+ *
+ * FIFO costing: raw material purchases are logged as Batches (qty + unit
+ * cost + purchase date). When a room is checked out, ingredient usage for
+ * everything ordered is consumed from the OLDEST batch with stock left
+ * first, and the actual cost paid for those units becomes the session's
+ * COGS. Stock is NOT deducted at order-add time — only reserved (checked
+ * against pending orders across all rooms) — so editing a live order
+ * before checkout never needs to "refund" anything.
+ *
+ * Anti-theft: any purchase/expense a CASHIER submits is logged as
+ * `pending` and has ZERO effect on inventory or cash until an admin
+ * explicitly approves it. Admin-submitted entries are auto-approved.
+ * A receipt photo (uploaded to Drive) is mandatory to submit at all.
  *
  * Whenever you edit this file, you must create a NEW deployment version
  * (Deploy -> Manage deployments -> pencil icon -> Version: New version -> Deploy)
@@ -14,6 +29,7 @@
 
 const ACCOUNTS_SHEET = "Accounts";
 const STATE_SHEET = "AppState";
+const RECEIPTS_FOLDER = "GLITCH Receipts";
 
 function getSecret_() {
   return PropertiesService.getScriptProperties().getProperty("SECRET");
@@ -34,6 +50,10 @@ function getSheet_(name) {
   return sheet;
 }
 
+function newId_(prefix) {
+  return prefix + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+}
+
 function initSheets() {
   const accounts = getSheet_(ACCOUNTS_SHEET);
   accounts.clear();
@@ -45,17 +65,38 @@ function initSheets() {
   state.clear();
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
+
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger"].forEach(function (name) {
+    const sheet = getSheet_(name);
+    sheet.clear();
+    sheet.appendRow(sheetObjectHeaders_(name));
+  });
+
+  // Seed raw materials matching the old built-in stock list, and a couple
+  // of starter batches so the shop has usable stock on first run.
+  const materials = [
+    { id: "coffee", name: "Coffee Beans", unit: "g", minStockAlert: 300 },
+    { id: "milk", name: "Milk", unit: "ml", minStockAlert: 800 },
+    { id: "sugar", name: "Sugar", unit: "g", minStockAlert: 200 },
+    { id: "cups", name: "Paper Cups", unit: "pcs", minStockAlert: 40 },
+    { id: "soda", name: "Soda Cans", unit: "pcs", minStockAlert: 20 },
+    { id: "chips", name: "Potato Chips", unit: "pcs", minStockAlert: 15 },
+  ];
+  materials.forEach(function (m) { appendObject_("RawMaterials", m); });
+
+  const now = Date.now();
+  const starterBatches = [
+    { id: newId_("batch"), materialId: "coffee", supplierId: null, qtyPurchased: 2000, qtyRemaining: 2000, unitCost: 0.02, purchasedAt: now, source: "stockedBatch" },
+    { id: newId_("batch"), materialId: "milk", supplierId: null, qtyPurchased: 5000, qtyRemaining: 5000, unitCost: 0.01, purchasedAt: now, source: "stockedBatch" },
+    { id: newId_("batch"), materialId: "sugar", supplierId: null, qtyPurchased: 1500, qtyRemaining: 1500, unitCost: 0.01, purchasedAt: now, source: "stockedBatch" },
+    { id: newId_("batch"), materialId: "cups", supplierId: null, qtyPurchased: 200, qtyRemaining: 200, unitCost: 0.5, purchasedAt: now, source: "stockedBatch" },
+    { id: newId_("batch"), materialId: "soda", supplierId: null, qtyPurchased: 100, qtyRemaining: 100, unitCost: 0.8, purchasedAt: now, source: "stockedBatch" },
+    { id: newId_("batch"), materialId: "chips", supplierId: null, qtyPurchased: 80, qtyRemaining: 80, unitCost: 0.6, purchasedAt: now, source: "stockedBatch" },
+  ];
+  starterBatches.forEach(function (b) { appendObject_("Batches", b); });
 }
 
 function defaultAppState_() {
-  const stock = [
-    { id: "coffee", name: "Coffee Beans", unit: "g", initialStock: 2000, used: 0, minStock: 300 },
-    { id: "milk", name: "Milk", unit: "ml", initialStock: 5000, used: 0, minStock: 800 },
-    { id: "sugar", name: "Sugar", unit: "g", initialStock: 1500, used: 0, minStock: 200 },
-    { id: "cups", name: "Paper Cups", unit: "pcs", initialStock: 200, used: 0, minStock: 40 },
-    { id: "soda", name: "Soda Cans", unit: "pcs", initialStock: 100, used: 0, minStock: 20 },
-    { id: "chips", name: "Potato Chips", unit: "pcs", initialStock: 80, used: 0, minStock: 15 },
-  ];
   const menu = [
     { id: "latte", name: "Latte", price: 4.5, ingredients: [{ stockId: "coffee", qty: 18 }, { stockId: "milk", qty: 200 }, { stockId: "cups", qty: 1 }] },
     { id: "espresso", name: "Espresso", price: 3.0, ingredients: [{ stockId: "coffee", qty: 18 }, { stockId: "cups", qty: 1 }] },
@@ -68,7 +109,7 @@ function defaultAppState_() {
   }
   rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 10, status: "available", startedAt: null, orders: [] });
   return {
-    rooms: rooms, stock: stock, menu: menu, sessions: [], activity: [], cashRecords: [],
+    rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
     actualCashInput: 0, shifts: [], activeShiftId: null,
   };
 }
@@ -87,6 +128,88 @@ function requireRole_(username, allowedRoles) {
     throw new Error("Forbidden: '" + username + "' has role '" + actualRole + "', requires " + allowedRoles.join(" or "));
   }
   return actualRole;
+}
+
+// ---------- Generic row-object storage for the financial sheets ----------
+
+function sheetObjectHeaders_(name) {
+  const map = {
+    RawMaterials: ["id", "name", "unit", "minStockAlert"],
+    Suppliers: ["id", "name", "contact", "category"],
+    RecurringExpenses: ["id", "name", "amount", "active"],
+    Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost"],
+  };
+  return map[name];
+}
+
+function ensureHeaders_(sheet, headers) {
+  if (sheet.getLastRow() === 0) sheet.appendRow(headers);
+}
+
+function readObjects_(sheetName) {
+  const headers = sheetObjectHeaders_(sheetName);
+  const sheet = getSheet_(sheetName);
+  ensureHeaders_(sheet, headers);
+  const values = sheet.getDataRange().getValues();
+  const rows = values.slice(1);
+  return rows.filter((r) => r[0] !== "" && r[0] !== null).map((r) => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = r[i] === "" ? null : r[i]; });
+    return obj;
+  });
+}
+
+function appendObject_(sheetName, obj) {
+  const headers = sheetObjectHeaders_(sheetName);
+  const sheet = getSheet_(sheetName);
+  ensureHeaders_(sheet, headers);
+  sheet.appendRow(headers.map((h) => (obj[h] === undefined || obj[h] === null ? "" : obj[h])));
+}
+
+function findRowIndexById_(sheet, id) {
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (values[i][0] === id) return i + 1; // 1-indexed sheet row
+  }
+  return -1;
+}
+
+function updateObjectById_(sheetName, id, patch) {
+  const headers = sheetObjectHeaders_(sheetName);
+  const sheet = getSheet_(sheetName);
+  const rowIdx = findRowIndexById_(sheet, id);
+  if (rowIdx === -1) return false;
+  const current = sheet.getRange(rowIdx, 1, 1, headers.length).getValues()[0];
+  const merged = headers.map((h, i) => (patch[h] !== undefined ? (patch[h] === null ? "" : patch[h]) : current[i]));
+  sheet.getRange(rowIdx, 1, 1, headers.length).setValues([merged]);
+  return true;
+}
+
+function deleteObjectById_(sheetName, id) {
+  const sheet = getSheet_(sheetName);
+  const rowIdx = findRowIndexById_(sheet, id);
+  if (rowIdx === -1) return false;
+  sheet.deleteRow(rowIdx);
+  return true;
+}
+
+// ---------- Receipts (Google Drive) ----------
+
+function receiptsFolder_() {
+  const folders = DriveApp.getFoldersByName(RECEIPTS_FOLDER);
+  if (folders.hasNext()) return folders.next();
+  return DriveApp.createFolder(RECEIPTS_FOLDER);
+}
+
+// Deliberately NOT under the script lock — Drive I/O is slow and shouldn't
+// stall unrelated requests (room orders, logins, etc.) while it runs.
+function uploadReceipt_(base64Data, mimeType, filename) {
+  const folder = receiptsFolder_();
+  const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType || "image/jpeg", filename);
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file.getUrl();
 }
 
 // ---------- Business logic (pure-ish functions over the state object) ----------
@@ -116,28 +239,45 @@ function bizStartRoom_(state, roomId) {
   return { ok: true, state: state };
 }
 
-function bizCanFulfill_(state, menuItemId, qty) {
+// Sum of qtyRemaining across every batch of a material — the raw physical
+// stock on hand, untouched by orders that haven't been checked out yet.
+function materialRemaining_(batches, materialId) {
+  return batches.filter((b) => b.materialId === materialId).reduce((a, b) => a + (Number(b.qtyRemaining) || 0), 0);
+}
+
+// Ingredient qty already committed to orders sitting in ALL currently
+// active rooms (not yet checked out, so batches haven't been touched yet).
+function materialReserved_(rooms, menu, materialId) {
+  let total = 0;
+  rooms.forEach((room) => {
+    room.orders.forEach((o) => {
+      const item = menu.find((m) => m.id === o.menuItemId);
+      if (!item) return;
+      item.ingredients.forEach((ing) => {
+        if (ing.stockId === materialId) total += ing.qty * o.qty;
+      });
+    });
+  });
+  return total;
+}
+
+function bizCanFulfill_(state, batches, menuItemId, addQty) {
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return false;
   return item.ingredients.every((ing) => {
-    const stk = state.stock.find((s) => s.id === ing.stockId);
-    if (!stk) return false;
-    return stk.initialStock - stk.used >= ing.qty * qty;
+    const remaining = materialRemaining_(batches, ing.stockId);
+    const reserved = materialReserved_(state.rooms, state.menu, ing.stockId);
+    return remaining - reserved - ing.qty * addQty >= -1e-9;
   });
 }
 
-function bizAddOrder_(state, roomId, menuItemId, qty) {
+function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state: state };
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return { ok: false, error: "Item not found", state: state };
-  if (!bizCanFulfill_(state, menuItemId, qty)) {
+  if (!bizCanFulfill_(state, batches, menuItemId, qty)) {
     return { ok: false, error: "Insufficient stock for " + item.name + "!", state: state };
   }
-  state.stock = state.stock.map((stk) => {
-    const ing = item.ingredients.find((i) => i.stockId === stk.id);
-    if (!ing) return stk;
-    return Object.assign({}, stk, { used: stk.used + ing.qty * qty });
-  });
   const room = state.rooms.find((r) => r.id === roomId);
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
@@ -151,29 +291,20 @@ function bizAddOrder_(state, roomId, menuItemId, qty) {
   return { ok: true, state: state };
 }
 
-// Sets an order line to an EXACT qty (not incremented). qty <= 0 removes the
-// line entirely. Adjusts stock.used by the delta, refunding stock if the
-// qty went down. Lets a cashier/admin fix a mis-added item before checkout.
-function bizSetOrderLineQty_(state, roomId, menuItemId, qty) {
+// Sets an order line to an EXACT qty (0 removes it). Increasing re-checks
+// availability against reservations; decreasing is always allowed since
+// nothing was ever deducted from batches yet.
+function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Room not found", state: state };
   const line = room.orders.find((o) => o.menuItemId === menuItemId);
   if (!line) return { ok: false, error: "Item not on this check", state: state };
   const item = state.menu.find((m) => m.id === menuItemId);
-  const oldQty = line.qty;
   const newQty = Math.max(0, Math.floor(qty));
-  const delta = newQty - oldQty;
+  const delta = newQty - line.qty;
 
-  if (delta > 0 && item && !bizCanFulfill_(state, menuItemId, delta)) {
+  if (delta > 0 && item && !bizCanFulfill_(state, batches, menuItemId, delta)) {
     return { ok: false, error: "Insufficient stock to increase " + item.name, state: state };
-  }
-
-  if (item) {
-    state.stock = state.stock.map((stk) => {
-      const ing = item.ingredients.find((i) => i.stockId === stk.id);
-      if (!ing) return stk;
-      return Object.assign({}, stk, { used: Math.max(0, stk.used + ing.qty * delta) });
-    });
   }
 
   state.rooms = state.rooms.map((r) => {
@@ -191,14 +322,50 @@ function bizSetOrderLineQty_(state, roomId, menuItemId, qty) {
   return { ok: true, state: state };
 }
 
-function bizEndRoom_(state, roomId, splitBill, paymentMethod) {
+// Consumes qtyNeeded of a material from the OLDEST batch with stock left
+// first (true FIFO), mutating `batches` in place. Returns the real cost of
+// what was consumed and which batch ids changed (so only those get written
+// back to the sheet).
+function consumeFifo_(batches, materialId, qtyNeeded) {
+  const relevant = batches
+    .filter((b) => b.materialId === materialId && b.qtyRemaining > 0)
+    .sort((a, b) => a.purchasedAt - b.purchasedAt);
+  let remaining = qtyNeeded;
+  let cost = 0;
+  const touched = [];
+  for (const b of relevant) {
+    if (remaining <= 0) break;
+    const take = Math.min(b.qtyRemaining, remaining);
+    b.qtyRemaining = Math.round((b.qtyRemaining - take) * 1e6) / 1e6;
+    cost += take * b.unitCost;
+    remaining -= take;
+    touched.push(b.id);
+  }
+  return { cost: cost, shortfall: remaining, touched: touched };
+}
+
+function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod) {
   const room = state.rooms.find((r) => r.id === roomId);
-  if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state };
+  if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state, touchedBatchIds: [] };
   const endedAt = Date.now();
   const durationSec = Math.max(1, Math.floor((endedAt - room.startedAt) / 1000));
   const timeCost = (durationSec / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const total = timeCost + ordersCost;
+
+  // FIFO-consume ingredients for everything ordered, computing real COGS.
+  let cogs = 0;
+  const touchedBatchIds = [];
+  room.orders.forEach((o) => {
+    const item = state.menu.find((m) => m.id === o.menuItemId);
+    if (!item) return;
+    item.ingredients.forEach((ing) => {
+      const res = consumeFifo_(batches, ing.stockId, ing.qty * o.qty);
+      cogs += res.cost;
+      touchedBatchIds.push(...res.touched);
+    });
+  });
+
   const session = {
     id: "sess-" + endedAt,
     roomId: room.id,
@@ -210,6 +377,7 @@ function bizEndRoom_(state, roomId, splitBill, paymentMethod) {
     orders: room.orders,
     ordersCost: ordersCost,
     total: total,
+    cogs: cogs,
     splitBill: !!splitBill,
     paymentMethod: paymentMethod === "visa" ? "visa" : "cash",
     shiftId: state.activeShiftId || null,
@@ -219,37 +387,9 @@ function bizEndRoom_(state, roomId, splitBill, paymentMethod) {
   );
   state.sessions = [session].concat(state.sessions);
   pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected (" + session.paymentMethod + ")");
-  return { session: session, state: state };
+  return { session: session, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)) };
 }
 
-function bizUpdateStockItem_(state, id, patch) {
-  state.stock = state.stock.map((x) => (x.id === id ? Object.assign({}, x, patch) : x));
-  return state;
-}
-function bizAddStockItem_(state, item) {
-  state.stock = state.stock.concat([Object.assign({}, item, { used: 0 })]);
-  return state;
-}
-function bizDeleteStockItem_(state, id) {
-  state.stock = state.stock.filter((x) => x.id !== id);
-  return state;
-}
-function bizRestockAll_(state) {
-  state.stock = state.stock.map((x) => Object.assign({}, x, { used: 0 }));
-  return pushActivity_(state, "Stock fully restocked");
-}
-function bizAddMenuItem_(state, item) {
-  state.menu = state.menu.concat([item]);
-  return state;
-}
-function bizUpdateMenuItem_(state, id, patch) {
-  state.menu = state.menu.map((x) => (x.id === id ? Object.assign({}, x, patch) : x));
-  return state;
-}
-function bizDeleteMenuItem_(state, id) {
-  state.menu = state.menu.filter((x) => x.id !== id);
-  return state;
-}
 function bizSetActualCash_(state, n) {
   state.actualCashInput = n;
   return state;
@@ -278,15 +418,20 @@ function bizOpenShift_(state, username, openingBalance) {
   return { ok: true, state: state };
 }
 
-// Closes the currently active shift. `forced` = true means this came from
-// the admin emergency-reset path rather than a cashier's normal End Shift.
-function bizCloseActiveShift_(state, actualCash, forced) {
+// Expected Cash = Opening Balance + Cash Sales - Approved drawer-paid
+// expenses logged against this shift. `forced` = true means this came
+// from the admin emergency-reset path rather than a cashier's normal End
+// Shift.
+function bizCloseActiveShift_(state, ledger, actualCash, forced) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift to close", state: state };
   const shiftId = state.activeShiftId;
+  const shift = state.shifts.find((sh) => sh.id === shiftId);
   const shiftSessions = state.sessions.filter((s) => s.shiftId === shiftId);
-  const expectedCash = shiftSessions
-    .filter((s) => s.paymentMethod === "cash")
-    .reduce((a, s) => a + s.total, 0);
+  const cashSales = shiftSessions.filter((s) => s.paymentMethod === "cash").reduce((a, s) => a + s.total, 0);
+  const drawerExpenses = ledger
+    .filter((l) => l.shiftId === shiftId && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow")
+    .reduce((a, l) => a + Number(l.amount), 0);
+  const expectedCash = (shift ? shift.openingBalance : 0) + cashSales - drawerExpenses;
   const closingActualCash = typeof actualCash === "number" ? actualCash : (state.actualCashInput || 0);
   const discrepancy = closingActualCash - expectedCash;
 
@@ -311,6 +456,24 @@ function bizCloseActiveShift_(state, actualCash, forced) {
   return { ok: true, state: state };
 }
 
+// ---------- Derived "stock" view for backward-compat with the UI's low
+// -stock alerts (initialStock = ever purchased, used = ever consumed) ----
+function computeStockView_(materials, batches) {
+  return materials.map((m) => {
+    const matBatches = batches.filter((b) => b.materialId === m.id);
+    const initialStock = matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0);
+    const remaining = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
+    return {
+      id: m.id,
+      name: m.name,
+      unit: m.unit,
+      initialStock: initialStock,
+      used: initialStock - remaining,
+      minStock: m.minStockAlert,
+    };
+  });
+}
+
 function doPost(e) {
   let body;
   try {
@@ -321,6 +484,12 @@ function doPost(e) {
 
   if (!body.secret || body.secret !== getSecret_()) {
     return json_({ error: "forbidden" });
+  }
+
+  // Handled outside the lock — receipt upload to Drive is slow I/O and
+  // shouldn't stall unrelated requests while it runs.
+  if (body.action === "submitPurchase") {
+    return handleSubmitPurchase_(body);
   }
 
   const lock = LockService.getScriptLock();
@@ -350,9 +519,14 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_(deleteAccount_(body.targetUsername));
 
-      case "getState":
+      case "getState": {
         requireRole_(body.username, ["admin", "cashier"]);
-        return json_({ state: getState_() });
+        const state = getState_();
+        const materials = readObjects_("RawMaterials");
+        const batches = readObjects_("Batches");
+        state.stock = computeStockView_(materials, batches);
+        return json_({ state: state });
+      }
 
       // ---- Atomic business actions: read + mutate + write in ONE locked call ----
 
@@ -360,102 +534,192 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const state = bizSetRoomRate_(getState_(), body.roomId, body.rate);
         setState_(state);
-        return json_({ state: state });
+        return json_({ state: withStockView_(state) });
       }
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const result = bizStartRoom_(getState_(), body.roomId);
         if (result.ok) setState_(result.state);
-        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "endRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizEndRoom_(getState_(), body.roomId, body.splitBill, body.paymentMethod);
-        if (result.session) setState_(result.state);
-        return json_({ session: result.session, state: result.state });
+        const batches = readObjects_("Batches");
+        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod);
+        if (result.session) {
+          setState_(result.state);
+          result.touchedBatchIds.forEach(function (id) {
+            const b = batches.find(function (x) { return x.id === id; });
+            if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+          });
+          // Log the sale in the permanent ledger.
+          appendObject_("Ledger", {
+            id: newId_("ledg"), ts: result.session.endedAt, amount: result.session.total, direction: "inflow",
+            type: "sale", category: "Room Sale", description: result.session.roomName + " checkout",
+            supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+            paidFromDrawer: result.session.paymentMethod === "cash", shiftId: result.session.shiftId,
+            materialId: null, qty: null, unitCost: null,
+          });
+        }
+        return json_({ session: result.session, state: withStockView_(result.state) });
       }
       case "addOrder": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizAddOrder_(getState_(), body.roomId, body.menuItemId, body.qty);
+        const batches = readObjects_("Batches");
+        const result = bizAddOrder_(getState_(), batches, body.roomId, body.menuItemId, body.qty);
         if (result.ok) setState_(result.state);
-        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "setOrderLineQty": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizSetOrderLineQty_(getState_(), body.roomId, body.menuItemId, body.qty);
+        const batches = readObjects_("Batches");
+        const result = bizSetOrderLineQty_(getState_(), batches, body.roomId, body.menuItemId, body.qty);
         if (result.ok) setState_(result.state);
-        return json_({ ok: result.ok, error: result.error || null, state: result.state });
-      }
-      case "updateStockItem": {
-        requireRole_(body.username, ["admin"]);
-        const state = bizUpdateStockItem_(getState_(), body.id, body.patch);
-        setState_(state);
-        return json_({ state: state });
-      }
-      case "addStockItem": {
-        requireRole_(body.username, ["admin"]);
-        const state = bizAddStockItem_(getState_(), body.item);
-        setState_(state);
-        return json_({ state: state });
-      }
-      case "deleteStockItem": {
-        requireRole_(body.username, ["admin"]);
-        const state = bizDeleteStockItem_(getState_(), body.id);
-        setState_(state);
-        return json_({ state: state });
-      }
-      case "restockAll": {
-        requireRole_(body.username, ["admin"]);
-        const state = bizRestockAll_(getState_());
-        setState_(state);
-        return json_({ state: state });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "addMenuItem": {
         requireRole_(body.username, ["admin"]);
-        const state = bizAddMenuItem_(getState_(), body.item);
+        const state = getState_();
+        state.menu = state.menu.concat([body.item]);
         setState_(state);
-        return json_({ state: state });
+        return json_({ state: withStockView_(state) });
       }
       case "updateMenuItem": {
         requireRole_(body.username, ["admin"]);
-        const state = bizUpdateMenuItem_(getState_(), body.id, body.patch);
+        const state = getState_();
+        state.menu = state.menu.map((x) => (x.id === body.id ? Object.assign({}, x, body.patch) : x));
         setState_(state);
-        return json_({ state: state });
+        return json_({ state: withStockView_(state) });
       }
       case "deleteMenuItem": {
         requireRole_(body.username, ["admin"]);
-        const state = bizDeleteMenuItem_(getState_(), body.id);
+        const state = getState_();
+        state.menu = state.menu.filter((x) => x.id !== body.id);
         setState_(state);
-        return json_({ state: state });
+        return json_({ state: withStockView_(state) });
       }
       case "setActualCash": {
         requireRole_(body.username, ["admin", "cashier"]);
         const state = bizSetActualCash_(getState_(), body.amount);
         setState_(state);
-        return json_({ state: state });
+        return json_({ state: withStockView_(state) });
       }
       case "openShift": {
         requireRole_(body.username, ["admin", "cashier"]);
         const result = bizOpenShift_(getState_(), body.username, body.openingBalance);
         if (result.ok) setState_(result.state);
-        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "endShift": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizCloseActiveShift_(getState_(), body.actualCash, false);
+        const ledger = readObjects_("Ledger");
+        const result = bizCloseActiveShift_(getState_(), ledger, body.actualCash, false);
         if (result.ok) setState_(result.state);
-        return json_({ ok: result.ok, error: result.error || null, state: result.state });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "forceEndShift": {
-        // Emergency override — admin only. Closes whatever shift is active
-        // right now (if any) so the live counters go back to zero, without
-        // requiring the cashier to be present to confirm a cash count.
         requireRole_(body.username, ["admin"]);
         const state = getState_();
-        if (!state.activeShiftId) return json_({ ok: true, state: state });
-        const result = bizCloseActiveShift_(state, body.actualCash, true);
+        if (!state.activeShiftId) return json_({ ok: true, state: withStockView_(state) });
+        const ledger = readObjects_("Ledger");
+        const result = bizCloseActiveShift_(state, ledger, body.actualCash, true);
         setState_(result.state);
-        return json_({ ok: true, state: result.state });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      // ---- Raw materials / suppliers / recurring expenses CRUD (admin) ----
+      case "getRawMaterials":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readObjects_("RawMaterials") });
+      case "addRawMaterial": {
+        requireRole_(body.username, ["admin"]);
+        const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0 };
+        appendObject_("RawMaterials", item);
+        return json_({ ok: true, item: item });
+      }
+      case "updateRawMaterial":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: updateObjectById_("RawMaterials", body.id, body.patch) });
+      case "deleteRawMaterial":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: deleteObjectById_("RawMaterials", body.id) });
+
+      case "getSuppliers":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readObjects_("Suppliers") });
+      case "addSupplier": {
+        requireRole_(body.username, ["admin"]);
+        const item = { id: newId_("sup"), name: body.name, contact: body.contact || "", category: body.category || "" };
+        appendObject_("Suppliers", item);
+        return json_({ ok: true, item: item });
+      }
+      case "updateSupplier":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: updateObjectById_("Suppliers", body.id, body.patch) });
+      case "deleteSupplier":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: deleteObjectById_("Suppliers", body.id) });
+
+      case "getRecurringExpenses":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readObjects_("RecurringExpenses") });
+      case "addRecurringExpense": {
+        requireRole_(body.username, ["admin"]);
+        const item = { id: newId_("rec"), name: body.name, amount: body.amount || 0, active: body.active !== false };
+        appendObject_("RecurringExpenses", item);
+        return json_({ ok: true, item: item });
+      }
+      case "updateRecurringExpense":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: updateObjectById_("RecurringExpenses", body.id, body.patch) });
+      case "deleteRecurringExpense":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: deleteObjectById_("RecurringExpenses", body.id) });
+
+      // Admin logs an actual payment of a recurring expense (rent paid this
+      // month, etc). Always auto-approved — this isn't a cashier-facing
+      // anti-theft surface.
+      case "logRecurringExpensePayment": {
+        requireRole_(body.username, ["admin"]);
+        const entry = {
+          id: newId_("ledg"), ts: Date.now(), amount: body.amount, direction: "outflow",
+          type: "recurringExpense", category: body.name || "Recurring Expense", description: body.description || "",
+          supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: body.receiptUrl || null,
+          paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
+        };
+        appendObject_("Ledger", entry);
+        return json_({ ok: true, entry: entry });
+      }
+
+      // ---- Ledger / approvals (admin) ----
+      case "getLedger":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readObjects_("Ledger") });
+      case "getPendingApprovals":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readObjects_("Ledger").filter((l) => l.status === "pending") });
+
+      case "approvePurchase": {
+        requireRole_(body.username, ["admin"]);
+        const ledger = readObjects_("Ledger");
+        const entry = ledger.find((l) => l.id === body.ledgerId);
+        if (!entry) return json_({ ok: false, error: "Entry not found" });
+        if (entry.status !== "pending") return json_({ ok: false, error: "Entry is not pending" });
+        // Only NOW does the purchase actually inject inventory.
+        if (entry.materialId && entry.qty) {
+          appendObject_("Batches", {
+            id: newId_("batch"), materialId: entry.materialId, supplierId: entry.supplierId,
+            qtyPurchased: entry.qty, qtyRemaining: entry.qty, unitCost: entry.unitCost,
+            purchasedAt: entry.ts, source: entry.type === "stockedBatch" ? "stockedBatch" : "dailyFresh",
+          });
+        }
+        updateObjectById_("Ledger", entry.id, { status: "approved" });
+        return json_({ ok: true });
+      }
+      case "rejectPurchase": {
+        requireRole_(body.username, ["admin"]);
+        updateObjectById_("Ledger", body.ledgerId, { status: "rejected", description: (body.reason ? "[Rejected: " + body.reason + "] " : "[Rejected] ") });
+        return json_({ ok: true });
       }
 
       default:
@@ -463,6 +727,81 @@ function doPost(e) {
     }
   } catch (err) {
     return json_({ error: String(err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function withStockView_(state) {
+  if (!state) return state;
+  const materials = readObjects_("RawMaterials");
+  const batches = readObjects_("Batches");
+  state.stock = computeStockView_(materials, batches);
+  return state;
+}
+
+// Submitting a purchase/expense — a stocked batch delivery, a daily-fresh
+// item, or a mid-shift purchase. Admin submissions are auto-approved
+// (inventory + ledger effective immediately). Cashier submissions are
+// `pending` and have NO effect until an admin approves them. A receipt
+// photo is mandatory either way.
+function handleSubmitPurchase_(body) {
+  if (!body.secret || body.secret !== getSecret_()) return json_({ error: "forbidden" });
+  let role;
+  try {
+    role = requireRole_(body.username, ["admin", "cashier"]);
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+  if (!body.receiptBase64) {
+    return json_({ ok: false, error: "A receipt photo is required to submit a purchase." });
+  }
+  if (!body.materialId || !body.qty || !body.unitCost) {
+    return json_({ ok: false, error: "Material, quantity, and cost are required." });
+  }
+
+  let receiptUrl;
+  try {
+    receiptUrl = uploadReceipt_(body.receiptBase64, body.receiptMimeType, "receipt-" + Date.now() + ".jpg");
+  } catch (err) {
+    return json_({ ok: false, error: "Receipt upload failed: " + String(err) });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const amount = Number(body.qty) * Number(body.unitCost);
+    const isAdmin = role === "admin";
+    const entry = {
+      id: newId_("ledg"),
+      ts: Date.now(),
+      amount: amount,
+      direction: "outflow",
+      type: body.purchaseType, // "stockedBatch" | "dailyFresh" | "midShiftPurchase"
+      category: body.category || "Procurement",
+      description: body.description || "",
+      supplierId: body.supplierId || null,
+      staffUsername: body.username,
+      status: isAdmin ? "approved" : "pending",
+      receiptUrl: receiptUrl,
+      paidFromDrawer: body.paidFromDrawer !== false,
+      shiftId: body.shiftId || null,
+      materialId: body.materialId,
+      qty: body.qty,
+      unitCost: body.unitCost,
+    };
+    appendObject_("Ledger", entry);
+
+    if (isAdmin) {
+      // Auto-approved: inventory lands immediately.
+      appendObject_("Batches", {
+        id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null,
+        qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts,
+        source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh",
+      });
+    }
+
+    return json_({ ok: true, status: entry.status, entry: entry });
   } finally {
     lock.releaseLock();
   }
@@ -531,9 +870,9 @@ function getState_() {
     if (values[i][0] === "app") {
       try {
         const parsed = JSON.parse(values[i][1]);
-        // Backfill fields for states saved before shifts existed.
         if (!parsed.shifts) parsed.shifts = [];
         if (parsed.activeShiftId === undefined) parsed.activeShiftId = null;
+        delete parsed.stock; // stock is always a computed view now, never persisted
         return parsed;
       } catch (e) {
         return defaultAppState_();
@@ -544,13 +883,15 @@ function getState_() {
 }
 
 function setState_(state) {
+  const toSave = Object.assign({}, state);
+  delete toSave.stock; // never persist the computed view
   const sheet = getSheet_(STATE_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
     if (values[i][0] === "app") {
-      sheet.getRange(i + 1, 2).setValue(JSON.stringify(state));
+      sheet.getRange(i + 1, 2).setValue(JSON.stringify(toSave));
       return;
     }
   }
-  sheet.appendRow(["app", JSON.stringify(state)]);
+  sheet.appendRow(["app", JSON.stringify(toSave)]);
 }

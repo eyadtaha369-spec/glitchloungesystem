@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, StockItem, MenuItem, Session, PaymentMethod } from "@/lib/types";
+import type { AppState, MenuItem, Session, PaymentMethod } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -62,35 +62,10 @@ export const setRoomRateFn = createServerFn({ method: "POST" })
     return res.state;
   });
 
-export const updateStockItemFn = createServerFn({ method: "POST" })
-  .validator((d: { id: string; patch: Partial<StockItem> }) => d)
-  .handler(async ({ data }) => {
-    const user = await requireAdmin();
-    const res = await callAppsScript<{ state: AppState }>("updateStockItem", { ...data, username: user.username });
-    return res.state;
-  });
-
-export const addStockItemFn = createServerFn({ method: "POST" })
-  .validator((d: { item: Omit<StockItem, "used"> }) => d)
-  .handler(async ({ data }) => {
-    const user = await requireAdmin();
-    const res = await callAppsScript<{ state: AppState }>("addStockItem", { ...data, username: user.username });
-    return res.state;
-  });
-
-export const deleteStockItemFn = createServerFn({ method: "POST" })
-  .validator((d: { id: string }) => d)
-  .handler(async ({ data }) => {
-    const user = await requireAdmin();
-    const res = await callAppsScript<{ state: AppState }>("deleteStockItem", { ...data, username: user.username });
-    return res.state;
-  });
-
-export const restockAllFn = createServerFn({ method: "POST" }).handler(async () => {
-  const user = await requireAdmin();
-  const res = await callAppsScript<{ state: AppState }>("restockAll", { username: user.username });
-  return res.state;
-});
+// NOTE: raw stock is no longer edited directly here. It's a computed view
+// derived from Raw Materials + FIFO Batches (see finance.ts) — managed via
+// the Setup page (materials/suppliers) and the Procurement page (logging
+// real purchases), not ad-hoc quantity edits.
 
 export const addMenuItemFn = createServerFn({ method: "POST" })
   .validator((d: { item: MenuItem }) => d)

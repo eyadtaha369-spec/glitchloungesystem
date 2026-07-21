@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney, isToday } from "@/lib/glitch-store";
 import type { Shift, Session } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Users2, Boxes, History } from "lucide-react";
+import { FileDown, TrendingUp, Users2, Boxes, History, Wallet } from "lucide-react";
 
 function startOfDay(ts: number) {
   const d = new Date(ts);
@@ -130,6 +130,144 @@ export function ReportsPage() {
       </div>
 
       <HistoryLog />
+      <PnLLedgerPanel />
+    </div>
+  );
+}
+
+type RangeKey = "today" | "week" | "month" | "custom";
+
+function PnLLedgerPanel() {
+  const { state } = useStore();
+  const [range, setRange] = useState<RangeKey>("today");
+  const [customFrom, setCustomFrom] = useState(() => new Date(startOfDay(Date.now())).toISOString().slice(0, 10));
+  const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const { from, to } = useMemo(() => {
+    const now = Date.now();
+    if (range === "today") return { from: startOfDay(now), to: now };
+    if (range === "week") return { from: startOfWeek(now), to: now };
+    if (range === "month") return { from: startOfMonth(now), to: now };
+    return { from: new Date(customFrom).getTime(), to: new Date(customTo).getTime() + 86400000 - 1 };
+  }, [range, customFrom, customTo]);
+
+  const ledgerInRange = useMemo(
+    () => state.ledger.filter((l) => l.ts >= from && l.ts <= to && l.status === "approved"),
+    [state.ledger, from, to],
+  );
+  const sessionsInRange = useMemo(
+    () => state.sessions.filter((s) => s.endedAt >= from && s.endedAt <= to),
+    [state.sessions, from, to],
+  );
+
+  const totalRevenue = sessionsInRange.reduce((a, s) => a + s.total, 0);
+  const totalCogs = sessionsInRange.reduce((a, s) => a + (s.cogs || 0), 0);
+  const totalExpenses = ledgerInRange.filter((l) => l.direction === "outflow" && l.type !== "sale").reduce((a, l) => a + Number(l.amount), 0);
+  const netProfit = totalRevenue - (totalCogs + totalExpenses);
+
+  const exportCsv = () => {
+    const rows = [
+      ["Timestamp", "Type", "Direction", "Category", "Description", "Amount", "Staff", "Status", "Supplier", "Material", "Qty", "Unit Cost"],
+      ...ledgerInRange.map((l) => [
+        new Date(l.ts).toISOString(), l.type, l.direction, l.category, l.description,
+        String(l.amount), l.staffUsername, l.status, l.supplierId ?? "", l.materialId ?? "",
+        l.qty !== null ? String(l.qty) : "", l.unitCost !== null ? String(l.unitCost) : "",
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `glitch-ledger-${range}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
+          <h2 className="text-lg font-semibold">Executive Ledger &amp; P&amp;L</h2>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 bg-black/30 rounded-lg p-1 border border-white/5">
+            {(["today", "week", "month", "custom"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`px-3 py-1.5 rounded-md text-xs uppercase tracking-widest font-semibold transition ${
+                  range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-white" : "text-muted-foreground hover:text-white"
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <button onClick={exportCsv} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+            <FileDown className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        </div>
+      </div>
+
+      {range === "custom" && (
+        <div className="flex items-center gap-2 mb-4 text-sm">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="bg-black/40 border border-white/10 rounded px-2 py-1.5" />
+          <span className="text-muted-foreground">to</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="bg-black/40 border border-white/10 rounded px-2 py-1.5" />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue</div>
+          <div className="text-xl font-mono font-bold mt-1">{fmtMoney(totalRevenue)}</div>
+        </div>
+        <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">COGS</div>
+          <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.82_0.16_85)]">{fmtMoney(totalCogs)}</div>
+        </div>
+        <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Other Expenses</div>
+          <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.75_0.22_25)]">{fmtMoney(totalExpenses)}</div>
+        </div>
+        <div className={`rounded-lg p-4 border ${netProfit >= 0 ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)]"}`}>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Profit</div>
+          <div className={`text-xl font-mono font-bold mt-1 ${netProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>{fmtMoney(netProfit)}</div>
+        </div>
+      </div>
+
+      {ledgerInRange.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">No ledger entries in this range.</div>
+      ) : (
+        <div className="overflow-x-auto max-h-96 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-[#0d0d14]">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+                <th className="text-left py-2 px-2">Time</th>
+                <th className="text-left py-2 px-2">Type</th>
+                <th className="text-left py-2 px-2">Description</th>
+                <th className="text-left py-2 px-2">Staff</th>
+                <th className="text-right py-2 px-2">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ledgerInRange.slice().sort((a, b) => b.ts - a.ts).map((l) => (
+                <tr key={l.id} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(l.ts).toLocaleString()}</td>
+                  <td className="py-2 px-2 text-xs uppercase tracking-widest text-muted-foreground">{l.category}</td>
+                  <td className="py-2 px-2 text-xs">{l.description || "—"}</td>
+                  <td className="py-2 px-2 text-xs">{l.staffUsername}</td>
+                  <td className={`py-2 px-2 text-right font-mono font-semibold ${l.direction === "inflow" ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+                    {l.direction === "inflow" ? "+" : "-"}{fmtMoney(l.amount)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

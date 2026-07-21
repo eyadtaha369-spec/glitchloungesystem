@@ -7,6 +7,8 @@ import { RoomsPage } from "./Rooms";
 import { InventoryPage } from "./Inventory";
 import { UsersPage } from "./Users";
 import { ReportsPage } from "./Reports";
+import { ProcurementPage } from "./Procurement";
+import { SetupPage } from "./Setup";
 import { Lock } from "lucide-react";
 
 function Shell() {
@@ -17,7 +19,7 @@ function Shell() {
   if (!state.currentUser) return <Login />;
 
   const isAdmin = state.currentUser.role === "admin";
-  const locked = !isAdmin && (view === "inventory" || view === "users" || view === "reports");
+  const locked = !isAdmin && (view === "inventory" || view === "users" || view === "reports" || view === "setup");
 
   return (
     <div className="min-h-screen">
@@ -33,6 +35,8 @@ function Shell() {
           ) : view === "dashboard" ? <Dashboard />
             : view === "rooms" ? <RoomsPage />
             : view === "inventory" ? <InventoryPage />
+            : view === "procurement" ? <ProcurementPage />
+            : view === "setup" ? <SetupPage />
             : view === "reports" ? <ReportsPage />
             : <UsersPage />}
         </div>

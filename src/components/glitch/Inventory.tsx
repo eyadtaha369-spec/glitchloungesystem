@@ -4,8 +4,7 @@ import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, Ro
 
 export function InventoryPage() {
   const {
-    state, updateStockItem, addStockItem, deleteStockItem, restockAll,
-    addMenuItem, updateMenuItem, deleteMenuItem, setActualCash,
+    state, addMenuItem, updateMenuItem, deleteMenuItem, setActualCash,
     activeShift, forceEndShift,
   } = useStore();
 
@@ -111,12 +110,7 @@ export function InventoryPage() {
       </div>
 
       {/* Stock inventory */}
-      <StockTable
-        onUpdate={updateStockItem}
-        onAdd={addStockItem}
-        onDelete={deleteStockItem}
-        onRestockAll={restockAll}
-      />
+      <StockTable />
 
       {/* Recipes / Menu */}
       <RecipeManager onAdd={addMenuItem} onUpdate={updateMenuItem} onDelete={deleteMenuItem} />
@@ -225,113 +219,56 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
   );
 }
 
-function StockTable({ onUpdate, onAdd, onDelete, onRestockAll }: {
-  onUpdate: ReturnType<typeof useStore>["updateStockItem"];
-  onAdd: ReturnType<typeof useStore>["addStockItem"];
-  onDelete: ReturnType<typeof useStore>["deleteStockItem"];
-  onRestockAll: ReturnType<typeof useStore>["restockAll"];
-}) {
+function StockTable() {
   const { state } = useStore();
-  const [showAdd, setShowAdd] = useState(false);
-  const [confirmRestock, setConfirmRestock] = useState(false);
-  const [form, setForm] = useState({ id: "", name: "", unit: "pcs", initialStock: 0, minStock: 0 });
-
-  const doRestock = () => {
-    onRestockAll();
-    setConfirmRestock(false);
-  };
 
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Stock Inventory</h2>
-        <div className="flex items-center gap-2">
-          {confirmRestock ? (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Reset all "Used" to 0?</span>
-              <button onClick={doRestock} className="px-3 py-1.5 rounded-lg bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">Confirm</button>
-              <button onClick={() => setConfirmRestock(false)} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">Cancel</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmRestock(true)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
-              <RotateCcw className="w-4 h-4" /> Restock All
-            </button>
-          )}
-          <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
-            <Plus className="w-4 h-4" /> Add Item
-          </button>
+        <div>
+          <h2 className="text-lg font-semibold">Stock Inventory</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Computed from purchased batches (FIFO). Add materials on Setup, log real purchases on Procurement.
+          </p>
         </div>
       </div>
 
-      {showAdd && (
-        <div className="mb-4 p-4 rounded-lg bg-black/30 border border-white/5 grid grid-cols-2 md:grid-cols-6 gap-2">
-          <input placeholder="id" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} className="col-span-1 bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10" />
-          <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="col-span-2 bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10" />
-          <input placeholder="unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10" />
-          <input type="number" placeholder="initial" value={form.initialStock} onChange={(e) => setForm({ ...form, initialStock: +e.target.value })} className="bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10" />
-          <input type="number" placeholder="min" value={form.minStock} onChange={(e) => setForm({ ...form, minStock: +e.target.value })} className="bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10" />
-          <button
-            className="col-span-2 md:col-span-6 py-1.5 rounded bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-sm"
-            onClick={() => {
-              if (!form.id || !form.name) return;
-              onAdd(form);
-              setForm({ id: "", name: "", unit: "pcs", initialStock: 0, minStock: 0 });
-              setShowAdd(false);
-            }}
-          >Save Item</button>
+      {state.stock.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">No raw materials yet — add one on the Setup page.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+                <th className="text-left py-2 px-2">Item</th>
+                <th className="text-left py-2 px-2">Unit</th>
+                <th className="text-right py-2 px-2">Purchased</th>
+                <th className="text-right py-2 px-2">Used</th>
+                <th className="text-right py-2 px-2">Remaining</th>
+                <th className="text-right py-2 px-2">Min</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.stock.map((s) => {
+                const remaining = s.initialStock - s.used;
+                const low = remaining < s.minStock || remaining < s.initialStock * 0.2;
+                return (
+                  <tr key={s.id} className="border-b border-white/5 hover:bg-white/5">
+                    <td className="py-2 px-2 font-semibold">{s.name}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{s.unit}</td>
+                    <td className="py-2 px-2 text-right font-mono">{s.initialStock}</td>
+                    <td className="py-2 px-2 text-right font-mono">{s.used}</td>
+                    <td className={`py-2 px-2 text-right font-mono font-bold ${low ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                      {remaining} {low && "⚠"}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
-              <th className="text-left py-2 px-2">Item</th>
-              <th className="text-left py-2 px-2">Unit</th>
-              <th className="text-right py-2 px-2">Initial</th>
-              <th className="text-right py-2 px-2">Used</th>
-              <th className="text-right py-2 px-2">Remaining</th>
-              <th className="text-right py-2 px-2">Min</th>
-              <th className="py-2 px-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.stock.map((s) => {
-              const remaining = s.initialStock - s.used;
-              const low = remaining < s.minStock || remaining < s.initialStock * 0.2;
-              return (
-                <tr key={s.id} className="border-b border-white/5 hover:bg-white/5">
-                  <td className="py-2 px-2 font-semibold">{s.name}</td>
-                  <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{s.unit}</td>
-                  <td className="py-2 px-2 text-right">
-                    <input
-                      type="number"
-                      value={s.initialStock}
-                      onChange={(e) => onUpdate(s.id, { initialStock: +e.target.value })}
-                      className="w-24 bg-transparent text-right font-mono outline-none focus:bg-black/40 rounded px-1"
-                    />
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono">{s.used}</td>
-                  <td className={`py-2 px-2 text-right font-mono font-bold ${low ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                    {remaining} {low && "⚠"}
-                  </td>
-                  <td className="py-2 px-2 text-right">
-                    <input
-                      type="number"
-                      value={s.minStock}
-                      onChange={(e) => onUpdate(s.id, { minStock: +e.target.value })}
-                      className="w-20 bg-transparent text-right font-mono outline-none focus:bg-black/40 rounded px-1"
-                    />
-                  </td>
-                  <td className="py-2 px-2 text-right">
-                    <button onClick={() => onDelete(s.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
