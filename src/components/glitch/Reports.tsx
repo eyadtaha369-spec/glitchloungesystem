@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney, isToday } from "@/lib/glitch-store";
 import type { Shift, Session } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Users2, Boxes, History, Wallet } from "lucide-react";
+import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin } from "lucide-react";
 
 function startOfDay(ts: number) {
   const d = new Date(ts);
@@ -130,6 +130,7 @@ export function ReportsPage() {
       </div>
 
       <HistoryLog />
+      <AttendanceLog />
       <PnLLedgerPanel />
     </div>
   );
@@ -312,6 +313,78 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function microTs(ts: number) {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} - ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function mapsUrl(lat: number, lng: number) {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+function AttendanceLog() {
+  const { state } = useStore();
+
+  // Shift number = the Nth shift THIS cashier has worked, oldest first.
+  const shiftsByCashier = new Map<string, number>();
+  const rows = state.shifts
+    .slice()
+    .sort((a, b) => a.openedAt - b.openedAt)
+    .map((sh) => {
+      const n = (shiftsByCashier.get(sh.cashierUsername) ?? 0) + 1;
+      shiftsByCashier.set(sh.cashierUsername, n);
+      return { ...sh, shiftNumber: n };
+    })
+    .sort((a, b) => b.openedAt - a.openedAt);
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <MapPin className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+        <h2 className="text-lg font-semibold">Attendance &amp; Location Log</h2>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">No shifts recorded yet.</div>
+      ) : (
+        <div className="overflow-x-auto max-h-96 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-[#0d0d14]">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+                <th className="text-left py-2 px-2">Staff</th>
+                <th className="text-left py-2 px-2">Shift #</th>
+                <th className="text-left py-2 px-2">Start</th>
+                <th className="text-left py-2 px-2">End</th>
+                <th className="text-left py-2 px-2">Opened At</th>
+                <th className="text-left py-2 px-2">Closed At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((sh) => (
+                <tr key={sh.id} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="py-2 px-2 font-semibold">{sh.cashierUsername}</td>
+                  <td className="py-2 px-2 font-mono">{sh.shiftNumber}</td>
+                  <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{microTs(sh.openedAt)}</td>
+                  <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{sh.closedAt ? microTs(sh.closedAt) : "— (open)"}</td>
+                  <td className="py-2 px-2">
+                    {sh.openedLat !== null && sh.openedLng !== null ? (
+                      <a href={mapsUrl(sh.openedLat, sh.openedLng)} target="_blank" rel="noreferrer" className="text-[oklch(0.85_0.16_200)] hover:underline text-xs">View Location</a>
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="py-2 px-2">
+                    {sh.closedLat !== null && sh.closedLng !== null ? (
+                      <a href={mapsUrl(sh.closedLat, sh.closedLng)} target="_blank" rel="noreferrer" className="text-[oklch(0.85_0.16_200)] hover:underline text-xs">View Location</a>
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

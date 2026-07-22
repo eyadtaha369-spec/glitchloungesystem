@@ -97,6 +97,10 @@ export interface Shift {
   expectedCash: number | null;
   discrepancy: number | null;
   forced: boolean; // true if closed via the admin emergency-reset path
+  openedLat: number | null;
+  openedLng: number | null;
+  closedLat: number | null;
+  closedLng: number | null;
 }
 
 // The authoritative, server-owned business state (everything except accounts/session).
@@ -111,6 +115,12 @@ export interface AppState {
   shifts: Shift[];
   activeShiftId: string | null;
   fraudThresholdPercent: number;
+  // Geofence config for the Shift Gatekeeper — cashiers (and admins) must be
+  // physically at these coordinates, within the radius, to open/close a shift.
+  geofenceEnabled: boolean;
+  cafeLat: number;
+  cafeLng: number;
+  geofenceRadiusMeters: number;
   // Computed (not persisted) — lets any role see this without needing full
   // void-ledger access, for the "flag at shift close" requirement.
   pendingVoidCountForActiveShift: number;

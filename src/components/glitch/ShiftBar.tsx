@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore, fmtMoney } from "@/lib/glitch-store";
+import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import { Lock, Unlock, DollarSign } from "lucide-react";
 
 export function ShiftBar() {
@@ -8,6 +8,7 @@ export function ShiftBar() {
   const [err, setErr] = useState<string | null>(null);
   const [endOpen, setEndOpen] = useState(false);
   const [actualCash, setActualCash] = useState("0");
+  const [locating, setLocating] = useState(false);
   const [closedSummary, setClosedSummary] = useState<{ expected: number; actual: number; discrepancy: number } | null>(null);
 
   const shiftSessions = activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id) : [];
@@ -16,14 +17,28 @@ export function ShiftBar() {
 
   const handleOpen = async () => {
     setErr(null);
-    const res = await openShift(parseFloat(openingBalance) || 0);
+    setLocating(true);
+    const geo = await captureGeolocation();
+    setLocating(false);
+    if (!geo.ok && state.geofenceEnabled) {
+      setErr(geo.reason === "denied" ? "Location access is required to open a shift. Please allow it and try again." : "Couldn't get your location. Try again.");
+      return;
+    }
+    const res = await openShift(parseFloat(openingBalance) || 0, geo.ok ? { lat: geo.lat, lng: geo.lng } : null);
     if (!res.ok) setErr(res.error ?? "Could not open shift");
   };
 
   const handleEnd = async () => {
     setErr(null);
+    setLocating(true);
+    const geo = await captureGeolocation();
+    setLocating(false);
+    if (!geo.ok && state.geofenceEnabled) {
+      setErr(geo.reason === "denied" ? "Location access is required to end a shift. Please allow it and try again." : "Couldn't get your location. Try again.");
+      return;
+    }
     const cash = parseFloat(actualCash) || 0;
-    const res = await endShift(cash);
+    const res = await endShift(cash, geo.ok ? { lat: geo.lat, lng: geo.lng } : null);
     if (!res.ok) { setErr(res.error ?? "Could not end shift"); return; }
     if (res.closedShift && res.closedShift.expectedCash !== null && res.closedShift.discrepancy !== null) {
       setClosedSummary({ expected: res.closedShift.expectedCash, actual: cash, discrepancy: res.closedShift.discrepancy });
@@ -63,9 +78,10 @@ export function ShiftBar() {
           </div>
           <button
             onClick={handleOpen}
-            className="flex items-center gap-2 px-5 py-2.5 mt-5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+            disabled={locating}
+            className="flex items-center gap-2 px-5 py-2.5 mt-5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-60"
           >
-            <Unlock className="w-4 h-4" /> Open Shift
+            <Unlock className="w-4 h-4" /> {locating ? "Locating..." : "Open Shift"}
           </button>
         </div>
         {err && <div className="mt-2 text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
@@ -134,7 +150,7 @@ export function ShiftBar() {
             />
             <div className="flex gap-2 mt-4">
               <button onClick={() => setEndOpen(false)} className="flex-1 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm">Cancel</button>
-              <button onClick={handleEnd} className="flex-1 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold text-sm">Confirm &amp; Close</button>
+              <button onClick={handleEnd} disabled={locating} className="flex-1 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold text-sm disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
             </div>
             {err && <div className="mt-2 text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
           </div>

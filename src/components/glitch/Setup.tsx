@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useStore, fmtMoney } from "@/lib/glitch-store";
+import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -9,12 +9,84 @@ export function SetupPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Setup</h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
-          Raw Materials · Suppliers · Recurring Expenses
+          Raw Materials · Suppliers · Recurring Expenses · Geofence
         </p>
       </div>
+      <GeofencePanel />
       <MaterialsPanel />
       <SuppliersPanel />
       <RecurringExpensesPanel />
+    </div>
+  );
+}
+
+function GeofencePanel() {
+  const { state, setGeofenceConfig } = useStore();
+  const [enabled, setEnabled] = useState(state.geofenceEnabled);
+  const [lat, setLat] = useState(String(state.cafeLat));
+  const [lng, setLng] = useState(String(state.cafeLng));
+  const [radius, setRadius] = useState(String(state.geofenceRadiusMeters));
+  const [locating, setLocating] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const useMyLocation = async () => {
+    setLocating(true);
+    setMsg(null);
+    const geo = await captureGeolocation();
+    setLocating(false);
+    if (!geo.ok) { setMsg("Couldn't get your location — check browser permissions."); return; }
+    setLat(String(geo.lat));
+    setLng(String(geo.lng));
+    setMsg("Captured your current location below. Save to apply it as the venue's coordinates.");
+  };
+
+  const save = async () => {
+    await setGeofenceConfig({
+      enabled,
+      lat: parseFloat(lat) || 0,
+      lng: parseFloat(lng) || 0,
+      radiusMeters: parseFloat(radius) || 50,
+    });
+    setMsg("Geofence settings saved.");
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <MapPin className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
+        <h2 className="text-lg font-semibold">Shift Geofence</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        When enabled, cashiers (and admins) must be physically within this radius of the venue to open or close a shift. Stand at the actual venue and tap "Use My Current Location" to set it precisely.
+      </p>
+
+      <label className="flex items-center gap-2 text-sm mb-4">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        Enforce geofence on shift open/close
+      </label>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Latitude</label>
+          <input value={lat} onChange={(e) => setLat(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Longitude</label>
+          <input value={lng} onChange={(e) => setLng(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Radius (meters)</label>
+          <input type="number" value={radius} onChange={(e) => setRadius(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-4">
+        <button onClick={useMyLocation} disabled={locating} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-60">
+          <Navigation className="w-3.5 h-3.5" /> {locating ? "Locating..." : "Use My Current Location"}
+        </button>
+        <button onClick={save} className="text-xs px-4 py-2 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)]">Save Geofence</button>
+      </div>
+      {msg && <div className="mt-3 text-xs text-muted-foreground">{msg}</div>}
     </div>
   );
 }

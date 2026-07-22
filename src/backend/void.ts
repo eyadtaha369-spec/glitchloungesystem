@@ -43,3 +43,11 @@ export const setFraudThresholdFn = createServerFn({ method: "POST" })
     const res = await callAppsScript<{ state: AppState }>("setFraudThreshold", { ...data, username: user.username });
     return res.state;
   });
+
+export const setGeofenceConfigFn = createServerFn({ method: "POST" })
+  .validator((d: { enabled: boolean; lat: number; lng: number; radiusMeters: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    const res = await callAppsScript<{ state: AppState }>("setGeofenceConfig", { ...data, username: user.username });
+    return res.state;
+  });

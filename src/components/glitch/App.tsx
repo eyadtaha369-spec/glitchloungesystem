@@ -10,16 +10,22 @@ import { ReportsPage } from "./Reports";
 import { ProcurementPage } from "./Procurement";
 import { SetupPage } from "./Setup";
 import { VoidsPage } from "./Voids";
+import { Gatekeeper } from "./Gatekeeper";
 import { Lock } from "lucide-react";
 
 function Shell() {
-  const { state, ready } = useStore();
+  const { state, ready, activeShift } = useStore();
   const [view, setView] = useState<View>("dashboard");
 
   if (!ready) return null;
   if (!state.currentUser) return <Login />;
 
   const isAdmin = state.currentUser.role === "admin";
+
+  // Cashiers cannot see or reach ANY POS screen — Rooms, Dashboard, nothing —
+  // until they've started a geofence-verified shift right here.
+  if (!isAdmin && !activeShift) return <Gatekeeper />;
+
   const locked = !isAdmin && (view === "inventory" || view === "users" || view === "reports" || view === "setup" || view === "voids");
 
   return (

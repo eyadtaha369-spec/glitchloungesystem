@@ -42,7 +42,7 @@ import {
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
-  requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn,
+  requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn,
 } from "@/backend/void";
 
 export type {
@@ -74,6 +74,10 @@ const emptyAppState: AppState = {
   shifts: [],
   activeShiftId: null,
   fraudThresholdPercent: 2,
+  geofenceEnabled: false,
+  cafeLat: 0,
+  cafeLng: 0,
+  geofenceRadiusMeters: 50,
   pendingVoidCountForActiveShift: 0,
 };
 
@@ -102,9 +106,11 @@ interface StoreContextValue {
   computeElapsed: (room: Room) => number;
   isPending: (key: string) => boolean;
   activeShift: Shift | null;
-  openShift: (openingBalance: number) => Promise<{ ok: boolean; error?: string }>;
-  endShift: (actualCash: number) => Promise<{ ok: boolean; error?: string; closedShift?: Shift }>;
+  openShift: (openingBalance: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string }>;
+  endShift: (actualCash: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; closedShift?: Shift }>;
   forceEndShift: (actualCash?: number) => Promise<void>;
+  setFraudThreshold: (percent: number) => Promise<void>;
+  setGeofenceConfig: (cfg: { enabled: boolean; lat: number; lng: number; radiusMeters: number }) => Promise<void>;
 
   // Raw materials / suppliers / recurring expense templates [admin CRUD]
   addRawMaterial: (m: { name: string; unit: string; minStockAlert: number }) => Promise<void>;
@@ -139,7 +145,6 @@ interface StoreContextValue {
   requestVoid: (v: { roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string }) => Promise<{ ok: boolean; error?: string }>;
   approveVoid: (voidId: string) => Promise<{ ok: boolean; error?: string }>;
   denyVoid: (voidId: string) => Promise<void>;
-  setFraudThreshold: (percent: number) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -543,17 +548,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const openShift: StoreContextValue["openShift"] = async (openingBalance) => {
+  const openShift: StoreContextValue["openShift"] = async (openingBalance, coords) => {
     return withPending("openShift", async () => {
-      const res = await openShiftFn({ data: { openingBalance } });
+      const res = await openShiftFn({ data: { openingBalance, lat: coords?.lat, lng: coords?.lng } });
       setAppState(res.state);
       return { ok: res.ok, error: res.error };
     });
   };
-  const endShift: StoreContextValue["endShift"] = async (actualCash) => {
+  const endShift: StoreContextValue["endShift"] = async (actualCash, coords) => {
     return withPending("endShift", async () => {
       const closingShiftId = appState.activeShiftId;
-      const res = await endShiftFn({ data: { actualCash } });
+      const res = await endShiftFn({ data: { actualCash, lat: coords?.lat, lng: coords?.lng } });
       // Strict reset: once a shift closes, wipe any locally-cached view of
       // it immediately so the next shift never glimpses the previous one's
       // numbers, even for the instant before the fresh state arrives.
@@ -565,6 +570,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const forceEndShift: StoreContextValue["forceEndShift"] = async (actualCash) => {
     return withPending("forceEndShift", async () => {
       setAppState(await forceEndShiftFn({ data: { actualCash } }));
+    });
+  };
+  const setGeofenceConfig: StoreContextValue["setGeofenceConfig"] = async (cfg) => {
+    return withPending("setGeofenceConfig", async () => {
+      setAppState(await setGeofenceConfigFn({ data: cfg }));
     });
   };
 
@@ -596,7 +606,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
-    requestVoid, approveVoid, denyVoid, setFraudThreshold,
+    requestVoid, approveVoid, denyVoid, setFraudThreshold, setGeofenceConfig,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
@@ -609,6 +619,27 @@ export function useStore() {
 }
 
 // helpers
+export type GeoResult =
+  | { ok: true; lat: number; lng: number }
+  | { ok: false; reason: "denied" | "unavailable" | "unsupported" };
+
+// Captures live GPS coords at the exact moment it's called — used right
+// when the user clicks Start/End Shift, never cached, since the whole
+// point of the geofence is verifying where they are RIGHT NOW.
+export function captureGeolocation(): Promise<GeoResult> {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) {
+      resolve({ ok: false, reason: "unsupported" });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ ok: true, lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => resolve({ ok: false, reason: err.code === err.PERMISSION_DENIED ? "denied" : "unavailable" }),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  });
+}
+
 export function fmtDuration(sec: number) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);

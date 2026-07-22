@@ -102,7 +102,7 @@ export const setActualCashFn = createServerFn({ method: "POST" })
 // ---------- Shifts ----------
 
 export const openShiftFn = createServerFn({ method: "POST" })
-  .validator((d: { openingBalance: number }) => d)
+  .validator((d: { openingBalance: number; lat?: number; lng?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("openShift", {
@@ -112,7 +112,7 @@ export const openShiftFn = createServerFn({ method: "POST" })
   });
 
 export const endShiftFn = createServerFn({ method: "POST" })
-  .validator((d: { actualCash: number }) => d)
+  .validator((d: { actualCash: number; lat?: number; lng?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("endShift", {

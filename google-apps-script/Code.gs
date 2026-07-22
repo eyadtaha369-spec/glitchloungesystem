@@ -111,7 +111,34 @@ function defaultAppState_() {
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
     actualCashInput: 0, shifts: [], activeShiftId: null, fraudThresholdPercent: 2,
+    geofenceEnabled: false, cafeLat: 0, cafeLng: 0, geofenceRadiusMeters: 50,
   };
+}
+
+// Great-circle distance in meters between two lat/lng points.
+function haversineMeters_(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = function (d) { return (d * Math.PI) / 180; };
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Returns an error string if the coords fail the geofence check, else null.
+// Skipped entirely if the admin hasn't enabled/configured a real location yet.
+function checkGeofence_(state, lat, lng) {
+  if (!state.geofenceEnabled) return null;
+  if (typeof lat !== "number" || typeof lng !== "number") {
+    return "Location is required to open or close a shift.";
+  }
+  const distance = haversineMeters_(state.cafeLat, state.cafeLng, lat, lng);
+  if (distance > state.geofenceRadiusMeters) {
+    return "Access Denied: You must be physically present at the venue to open/close a shift.";
+  }
+  return null;
 }
 
 function json_(obj) {
@@ -463,7 +490,7 @@ function pendingVoidCountForShift_(shiftId) {
 
 // ---------- Shifts ----------
 
-function bizOpenShift_(state, username, openingBalance) {
+function bizOpenShift_(state, username, openingBalance, lat, lng) {
   if (state.activeShiftId) return { ok: false, error: "A shift is already open", state: state };
   const id = "shift-" + Date.now();
   const shift = {
@@ -476,6 +503,10 @@ function bizOpenShift_(state, username, openingBalance) {
     expectedCash: null,
     discrepancy: null,
     forced: false,
+    openedLat: typeof lat === "number" ? lat : null,
+    openedLng: typeof lng === "number" ? lng : null,
+    closedLat: null,
+    closedLng: null,
   };
   state.shifts = [shift].concat(state.shifts);
   state.activeShiftId = id;
@@ -488,7 +519,7 @@ function bizOpenShift_(state, username, openingBalance) {
 // expenses logged against this shift. `forced` = true means this came
 // from the admin emergency-reset path rather than a cashier's normal End
 // Shift.
-function bizCloseActiveShift_(state, ledger, actualCash, forced) {
+function bizCloseActiveShift_(state, ledger, actualCash, forced, lat, lng) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift to close", state: state };
   const shiftId = state.activeShiftId;
   const shift = state.shifts.find((sh) => sh.id === shiftId);
@@ -509,6 +540,8 @@ function bizCloseActiveShift_(state, ledger, actualCash, forced) {
           expectedCash: expectedCash,
           discrepancy: discrepancy,
           forced: !!forced,
+          closedLat: typeof lat === "number" ? lat : null,
+          closedLng: typeof lng === "number" ? lng : null,
         })
       : sh
   );
@@ -668,14 +701,20 @@ function doPost(e) {
       }
       case "openShift": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizOpenShift_(getState_(), body.username, body.openingBalance);
+        const state0 = getState_();
+        const geoErr = checkGeofence_(state0, body.lat, body.lng);
+        if (geoErr) return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
+        const result = bizOpenShift_(state0, body.username, body.openingBalance, body.lat, body.lng);
         if (result.ok) setState_(result.state);
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "endShift": {
         requireRole_(body.username, ["admin", "cashier"]);
+        const state0 = getState_();
+        const geoErr = checkGeofence_(state0, body.lat, body.lng);
+        if (geoErr) return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
         const ledger = readObjects_("Ledger");
-        const result = bizCloseActiveShift_(getState_(), ledger, body.actualCash, false);
+        const result = bizCloseActiveShift_(state0, ledger, body.actualCash, false, body.lat, body.lng);
         if (result.ok) setState_(result.state);
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
@@ -885,6 +924,17 @@ function doPost(e) {
         return json_({ state: withStockView_(state) });
       }
 
+      case "setGeofenceConfig": {
+        requireRole_(body.username, ["admin"]);
+        const state = getState_();
+        state.geofenceEnabled = !!body.enabled;
+        state.cafeLat = Number(body.lat) || 0;
+        state.cafeLng = Number(body.lng) || 0;
+        state.geofenceRadiusMeters = Number(body.radiusMeters) || 50;
+        setState_(state);
+        return json_({ state: withStockView_(state) });
+      }
+
       default:
         return json_({ error: "Unknown action" });
     }
@@ -1037,6 +1087,10 @@ function getState_() {
         if (!parsed.shifts) parsed.shifts = [];
         if (parsed.activeShiftId === undefined) parsed.activeShiftId = null;
         if (typeof parsed.fraudThresholdPercent !== "number") parsed.fraudThresholdPercent = 2;
+        if (typeof parsed.geofenceEnabled !== "boolean") parsed.geofenceEnabled = false;
+        if (typeof parsed.cafeLat !== "number") parsed.cafeLat = 0;
+        if (typeof parsed.cafeLng !== "number") parsed.cafeLng = 0;
+        if (typeof parsed.geofenceRadiusMeters !== "number") parsed.geofenceRadiusMeters = 50;
         delete parsed.stock; // stock is always a computed view now, never persisted
         delete parsed.pendingVoidCountForActiveShift; // also computed, never persisted
         return parsed;
