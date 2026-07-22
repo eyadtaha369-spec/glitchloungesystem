@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -110,7 +110,7 @@ function defaultAppState_() {
   rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 10, status: "available", startedAt: null, orders: [] });
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
-    actualCashInput: 0, shifts: [], activeShiftId: null,
+    actualCashInput: 0, shifts: [], activeShiftId: null, fraudThresholdPercent: 2,
   };
 }
 
@@ -139,9 +139,22 @@ function sheetObjectHeaders_(name) {
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost"],
+    VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
   };
   return map[name];
 }
+
+// Each void reason carries its own inventory/ledger consequence, per spec.
+// "Wrong Input" never touches inventory (nothing was made yet). The other
+// three consume ingredients via FIFO — the item WAS made — and route the
+// resulting cost to a distinct admin-visible ledger category rather than
+// counting it as lost menu-price revenue (which was never earned).
+const VOID_REASONS = {
+  wrongInput: { label: "Wrong Input (Before Preparation)", deductsInventory: false, ledgerCategory: null },
+  spilled: { label: "Spilled / Damaged by Staff", deductsInventory: true, ledgerCategory: "Operational Waste / Damaged Goods" },
+  customerRejected: { label: "Customer Rejected (Taste/Quality)", deductsInventory: true, ledgerCategory: "Customer Satisfaction Waste" },
+  complimentary: { label: "Complimentary / VIP Gift (Free)", deductsInventory: true, ledgerCategory: "Marketing & Hospitality (Comps)" },
+};
 
 function ensureHeaders_(sheet, headers) {
   if (sheet.getLastRow() === 0) sheet.appendRow(headers);
@@ -395,6 +408,59 @@ function bizSetActualCash_(state, n) {
   return state;
 }
 
+// ---------- Void workflow ----------
+
+// Actually executes a void: reduces (or removes) the qty on the room's LIVE
+// order, and — if the reason requires it — consumes ingredients via FIFO
+// right now, since they were physically used making the item. Returns the
+// touched batch ids so only those get written back.
+function applyVoid_(state, batches, req) {
+  const room = state.rooms.find((r) => r.id === req.roomId);
+  if (!room) return { ok: false, error: "Room not found", state: state, touchedBatchIds: [] };
+  const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
+  if (!line || line.qty < req.qty) {
+    return { ok: false, error: "Item is no longer on the order as requested (checked out or already modified)", state: state, touchedBatchIds: [] };
+  }
+
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== req.roomId) return r;
+    const newQty = line.qty - req.qty;
+    const orders = newQty <= 0
+      ? r.orders.filter((o) => o.menuItemId !== req.menuItemId)
+      : r.orders.map((o) => (o.menuItemId === req.menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
+    return Object.assign({}, r, { orders: orders });
+  });
+
+  const reasonCfg = VOID_REASONS[req.reason];
+  let cogs = 0;
+  const touchedBatchIds = [];
+  if (reasonCfg && reasonCfg.deductsInventory) {
+    const item = state.menu.find((m) => m.id === req.menuItemId);
+    if (item) {
+      item.ingredients.forEach((ing) => {
+        const res = consumeFifo_(batches, ing.stockId, ing.qty * req.qty);
+        cogs += res.cost;
+        touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+      });
+    }
+  }
+
+  pushActivity_(state, "VOID (" + (reasonCfg ? reasonCfg.label : req.reason) + "): " + req.qty + "x " + req.itemName + " — " + room.name);
+  return { ok: true, state: state, cogs: cogs, touchedBatchIds: Array.from(new Set(touchedBatchIds)) };
+}
+
+function writeBatchesBack_(batches, touchedBatchIds) {
+  touchedBatchIds.forEach(function (id) {
+    const b = batches.find(function (x) { return x.id === id; });
+    if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+  });
+}
+
+function pendingVoidCountForShift_(shiftId) {
+  if (!shiftId) return 0;
+  return readObjects_("VoidRequests").filter((v) => v.shiftId === shiftId && v.status === "pending").length;
+}
+
 // ---------- Shifts ----------
 
 function bizOpenShift_(state, username, openingBalance) {
@@ -521,11 +587,7 @@ function doPost(e) {
 
       case "getState": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const state = getState_();
-        const materials = readObjects_("RawMaterials");
-        const batches = readObjects_("Batches");
-        state.stock = computeStockView_(materials, batches);
-        return json_({ state: state });
+        return json_({ state: withStockView_(getState_()) });
       }
 
       // ---- Atomic business actions: read + mutate + write in ONE locked call ----
@@ -722,6 +784,107 @@ function doPost(e) {
         return json_({ ok: true });
       }
 
+      // ---- Void workflow ----
+      case "requestVoid": {
+        const role = requireRole_(body.username, ["admin", "cashier"]);
+        if (!VOID_REASONS[body.reason]) return json_({ ok: false, error: "Invalid void reason" });
+        const state = getState_();
+        const room = state.rooms.find((r) => r.id === body.roomId);
+        if (!room) return json_({ ok: false, error: "Room not found" });
+        const line = room.orders.find((o) => o.menuItemId === body.menuItemId);
+        if (!line || line.qty < body.qty || body.qty <= 0) return json_({ ok: false, error: "Invalid quantity to void" });
+
+        const req = {
+          id: newId_("void"), ts: Date.now(), roomId: room.id, roomName: room.name,
+          menuItemId: body.menuItemId, itemName: line.name, qty: body.qty, unitPrice: line.price,
+          billValue: line.price * body.qty, reason: body.reason,
+          status: role === "admin" ? "approved" : "pending",
+          cashierUsername: body.username, waiterName: body.waiterName || "",
+          shiftId: state.activeShiftId, approvedBy: role === "admin" ? body.username : null,
+          approvedAt: role === "admin" ? Date.now() : null, cogs: null, applied: false, applyError: null,
+        };
+
+        if (role === "admin") {
+          // Cashiers have no authority to void independently — but an
+          // admin-initiated void executes immediately, same auto-approve
+          // pattern as procurement.
+          const batches = readObjects_("Batches");
+          const result = applyVoid_(state, batches, req);
+          if (result.ok) {
+            req.cogs = result.cogs;
+            req.applied = true;
+            setState_(result.state);
+            writeBatchesBack_(batches, result.touchedBatchIds);
+            const reasonCfg = VOID_REASONS[body.reason];
+            if (reasonCfg.deductsInventory && result.cogs > 0) {
+              appendObject_("Ledger", {
+                id: newId_("ledg"), ts: req.ts, amount: result.cogs, direction: "outflow", type: "manualAdjustment",
+                category: reasonCfg.ledgerCategory, description: req.qty + "x " + req.itemName + " — " + room.name,
+                supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+                paidFromDrawer: false, shiftId: state.activeShiftId, materialId: null, qty: null, unitCost: null,
+              });
+            }
+          } else {
+            req.applyError = result.error;
+          }
+        }
+        // Pending (cashier) requests intentionally do NOT touch the room or
+        // batches — the item stays fully on the live bill (and therefore in
+        // Expected Drawer Cash) until an admin approves it.
+        appendObject_("VoidRequests", req);
+        return json_({ ok: true, request: req, state: withStockView_(getState_()) });
+      }
+
+      case "getVoidRequests":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readObjects_("VoidRequests") });
+
+      case "approveVoid": {
+        requireRole_(body.username, ["admin"]);
+        const requests = readObjects_("VoidRequests");
+        const req = requests.find((r) => r.id === body.voidId);
+        if (!req) return json_({ ok: false, error: "Void request not found" });
+        if (req.status === "approved") return json_({ ok: true, state: withStockView_(getState_()) });
+
+        const state = getState_();
+        const batches = readObjects_("Batches");
+        const result = applyVoid_(state, batches, req);
+        if (!result.ok) {
+          updateObjectById_("VoidRequests", req.id, { applyError: result.error });
+          return json_({ ok: false, error: result.error });
+        }
+        setState_(result.state);
+        writeBatchesBack_(batches, result.touchedBatchIds);
+        updateObjectById_("VoidRequests", req.id, {
+          status: "approved", approvedBy: body.username, approvedAt: Date.now(),
+          cogs: result.cogs, applied: true, applyError: null,
+        });
+        const reasonCfg = VOID_REASONS[req.reason];
+        if (reasonCfg && reasonCfg.deductsInventory && result.cogs > 0) {
+          appendObject_("Ledger", {
+            id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
+            category: reasonCfg.ledgerCategory, description: req.qty + "x " + req.itemName + " — " + req.roomName,
+            supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+            paidFromDrawer: false, shiftId: req.shiftId, materialId: null, qty: null, unitCost: null,
+          });
+        }
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      case "denyVoid": {
+        requireRole_(body.username, ["admin"]);
+        updateObjectById_("VoidRequests", body.voidId, { status: "denied", approvedBy: body.username, approvedAt: Date.now() });
+        return json_({ ok: true });
+      }
+
+      case "setFraudThreshold": {
+        requireRole_(body.username, ["admin"]);
+        const state = getState_();
+        state.fraudThresholdPercent = Number(body.percent) || 0;
+        setState_(state);
+        return json_({ state: withStockView_(state) });
+      }
+
       default:
         return json_({ error: "Unknown action" });
     }
@@ -737,6 +900,7 @@ function withStockView_(state) {
   const materials = readObjects_("RawMaterials");
   const batches = readObjects_("Batches");
   state.stock = computeStockView_(materials, batches);
+  state.pendingVoidCountForActiveShift = pendingVoidCountForShift_(state.activeShiftId);
   return state;
 }
 
@@ -872,7 +1036,9 @@ function getState_() {
         const parsed = JSON.parse(values[i][1]);
         if (!parsed.shifts) parsed.shifts = [];
         if (parsed.activeShiftId === undefined) parsed.activeShiftId = null;
+        if (typeof parsed.fraudThresholdPercent !== "number") parsed.fraudThresholdPercent = 2;
         delete parsed.stock; // stock is always a computed view now, never persisted
+        delete parsed.pendingVoidCountForActiveShift; // also computed, never persisted
         return parsed;
       } catch (e) {
         return defaultAppState_();
@@ -885,6 +1051,7 @@ function getState_() {
 function setState_(state) {
   const toSave = Object.assign({}, state);
   delete toSave.stock; // never persist the computed view
+  delete toSave.pendingVoidCountForActiveShift; // also computed, never persisted
   const sheet = getSheet_(STATE_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {

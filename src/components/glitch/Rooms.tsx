@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtDuration, fmtMoney, type Room, type Session, type PaymentMethod } from "@/lib/glitch-store";
-import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard } from "lucide-react";
+import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, type Room, type Session, type PaymentMethod, type VoidReason } from "@/lib/glitch-store";
+import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert } from "lucide-react";
 
 export function RoomsPage() {
   const { state, computeElapsed, activeShift } = useStore();
@@ -36,7 +36,7 @@ export function RoomsPage() {
 }
 
 function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; onCheckout: (s: Session) => void }) {
-  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setRoomRate, canFulfill } = useStore();
+  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setRoomRate, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -44,6 +44,7 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
   const [warn, setWarn] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
   const [rateInput, setRateInput] = useState(String(room.hourlyRate));
+  const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
 
   const timeCost = (elapsed / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
@@ -71,8 +72,11 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
     setMenuOpen(false);
   };
 
-  const adjustQty = async (menuItemId: string, currentQty: number, delta: number) => {
-    const r = await setOrderLineQty(room.id, menuItemId, currentQty + delta);
+  // Increasing qty is a routine correction, unrestricted. Removing/reducing
+  // an already-ordered item goes through the formal Void workflow instead —
+  // that's the point at which staff could otherwise quietly wipe a sale.
+  const increaseQty = async (menuItemId: string, currentQty: number) => {
+    const r = await setOrderLineQty(room.id, menuItemId, currentQty + 1);
     if (!r.ok) flashWarn(r.error ?? "Could not update item");
   };
 
@@ -175,32 +179,37 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
               <span className="truncate">{o.name}</span>
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
-                  onClick={() => adjustQty(o.menuItemId, o.qty, -1)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
-                  title={o.qty === 1 ? "Remove" : "Decrease"}
+                  onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
+                  className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
+                  title="Void this item"
                 >
-                  <Minus className="w-3 h-3" />
+                  <ShieldAlert className="w-3 h-3" />
                 </button>
                 <span className="w-4 text-center text-white">{o.qty}</span>
                 <button
-                  onClick={() => adjustQty(o.menuItemId, o.qty, 1)}
+                  onClick={() => increaseQty(o.menuItemId, o.qty)}
                   className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
                   title="Increase"
                 >
                   <Plus className="w-3 h-3" />
                 </button>
                 <span className="w-14 text-right">{fmtMoney(o.qty * o.price)}</span>
-                <button
-                  onClick={() => setOrderLineQty(room.id, o.menuItemId, 0)}
-                  className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"
-                  title="Remove item"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {voidTarget && (
+        <VoidRequestModal
+          roomId={room.id}
+          roomName={room.name}
+          menuItemId={voidTarget.menuItemId}
+          itemName={voidTarget.name}
+          maxQty={voidTarget.maxQty}
+          onClose={() => setVoidTarget(null)}
+          requestVoid={requestVoid}
+        />
       )}
 
       {warn && (
@@ -400,6 +409,116 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
           >
             <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onClose, requestVoid }: {
+  roomId: string;
+  roomName: string;
+  menuItemId: string;
+  itemName: string;
+  maxQty: number;
+  onClose: () => void;
+  requestVoid: ReturnType<typeof useStore>["requestVoid"];
+}) {
+  const { state } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const [qty, setQty] = useState(maxQty);
+  const [reason, setReason] = useState<VoidReason | "">("");
+  const [waiterName, setWaiterName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const submit = async () => {
+    if (!reason) { setResult({ kind: "err", text: "Select a reason." }); return; }
+    if (!waiterName.trim()) { setResult({ kind: "err", text: "Waiter name is required for the audit log." }); return; }
+    setSubmitting(true);
+    try {
+      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim() });
+      if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Void request failed" }); return; }
+      setResult({
+        kind: "ok",
+        text: isAdmin
+          ? "Voided immediately."
+          : "Sent for admin approval — this item stays on the bill and in Expected Cash until approved.",
+      });
+      setTimeout(onClose, 1400);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.75_0.22_25)]">
+            <ShieldAlert className="w-4 h-4" /> Void Request
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="text-sm">
+            <span className="text-muted-foreground">{roomName} —</span> <span className="font-semibold">{itemName}</span>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity to void</label>
+            <input
+              type="number" min={1} max={maxQty} value={qty}
+              onChange={(e) => setQty(Math.max(1, Math.min(maxQty, +e.target.value)))}
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason (required)</label>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value as VoidReason)}
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">Select a reason...</option>
+              {Object.entries(VOID_REASON_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Waiter assigned to table (required)</label>
+            <input
+              value={waiterName}
+              onChange={(e) => setWaiterName(e.target.value)}
+              placeholder="Waiter's name"
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+
+          {!isAdmin && (
+            <p className="text-xs text-[oklch(0.82_0.16_85)]">
+              This item stays on the live bill and counts toward Expected Cash until an admin approves it — you cannot void independently.
+            </p>
+          )}
+
+          {result && (
+            <div className={`text-sm p-2.5 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)]"}`}>
+              {result.text}
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold disabled:opacity-60"
+          >
+            {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
           </button>
         </div>
       </div>

@@ -110,6 +110,10 @@ export interface AppState {
   actualCashInput: number;
   shifts: Shift[];
   activeShiftId: string | null;
+  fraudThresholdPercent: number;
+  // Computed (not persisted) — lets any role see this without needing full
+  // void-ledger access, for the "flag at shift close" requirement.
+  pendingVoidCountForActiveShift: number;
 }
 
 // ---------- Costing / procurement / anti-theft ledger ----------
@@ -180,3 +184,41 @@ export interface LedgerEntry {
   qty: number | null;
   unitCost: number | null;
 }
+
+// ---------- Void workflow (anti-collusion) ----------
+
+export type VoidReason = "wrongInput" | "spilled" | "customerRejected" | "complimentary";
+// Spec calls for strictly "approved" | "pending" in the audit ledger's status
+// column. "denied" is a pragmatic addition so admins can actually clear out
+// a mistaken request instead of it sitting pending forever — it's excluded
+// from both the Approved and Pending Approval buckets in reporting.
+export type VoidStatus = "pending" | "approved" | "denied";
+
+export interface VoidRequest {
+  id: string;
+  ts: number;
+  roomId: string;
+  roomName: string;
+  menuItemId: string;
+  itemName: string;
+  qty: number;
+  unitPrice: number;
+  billValue: number;
+  reason: VoidReason;
+  status: VoidStatus;
+  cashierUsername: string;
+  waiterName: string;
+  shiftId: string | null;
+  approvedBy: string | null;
+  approvedAt: number | null;
+  cogs: number | null;
+  applied: boolean;
+  applyError: string | null;
+}
+
+export const VOID_REASON_LABELS: Record<VoidReason, string> = {
+  wrongInput: "Wrong Input (Before Preparation)",
+  spilled: "Spilled / Damaged by Staff",
+  customerRejected: "Customer Rejected (Taste/Quality)",
+  complimentary: "Complimentary / VIP Gift (Free)",
+};

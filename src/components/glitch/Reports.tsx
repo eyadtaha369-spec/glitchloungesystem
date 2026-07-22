@@ -273,9 +273,11 @@ function PnLLedgerPanel() {
 }
 
 function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; sessions: Session[] }) {
+  const { state } = useStore();
   const revenue = sessions.reduce((a, s) => a + s.total, 0);
   const isOpen = !shift.closedAt;
   const discrepancy = shift.discrepancy;
+  const pendingVoids = state.voidRequests.filter((v) => v.shiftId === shift.id && v.status === "pending").length;
   return (
     <div className="bg-black/30 rounded-lg p-4 border border-white/5">
       <div className="flex items-center justify-between mb-2">
@@ -288,6 +290,11 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
           </span>
         )}
       </div>
+      {pendingVoids > 0 && (
+        <div className="mb-2 text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded bg-[oklch(0.62_0.24_25/0.15)] text-[oklch(0.75_0.22_25)] border border-[oklch(0.62_0.24_25/0.4)] inline-block">
+          ⚠ {pendingVoids} Unapproved Discrepanc{pendingVoids > 1 ? "ies" : "y"}
+        </div>
+      )}
       <div className="text-xs font-mono text-muted-foreground space-y-1">
         <div className="flex justify-between"><span>Opened</span><span>{new Date(shift.openedAt).toLocaleTimeString()}</span></div>
         <div className="flex justify-between"><span>Closed</span><span>{shift.closedAt ? new Date(shift.closedAt).toLocaleTimeString() : "—"}</span></div>

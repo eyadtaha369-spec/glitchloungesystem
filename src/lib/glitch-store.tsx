@@ -13,6 +13,8 @@ import type {
   Supplier,
   RecurringExpense,
   LedgerEntry,
+  VoidRequest,
+  VoidReason,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -39,11 +41,15 @@ import {
   submitPurchaseFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
+import {
+  requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn,
+} from "@/backend/void";
 
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
-  RawMaterial, Supplier, RecurringExpense, LedgerEntry,
+  RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason,
 } from "./types";
+export { VOID_REASON_LABELS } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -54,6 +60,7 @@ interface State extends AppState {
   recurringExpenses: RecurringExpense[];
   ledger: LedgerEntry[];
   pendingApprovals: LedgerEntry[];
+  voidRequests: VoidRequest[];
 }
 
 const emptyAppState: AppState = {
@@ -66,6 +73,8 @@ const emptyAppState: AppState = {
   actualCashInput: 0,
   shifts: [],
   activeShiftId: null,
+  fraudThresholdPercent: 2,
+  pendingVoidCountForActiveShift: 0,
 };
 
 interface StoreContextValue {
@@ -124,6 +133,13 @@ interface StoreContextValue {
   approvePurchase: (ledgerId: string) => Promise<void>;
   rejectPurchase: (ledgerId: string, reason?: string) => Promise<void>;
   refreshLedger: () => Promise<void>;
+
+  // Void workflow — cashiers request, admins auto-execute; requests only
+  // affect the room's live order + inventory once approved.
+  requestVoid: (v: { roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string }) => Promise<{ ok: boolean; error?: string }>;
+  approveVoid: (voidId: string) => Promise<{ ok: boolean; error?: string }>;
+  denyVoid: (voidId: string) => Promise<void>;
+  setFraudThreshold: (percent: number) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -137,6 +153,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<LedgerEntry[]>([]);
+  const [voidRequests, setVoidRequests] = useState<VoidRequest[]>([]);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -171,10 +188,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Materials/suppliers are read by both roles (procurement forms need
-  // them); recurring expenses, ledger, and the approval queue are admin-only.
+  // them); recurring expenses, ledger, the approval queue, and void
+  // requests are admin-only.
   const refreshFinance = useCallback(async (user: CurrentUser | null) => {
     if (!user) {
-      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]);
+      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]);
       return;
     }
     try {
@@ -184,15 +202,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch { /* leave as-is */ }
     if (user.role === "admin") {
       try {
-        const [exp, led, pend] = await Promise.all([
-          getRecurringExpensesFn(), getLedgerFn(), getPendingApprovalsFn(),
+        const [exp, led, pend, voids] = await Promise.all([
+          getRecurringExpensesFn(), getLedgerFn(), getPendingApprovalsFn(), getVoidRequestsFn(),
         ]);
         setRecurringExpenses(exp);
         setLedger(led);
         setPendingApprovals(pend);
+        setVoidRequests(voids);
       } catch { /* leave as-is */ }
     } else {
-      setRecurringExpenses([]); setLedger([]); setPendingApprovals([]);
+      setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]);
     }
   }, []);
   const refreshLedger: StoreContextValue["refreshLedger"] = async () => {
@@ -233,7 +252,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await logoutFn();
     setCurrentUser(null);
     setAccounts([]);
-    setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]);
+    setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]);
     setAppState(emptyAppState);
   };
 
@@ -489,6 +508,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // ---------- Void workflow ----------
+  const refreshVoidRequests = async () => {
+    if (currentUser?.role !== "admin") return;
+    setVoidRequests(await getVoidRequestsFn());
+  };
+  const requestVoid: StoreContextValue["requestVoid"] = async (v) => {
+    return withPending(`requestVoid:${v.roomId}:${v.menuItemId}`, async () => {
+      const res = await requestVoidFn({ data: v });
+      if (res.ok) {
+        setAppState(res.state);
+        await refreshVoidRequests();
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const approveVoid: StoreContextValue["approveVoid"] = async (voidId) => {
+    return withPending(`approveVoid:${voidId}`, async () => {
+      const res = await approveVoidFn({ data: { voidId } });
+      if (res.ok && res.state) setAppState(res.state);
+      await refreshVoidRequests();
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const denyVoid: StoreContextValue["denyVoid"] = async (voidId) => {
+    return withPending(`denyVoid:${voidId}`, async () => {
+      await denyVoidFn({ data: { voidId } });
+      await refreshVoidRequests();
+    });
+  };
+  const setFraudThreshold: StoreContextValue["setFraudThreshold"] = async (percent) => {
+    return withPending("setFraudThreshold", async () => {
+      setAppState(await setFraudThresholdFn({ data: { percent } }));
+    });
+  };
+
   const openShift: StoreContextValue["openShift"] = async (openingBalance) => {
     return withPending("openShift", async () => {
       const res = await openShiftFn({ data: { openingBalance } });
@@ -530,7 +584,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.floor((Date.now() - room.startedAt) / 1000));
   };
 
-  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals };
+  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests };
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
@@ -542,6 +596,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
+    requestVoid, approveVoid, denyVoid, setFraudThreshold,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
