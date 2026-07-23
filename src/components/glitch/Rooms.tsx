@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, type Room, type Session, type PaymentMethod, type VoidReason } from "@/lib/glitch-store";
-import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert } from "lucide-react";
+import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat } from "lucide-react";
 
 export function RoomsPage() {
   const { state, computeElapsed, activeShift } = useStore();
@@ -36,15 +36,18 @@ export function RoomsPage() {
 }
 
 function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; onCheckout: (s: Session) => void }) {
-  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setRoomRate, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [ticketOpen, setTicketOpen] = useState(false);
   const [warn, setWarn] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
   const [rateInput, setRateInput] = useState(String(room.hourlyRate));
   const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
+  const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
+  const [noteInput, setNoteInput] = useState("");
 
   const timeCost = (elapsed / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
@@ -173,32 +176,81 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
 
       {/* Orders */}
       {room.orders.length > 0 && (
-        <div className="mt-3 text-xs font-mono space-y-1.5 max-h-32 overflow-y-auto no-print">
+        <div className="mt-3 text-xs font-mono space-y-1.5 max-h-40 overflow-y-auto no-print">
           {room.orders.map((o) => (
-            <div key={o.menuItemId} className="flex items-center justify-between text-muted-foreground gap-2">
-              <span className="truncate">{o.name}</span>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
-                  title="Void this item"
-                >
-                  <ShieldAlert className="w-3 h-3" />
-                </button>
-                <span className="w-4 text-center text-white">{o.qty}</span>
-                <button
-                  onClick={() => increaseQty(o.menuItemId, o.qty)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
-                  title="Increase"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-                <span className="w-14 text-right">{fmtMoney(o.qty * o.price)}</span>
+            <div key={o.menuItemId} className="text-muted-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">{o.name}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
+                    title="Void this item"
+                  >
+                    <ShieldAlert className="w-3 h-3" />
+                  </button>
+                  <span className="w-4 text-center text-white">{o.qty}</span>
+                  <button
+                    onClick={() => increaseQty(o.menuItemId, o.qty)}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
+                    title="Increase"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                  <span className="w-14 text-right">{fmtMoney(o.qty * o.price)}</span>
+                  <button
+                    onClick={() => { setEditingNoteFor(o.menuItemId); setNoteInput(o.notes ?? ""); }}
+                    className={`w-5 h-5 flex items-center justify-center rounded border ${o.notes ? "bg-[oklch(0.82_0.16_85/0.15)] border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)]" : "bg-white/5 border-white/10 hover:bg-white/10"}`}
+                    title="Add/edit note"
+                  >
+                    <MessageSquare className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
+
+              {editingNoteFor === o.menuItemId ? (
+                <div className="flex items-center gap-1.5 mt-1 pl-1">
+                  <input
+                    autoFocus
+                    value={noteInput}
+                    onChange={(e) => setNoteInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { setOrderLineNote(room.id, o.menuItemId, noteInput); setEditingNoteFor(null); }
+                      if (e.key === "Escape") setEditingNoteFor(null);
+                    }}
+                    placeholder="e.g. Extra Sugar, Skimmed Milk"
+                    className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-[11px]"
+                  />
+                  <button
+                    onClick={() => { setOrderLineNote(room.id, o.menuItemId, noteInput); setEditingNoteFor(null); }}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => setEditingNoteFor(null)} className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : o.notes ? (
+                <div className="pl-1 mt-0.5 text-[11px] italic text-[oklch(0.82_0.16_85)]">
+                  → *{o.notes}*
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
       )}
+
+      {room.orders.length > 0 && (
+        <button
+          onClick={() => setTicketOpen(true)}
+          className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs no-print"
+        >
+          <ChefHat className="w-3.5 h-3.5" /> Print Barista Ticket
+        </button>
+      )}
+
+      {ticketOpen && <BaristaTicketModal room={room} onClose={() => setTicketOpen(false)} />}
 
       {voidTarget && (
         <VoidRequestModal
@@ -407,6 +459,59 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <button
             onClick={() => window.print()}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+          >
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void }) {
+  const now = new Date();
+
+  return (
+    <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10 shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-sm text-[oklch(0.82_0.16_85)]">
+            <ChefHat className="w-4 h-4" /> Barista Ticket
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* No prices here on purpose — this goes to the kitchen, not the customer. */}
+        <div className="print-area p-6 font-mono text-sm bg-black/20">
+          <div className="text-center mb-3">
+            <div className="text-lg font-bold tracking-widest">GLITCH</div>
+            <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Barista Ticket</div>
+          </div>
+          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs">
+            <div className="flex justify-between"><span>Room</span><span className="font-bold">{room.name}</span></div>
+            <div className="flex justify-between"><span>Printed</span><span>{now.toLocaleString()}</span></div>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {room.orders.length === 0 && <div className="opacity-60 text-center">— no items —</div>}
+            {room.orders.map((o) => (
+              <div key={o.menuItemId}>
+                <div className="font-bold">{o.qty}× {o.name}</div>
+                {o.notes && (
+                  <div className="pl-3 text-[oklch(0.82_0.16_85)] italic">
+                    → *{o.notes}*
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2 no-print">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Close</button>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)]"
           >
             <Printer className="w-4 h-4" /> Print
           </button>

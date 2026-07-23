@@ -39,6 +39,7 @@ export interface OrderLine {
   name: string;
   qty: number;
   price: number;
+  notes?: string;
 }
 
 export type PaymentMethod = "cash" | "visa";

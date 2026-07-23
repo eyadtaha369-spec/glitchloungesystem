@@ -362,6 +362,23 @@ function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
   return { ok: true, state: state };
 }
 
+// Sets/clears the barista prep note on a specific order line (e.g. "Extra
+// Sugar", "Skimmed Milk"). Pure metadata — no stock or pricing effect.
+function bizSetOrderLineNote_(state, roomId, menuItemId, notes) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state: state };
+  const line = room.orders.find((o) => o.menuItemId === menuItemId);
+  if (!line) return { ok: false, error: "Item not on this check", state: state };
+  const trimmed = (notes || "").trim();
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== roomId) return r;
+    return Object.assign({}, r, {
+      orders: r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { notes: trimmed }) : o)),
+    });
+  });
+  return { ok: true, state: state };
+}
+
 // Consumes qtyNeeded of a material from the OLDEST batch with stock left
 // first (true FIFO), mutating `batches` in place. Returns the real cost of
 // what was consumed and which batch ids changed (so only those get written
@@ -669,6 +686,12 @@ function doPost(e) {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
         const result = bizSetOrderLineQty_(getState_(), batches, body.roomId, body.menuItemId, body.qty);
+        if (result.ok) setState_(result.state);
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+      }
+      case "setOrderLineNote": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizSetOrderLineNote_(getState_(), body.roomId, body.menuItemId, body.notes);
         if (result.ok) setState_(result.state);
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }

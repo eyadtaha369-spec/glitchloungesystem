@@ -24,6 +24,7 @@ import {
   endRoomFn,
   addOrderFn,
   setOrderLineQtyFn,
+  setOrderLineNoteFn,
   setRoomRateFn,
   addMenuItemFn,
   updateMenuItemFn,
@@ -97,6 +98,7 @@ interface StoreContextValue {
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod) => Promise<Session | null>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
+  setOrderLineNote: (roomId: string, menuItemId: string, notes: string) => Promise<{ ok: boolean; error?: string }>;
   removeOrderLine: (roomId: string, menuItemId: string) => Promise<{ ok: boolean; error?: string }>;
   addMenuItem: (m: MenuItem) => Promise<void>;
   updateMenuItem: (id: string, patch: Partial<MenuItem>) => Promise<void>;
@@ -372,6 +374,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const removeOrderLine: StoreContextValue["removeOrderLine"] = (roomId, menuItemId) =>
     setOrderLineQty(roomId, menuItemId, 0);
+  const setOrderLineNote: StoreContextValue["setOrderLineNote"] = async (roomId, menuItemId, notes) => {
+    return withPending(`orderNote:${roomId}:${menuItemId}`, async () => {
+      setAppState((prev) => ({
+        ...prev,
+        rooms: prev.rooms.map((r) =>
+          r.id !== roomId ? r : { ...r, orders: r.orders.map((o) => (o.menuItemId === menuItemId ? { ...o, notes } : o)) },
+        ),
+      }));
+      const res = await setOrderLineNoteFn({ data: { roomId, menuItemId, notes } });
+      setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
+  };
   const addMenuItem: StoreContextValue["addMenuItem"] = async (item) => {
     return withPending("addMenuItem", async () => {
       setAppState(await addMenuItemFn({ data: { item } }));
@@ -599,7 +614,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, startRoom, endRoom, addOrder, setOrderLineQty, removeOrderLine,
+    setRoomRate, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
     addRawMaterial, updateRawMaterial, deleteRawMaterial,

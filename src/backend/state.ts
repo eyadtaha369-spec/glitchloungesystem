@@ -54,6 +54,18 @@ export const setOrderLineQtyFn = createServerFn({ method: "POST" })
     });
   });
 
+// Sets/clears the barista prep note bound to one specific order line
+// (e.g. "Extra Sugar", "Skimmed Milk") — pure metadata, no stock effect.
+export const setOrderLineNoteFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; menuItemId: string; notes: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("setOrderLineNote", {
+      ...data,
+      username: user.username,
+    });
+  });
+
 export const setRoomRateFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; rate: number }) => d)
   .handler(async ({ data }) => {
