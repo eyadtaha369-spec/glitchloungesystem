@@ -15,6 +15,7 @@ import type {
   LedgerEntry,
   VoidRequest,
   VoidReason,
+  AuditLogEntry,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -33,6 +34,9 @@ import {
   openShiftFn,
   endShiftFn,
   forceEndShiftFn,
+  transferToLoungeFn,
+  logSplitInterfaceOpenedFn,
+  splitOrderFn,
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn,
@@ -45,10 +49,11 @@ import {
 import {
   requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn,
 } from "@/backend/void";
+import { getActivityLogsFn } from "@/backend/audit";
 
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
-  RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason,
+  RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
 } from "./types";
 export { VOID_REASON_LABELS } from "./types";
 export type CurrentUser = { username: string; role: Role };
@@ -62,6 +67,7 @@ interface State extends AppState {
   ledger: LedgerEntry[];
   pendingApprovals: LedgerEntry[];
   voidRequests: VoidRequest[];
+  activityLogs: AuditLogEntry[];
 }
 
 const emptyAppState: AppState = {
@@ -147,6 +153,12 @@ interface StoreContextValue {
   requestVoid: (v: { roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string }) => Promise<{ ok: boolean; error?: string }>;
   approveVoid: (voidId: string) => Promise<{ ok: boolean; error?: string }>;
   denyVoid: (voidId: string) => Promise<void>;
+
+  // Cross-zone transfer & interactive split
+  transferToLounge: (roomId: string, targetTableId: string) => Promise<{ ok: boolean; error?: string }>;
+  openSplitInterface: (roomId: string) => Promise<void>;
+  splitOrder: (sourceId: string, items: { menuItemId: string; qty: number }[]) => Promise<{ ok: boolean; error?: string }>;
+  refreshActivityLogs: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -161,6 +173,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<LedgerEntry[]>([]);
   const [voidRequests, setVoidRequests] = useState<VoidRequest[]>([]);
+  const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -199,7 +212,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // requests are admin-only.
   const refreshFinance = useCallback(async (user: CurrentUser | null) => {
     if (!user) {
-      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]);
+      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]);
       return;
     }
     try {
@@ -209,16 +222,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch { /* leave as-is */ }
     if (user.role === "admin") {
       try {
-        const [exp, led, pend, voids] = await Promise.all([
-          getRecurringExpensesFn(), getLedgerFn(), getPendingApprovalsFn(), getVoidRequestsFn(),
+        const [exp, led, pend, voids, logs] = await Promise.all([
+          getRecurringExpensesFn(), getLedgerFn(), getPendingApprovalsFn(), getVoidRequestsFn(), getActivityLogsFn(),
         ]);
         setRecurringExpenses(exp);
         setLedger(led);
         setPendingApprovals(pend);
         setVoidRequests(voids);
+        setActivityLogs(logs);
       } catch { /* leave as-is */ }
     } else {
-      setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]);
+      setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]);
     }
   }, []);
   const refreshLedger: StoreContextValue["refreshLedger"] = async () => {
@@ -259,7 +273,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await logoutFn();
     setCurrentUser(null);
     setAccounts([]);
-    setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]);
+    setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]);
     setAppState(emptyAppState);
   };
 
@@ -557,6 +571,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await refreshVoidRequests();
     });
   };
+
+  // ---------- Cross-zone transfer & interactive split ----------
+  const transferToLounge: StoreContextValue["transferToLounge"] = async (roomId, targetTableId) => {
+    return withPending(`transfer:${roomId}`, async () => {
+      const res = await transferToLoungeFn({ data: { roomId, targetTableId } });
+      if (res.ok) setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const openSplitInterface: StoreContextValue["openSplitInterface"] = async (roomId) => {
+    // Fire-and-forget audit log of the moment the split UI opened — not
+    // pending-tracked since it has no loading state of its own to show.
+    await logSplitInterfaceOpenedFn({ data: { roomId } });
+  };
+  const splitOrder: StoreContextValue["splitOrder"] = async (sourceId, items) => {
+    return withPending(`split:${sourceId}`, async () => {
+      const res = await splitOrderFn({ data: { sourceId, items } });
+      if (res.ok) setAppState(res.state);
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const refreshActivityLogs: StoreContextValue["refreshActivityLogs"] = async () => {
+    if (currentUser?.role !== "admin") return;
+    setActivityLogs(await getActivityLogsFn());
+  };
   const setFraudThreshold: StoreContextValue["setFraudThreshold"] = async (percent) => {
     return withPending("setFraudThreshold", async () => {
       setAppState(await setFraudThresholdFn({ data: { percent } }));
@@ -609,7 +648,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.floor((Date.now() - room.startedAt) / 1000));
   };
 
-  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests };
+  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs };
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
@@ -622,6 +661,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, approveVoid, denyVoid, setFraudThreshold, setGeofenceConfig,
+    transferToLounge, openSplitInterface, splitOrder, refreshActivityLogs,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

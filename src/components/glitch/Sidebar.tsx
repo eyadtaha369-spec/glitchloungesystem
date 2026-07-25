@@ -1,8 +1,8 @@
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
 import logo from "@/assets/glitch-logo.jpg";
 
-export type View = "dashboard" | "rooms" | "inventory" | "procurement" | "setup" | "users" | "reports" | "voids";
+export type View = "dashboard" | "rooms" | "inventory" | "procurement" | "setup" | "users" | "reports" | "voids" | "audit";
 
 const items: { id: View; label: string; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const items: { id: View; label: string; icon: React.ComponentType<{ className?: 
   { id: "procurement", label: "Procurement", icon: ShoppingCart },
   { id: "inventory", label: "Inventory", icon: Package, adminOnly: true },
   { id: "voids", label: "Void Ledger", icon: ShieldAlert, adminOnly: true },
+  { id: "audit", label: "Audit Trail", icon: Activity, adminOnly: true },
   { id: "setup", label: "Setup", icon: Settings2, adminOnly: true },
   { id: "reports", label: "Reports", icon: FileBarChart, adminOnly: true },
   { id: "users", label: "Users", icon: Users, adminOnly: true },

@@ -111,6 +111,35 @@ export const setActualCashFn = createServerFn({ method: "POST" })
     return res.state;
   });
 
+// ---------- Cross-zone transfer & interactive split ----------
+
+export const transferToLoungeFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; targetTableId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("transferToLounge", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+export const logSplitInterfaceOpenedFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean }>("logSplitInterfaceOpened", { ...data, username: user.username });
+  });
+
+export const splitOrderFn = createServerFn({ method: "POST" })
+  .validator((d: { sourceId: string; items: { menuItemId: string; qty: number }[] }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("splitOrder", {
+      ...data,
+      username: user.username,
+    });
+  });
+
 // ---------- Shifts ----------
 
 export const openShiftFn = createServerFn({ method: "POST" })

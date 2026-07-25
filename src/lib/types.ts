@@ -52,6 +52,13 @@ export interface Room {
   status: "available" | "active";
   startedAt: number | null;
   orders: OrderLine[];
+  // "room" = the original hourly-billed bays/VIP suite. "lounge" = a
+  // no-time-charge table customers can be transferred to. "split" = an
+  // ephemeral independent invoice created by extracting items off another
+  // active room/table — checked out on its own, separately from the source.
+  zone: "room" | "lounge" | "split";
+  splitInvoiceNumber: string | null;
+  transferredFrom: string | null;
 }
 
 export interface Session {
@@ -233,3 +240,23 @@ export const VOID_REASON_LABELS: Record<VoidReason, string> = {
   customerRejected: "Customer Rejected (Taste/Quality)",
   complimentary: "Complimentary / VIP Gift (Free)",
 };
+
+// ---------- System-wide Activity Log ("the Black Box") ----------
+// Write-Once, Read-Many — enforced by simply never providing an update or
+// delete path for this data, anywhere in the app or the backend.
+
+export type AuditRiskLevel = "green" | "yellow" | "red";
+
+export interface AuditLogEntry {
+  id: string;
+  ts: number;
+  actorUsername: string;
+  actorRole: string;
+  actionType: string;
+  location: string;
+  riskLevel: AuditRiskLevel;
+  description: string;
+  before: string; // JSON string, "" if not applicable
+  after: string; // JSON string, "" if not applicable
+  shiftId: string | null;
+}

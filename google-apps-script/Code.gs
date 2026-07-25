@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -105,9 +105,12 @@ function defaultAppState_() {
   ];
   const rooms = [];
   for (let i = 1; i <= 8; i++) {
-    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 5, status: "available", startedAt: null, orders: [] });
+    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 5, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
   }
-  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 10, status: "available", startedAt: null, orders: [] });
+  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 10, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+  for (let i = 1; i <= 4; i++) {
+    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
+  }
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
     actualCashInput: 0, shifts: [], activeShiftId: null, fraudThresholdPercent: 2,
@@ -167,6 +170,7 @@ function sheetObjectHeaders_(name) {
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
+    ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
   };
   return map[name];
 }
@@ -250,6 +254,57 @@ function uploadReceipt_(base64Data, mimeType, filename) {
   const file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return file.getUrl();
+}
+
+// ---------- Activity Log — The Black Box ----------
+// Write-Once, Read-Many. There is no updateActivityLog / deleteActivityLog
+// function anywhere in this file, and there must never be one — that
+// omission IS the immutability guarantee at the application level. (A
+// person with direct edit access to the underlying Google Sheet could
+// still hand-edit a cell; that's a limitation of Sheets as a datastore,
+// not something any app-level code can prevent.)
+const ACTION_RISK = {
+  LOGIN_SUCCESS: "green", LOGIN_FAILED: "red",
+  START_SHIFT: "green", END_SHIFT: "green", FORCE_END_SHIFT: "yellow",
+  GEOFENCE_DENIED: "red",
+  ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
+  CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
+  VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow",
+  EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
+  RECURRING_EXPENSE_PAID: "yellow",
+  ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
+  ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
+  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow",
+  FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
+};
+function riskFor_(actionType) {
+  return ACTION_RISK[actionType] || "green";
+}
+
+// `before`/`after` should be small plain objects (or omitted) — they get
+// JSON.stringify'd here. `location` is free text: a room name, shift id,
+// or similar human-readable context for where the action happened.
+function logActivity_(params) {
+  appendObject_("ActivityLogs", {
+    id: newId_("log"),
+    ts: params.ts || Date.now(),
+    actorUsername: params.actorUsername || "unknown",
+    actorRole: params.actorRole || "unknown",
+    actionType: params.actionType,
+    location: params.location || "",
+    riskLevel: params.riskLevel || riskFor_(params.actionType),
+    description: params.description || "",
+    before: params.before !== undefined ? JSON.stringify(params.before) : "",
+    after: params.after !== undefined ? JSON.stringify(params.after) : "",
+    shiftId: params.shiftId || null,
+  });
+}
+
+// Best-effort role lookup for logging purposes (doesn't throw on unknown user).
+function roleForUsername_(username) {
+  const { rows } = accountsRows_();
+  const row = rows.find((r) => r[0] === username);
+  return row ? row[2] : "unknown";
 }
 
 // ---------- Business logic (pure-ish functions over the state object) ----------
@@ -452,6 +507,104 @@ function bizSetActualCash_(state, n) {
   return state;
 }
 
+// ---------- Cross-Zone Transfer (Room -> Lounge Table) ----------
+// Freezes the room's time charge as of THIS exact second (it does not
+// keep running once the customer leaves the physical room), folds it in
+// as a line item on the target table, merges over any remaining orders,
+// and frees the room for the next customer.
+function bizTransferToLounge_(state, roomId, targetTableId) {
+  const room = state.rooms.find((r) => r.id === roomId && r.zone === "room");
+  if (!room) return { ok: false, error: "Source room not found", state: state };
+  if (room.status !== "active" || !room.startedAt) return { ok: false, error: "Room is not active", state: state };
+  const table = state.rooms.find((r) => r.id === targetTableId && (r.zone === "lounge" || r.zone === "split"));
+  if (!table) return { ok: false, error: "Target table not found", state: state };
+
+  const now = Date.now();
+  const durationSec = Math.max(1, Math.floor((now - room.startedAt) / 1000));
+  const roomCharge = (durationSec / 3600) * room.hourlyRate;
+
+  state.rooms = state.rooms.map((r) => {
+    if (r.id === roomId) {
+      return Object.assign({}, r, { status: "available", startedAt: null, orders: [] });
+    }
+    if (r.id === targetTableId) {
+      let orders = r.orders.slice();
+      if (roomCharge > 0) {
+        orders = orders.concat([{
+          menuItemId: "transfer-charge-" + room.id + "-" + now,
+          name: "Room Charge (" + room.name + ")",
+          qty: 1, price: roomCharge,
+        }]);
+      }
+      room.orders.forEach((o) => {
+        const existing = orders.find((x) => x.menuItemId === o.menuItemId);
+        orders = existing
+          ? orders.map((x) => (x.menuItemId === o.menuItemId ? Object.assign({}, x, { qty: x.qty + o.qty }) : x))
+          : orders.concat([o]);
+      });
+      return Object.assign({}, r, {
+        status: "active",
+        startedAt: r.startedAt || now,
+        orders: orders,
+        transferredFrom: room.name,
+      });
+    }
+    return r;
+  });
+
+  pushActivity_(state, room.name + " transferred to " + table.name + " ($" + roomCharge.toFixed(2) + " room charge)");
+  return { ok: true, state: state, roomCharge: roomCharge, roomName: room.name, tableName: table.name, durationSec: durationSec };
+}
+
+let splitInvoiceCounter_ = null;
+function nextSplitInvoiceNumber_(state) {
+  const existing = state.rooms.filter((r) => r.zone === "split").length +
+    state.sessions.filter((s) => s.splitInvoiceNumber).length;
+  return "SPL-" + String(existing + 1).padStart(4, "0");
+}
+
+// The Interactive Split Protocol: extracts specific {menuItemId, qty} lines
+// off an active room/table's current order into a brand-new, independent
+// invoice with its own number — the source keeps whatever wasn't extracted
+// and its timer (if a room) keeps running untouched.
+function bizSplitOrder_(state, sourceId, items) {
+  const source = state.rooms.find((r) => r.id === sourceId);
+  if (!source) return { ok: false, error: "Source not found", state: state };
+  if (source.status !== "active") return { ok: false, error: "Source is not active", state: state };
+
+  const extracted = [];
+  for (const req of items) {
+    const line = source.orders.find((o) => o.menuItemId === req.menuItemId);
+    if (!line || line.qty < req.qty || req.qty <= 0) {
+      return { ok: false, error: "Invalid item/qty to split: " + req.menuItemId, state: state };
+    }
+    extracted.push(Object.assign({}, line, { qty: req.qty }));
+  }
+  if (extracted.length === 0) return { ok: false, error: "No items selected to split", state: state };
+
+  const invoiceNumber = nextSplitInvoiceNumber_(state);
+  const now = Date.now();
+  const newTable = {
+    id: newId_("split"), name: "Split Invoice " + invoiceNumber, isVip: false, hourlyRate: 0,
+    status: "active", startedAt: now, orders: extracted, zone: "split",
+    splitInvoiceNumber: invoiceNumber, transferredFrom: source.name,
+  };
+
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== sourceId) return r;
+    const orders = r.orders.map((o) => {
+      const ex = items.find((i) => i.menuItemId === o.menuItemId);
+      if (!ex) return o;
+      const newQty = o.qty - ex.qty;
+      return newQty <= 0 ? null : Object.assign({}, o, { qty: newQty });
+    }).filter((o) => o !== null);
+    return Object.assign({}, r, { orders: orders });
+  }).concat([newTable]);
+
+  pushActivity_(state, "Split " + extracted.length + " item(s) off " + source.name + " into " + newTable.name);
+  return { ok: true, state: state, invoiceNumber: invoiceNumber, sourceName: source.name, extracted: extracted, newTableId: newTable.id };
+}
+
 // ---------- Void workflow ----------
 
 // Actually executes a void: reduces (or removes) the qty on the room's LIVE
@@ -612,28 +765,73 @@ function doPost(e) {
   lock.waitLock(30000);
   try {
     switch (body.action) {
-      case "login":
-        return json_(login_(body.username, body.password));
+      case "login": {
+        const result = login_(body.username, body.password);
+        if (result.ok) {
+          logActivity_({
+            actorUsername: result.username, actorRole: result.role, actionType: "LOGIN_SUCCESS",
+            description: result.username + " (" + result.role + ") logged in",
+          });
+        } else {
+          logActivity_({
+            actorUsername: body.username, actorRole: "unknown", actionType: "LOGIN_FAILED",
+            description: "Failed login attempt for username '" + body.username + "'",
+          });
+        }
+        return json_(result);
+      }
 
       case "getAccounts":
         requireRole_(body.username, ["admin"]);
         return json_({ accounts: getAccounts_() });
 
-      case "addAccount":
+      case "addAccount": {
         requireRole_(body.username, ["admin"]);
-        return json_(addAccount_(body.newUsername, body.newPassword, body.newRole));
+        const result = addAccount_(body.newUsername, body.newPassword, body.newRole);
+        if (result.ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "ACCOUNT_CREATED",
+            description: "Created account '" + body.newUsername + "' with role " + body.newRole,
+            after: { username: body.newUsername, role: body.newRole },
+          });
+        }
+        return json_(result);
+      }
 
-      case "updateAccount":
+      case "updateAccount": {
         requireRole_(body.username, ["admin"]);
-        return json_(updateAccount_(body.originalUsername, {
+        const accountsBefore = getAccounts_();
+        const before = accountsBefore.find((a) => a.username === body.originalUsername);
+        const result = updateAccount_(body.originalUsername, {
           username: body.username_new,
           password: body.password,
           role: body.role,
-        }));
+        });
+        if (result.ok) {
+          const roleChanged = before && body.role && before.role !== body.role;
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin",
+            actionType: roleChanged ? "ACCOUNT_ROLE_CHANGED" : (body.password ? "ACCOUNT_PASSWORD_CHANGED" : "ACCOUNT_ROLE_CHANGED"),
+            description: "Updated account '" + body.originalUsername + "'" + (roleChanged ? " — role changed to " + body.role : "") + (body.password ? " — password changed" : ""),
+            before: before, after: { username: body.username_new || body.originalUsername, role: body.role || (before && before.role) },
+          });
+        }
+        return json_(result);
+      }
 
-      case "deleteAccount":
+      case "deleteAccount": {
         requireRole_(body.username, ["admin"]);
-        return json_(deleteAccount_(body.targetUsername));
+        const before = getAccounts_().find((a) => a.username === body.targetUsername);
+        const result = deleteAccount_(body.targetUsername);
+        if (result.ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "ACCOUNT_DELETED",
+            description: "Deleted account '" + body.targetUsername + "'",
+            before: before,
+          });
+        }
+        return json_(result);
+      }
 
       case "getState": {
         requireRole_(body.username, ["admin", "cashier"]);
@@ -644,14 +842,31 @@ function doPost(e) {
 
       case "setRoomRate": {
         requireRole_(body.username, ["admin"]);
-        const state = bizSetRoomRate_(getState_(), body.roomId, body.rate);
+        const state0 = getState_();
+        const before = state0.rooms.find((r) => r.id === body.roomId);
+        const state = bizSetRoomRate_(state0, body.roomId, body.rate);
         setState_(state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "ROOM_RATE_CHANGED",
+          location: before ? before.name : body.roomId,
+          description: (before ? before.name : body.roomId) + " hourly rate changed to $" + body.rate,
+          before: before ? { hourlyRate: before.hourlyRate } : null,
+          after: { hourlyRate: body.rate },
+        });
         return json_({ state: withStockView_(state) });
       }
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const result = bizStartRoom_(getState_(), body.roomId);
-        if (result.ok) setState_(result.state);
+        if (result.ok) {
+          setState_(result.state);
+          const room = result.state.rooms.find((r) => r.id === body.roomId);
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_STARTED",
+            location: room ? room.name : body.roomId, shiftId: result.state.activeShiftId,
+            description: (room ? room.name : body.roomId) + " session started",
+          });
+        }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "endRoom": {
@@ -672,29 +887,117 @@ function doPost(e) {
             paidFromDrawer: result.session.paymentMethod === "cash", shiftId: result.session.shiftId,
             materialId: null, qty: null, unitCost: null,
           });
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username),
+            actionType: body.splitBill ? "CHECKOUT_SPLIT_BILL" : "CHECKOUT",
+            location: result.session.roomName, shiftId: result.session.shiftId,
+            description: result.session.roomName + " checked out — $" + result.session.total.toFixed(2) + " (" + result.session.paymentMethod + ")",
+            before: { orders: result.session.orders },
+            after: { total: result.session.total, cogs: result.session.cogs },
+          });
         }
         return json_({ session: result.session, state: withStockView_(result.state) });
       }
       case "addOrder": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizAddOrder_(getState_(), batches, body.roomId, body.menuItemId, body.qty);
-        if (result.ok) setState_(result.state);
+        const stateBefore = getState_();
+        const roomBefore = stateBefore.rooms.find((r) => r.id === body.roomId);
+        const qtyBefore = roomBefore ? (roomBefore.orders.find((o) => o.menuItemId === body.menuItemId) || {}).qty || 0 : 0;
+        const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
+        if (result.ok) {
+          setState_(result.state);
+          const roomAfter = result.state.rooms.find((r) => r.id === body.roomId);
+          const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId) : null;
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_ADDED",
+            location: roomAfter ? roomAfter.name : body.roomId, shiftId: result.state.activeShiftId,
+            description: "Added " + body.qty + "x " + (lineAfter ? lineAfter.name : body.menuItemId) + " to " + (roomAfter ? roomAfter.name : body.roomId),
+            before: { qty: qtyBefore }, after: { qty: lineAfter ? lineAfter.qty : null },
+          });
+        }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "setOrderLineQty": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizSetOrderLineQty_(getState_(), batches, body.roomId, body.menuItemId, body.qty);
-        if (result.ok) setState_(result.state);
+        const stateBefore = getState_();
+        const roomBefore = stateBefore.rooms.find((r) => r.id === body.roomId);
+        const lineBefore = roomBefore ? roomBefore.orders.find((o) => o.menuItemId === body.menuItemId) : null;
+        const result = bizSetOrderLineQty_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
+        if (result.ok) {
+          setState_(result.state);
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_QTY_CHANGED",
+            location: roomBefore ? roomBefore.name : body.roomId, shiftId: result.state.activeShiftId,
+            description: (lineBefore ? lineBefore.name : body.menuItemId) + " qty changed to " + body.qty + " on " + (roomBefore ? roomBefore.name : body.roomId),
+            before: { qty: lineBefore ? lineBefore.qty : null }, after: { qty: body.qty },
+          });
+        }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "setOrderLineNote": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizSetOrderLineNote_(getState_(), body.roomId, body.menuItemId, body.notes);
-        if (result.ok) setState_(result.state);
+        const stateBefore = getState_();
+        const roomBefore = stateBefore.rooms.find((r) => r.id === body.roomId);
+        const lineBefore = roomBefore ? roomBefore.orders.find((o) => o.menuItemId === body.menuItemId) : null;
+        const result = bizSetOrderLineNote_(stateBefore, body.roomId, body.menuItemId, body.notes);
+        if (result.ok) {
+          setState_(result.state);
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_NOTE_SET",
+            location: roomBefore ? roomBefore.name : body.roomId, shiftId: result.state.activeShiftId,
+            description: "Note set on " + (lineBefore ? lineBefore.name : body.menuItemId) + ": \"" + (body.notes || "") + "\"",
+            before: { notes: lineBefore ? (lineBefore.notes || "") : "" }, after: { notes: body.notes || "" },
+          });
+        }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
+
+      case "transferToLounge": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizTransferToLounge_(getState_(), body.roomId, body.targetTableId);
+        if (result.ok) {
+          setState_(result.state);
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_TRANSFERRED",
+            location: result.roomName + " -> " + result.tableName, shiftId: result.state.activeShiftId,
+            description: result.roomName + " transferred to " + result.tableName + " ($" + result.roomCharge.toFixed(2) + " frozen room charge, " + result.durationSec + "s elapsed)",
+            before: { room: result.roomName, durationSec: result.durationSec },
+            after: { targetTable: result.tableName, roomCharge: result.roomCharge },
+          });
+        }
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+      }
+
+      case "logSplitInterfaceOpened": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const state0 = getState_();
+        const source = state0.rooms.find((r) => r.id === body.roomId);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SPLIT_INTERFACE_OPENED",
+          location: source ? source.name : body.roomId, shiftId: state0.activeShiftId,
+          description: "Split interface opened for " + (source ? source.name : body.roomId),
+        });
+        return json_({ ok: true });
+      }
+
+      case "splitOrder": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizSplitOrder_(getState_(), body.sourceId, body.items);
+        if (result.ok) {
+          setState_(result.state);
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_SPLIT",
+            location: result.sourceName, shiftId: result.state.activeShiftId,
+            description: result.extracted.length + " item(s) split from " + result.sourceName + " into invoice " + result.invoiceNumber,
+            before: { source: result.sourceName },
+            after: { invoiceNumber: result.invoiceNumber, extracted: result.extracted },
+          });
+        }
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+      }
+
       case "addMenuItem": {
         requireRole_(body.username, ["admin"]);
         const state = getState_();
@@ -705,8 +1008,16 @@ function doPost(e) {
       case "updateMenuItem": {
         requireRole_(body.username, ["admin"]);
         const state = getState_();
+        const before = state.menu.find((x) => x.id === body.id);
         state.menu = state.menu.map((x) => (x.id === body.id ? Object.assign({}, x, body.patch) : x));
         setState_(state);
+        if (before && body.patch && typeof body.patch.price === "number" && body.patch.price !== before.price) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "MENU_PRICE_CHANGED",
+            description: before.name + " price changed from $" + before.price + " to $" + body.patch.price,
+            before: { price: before.price }, after: { price: body.patch.price },
+          });
+        }
         return json_({ state: withStockView_(state) });
       }
       case "deleteMenuItem": {
@@ -723,31 +1034,66 @@ function doPost(e) {
         return json_({ state: withStockView_(state) });
       }
       case "openShift": {
-        requireRole_(body.username, ["admin", "cashier"]);
+        const role = requireRole_(body.username, ["admin", "cashier"]);
         const state0 = getState_();
         const geoErr = checkGeofence_(state0, body.lat, body.lng);
-        if (geoErr) return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
+        if (geoErr) {
+          logActivity_({
+            actorUsername: body.username, actorRole: role, actionType: "GEOFENCE_DENIED",
+            description: "Blocked shift START — " + geoErr + (typeof body.lat === "number" ? " (" + body.lat + "," + body.lng + ")" : " (no location)"),
+          });
+          return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
+        }
         const result = bizOpenShift_(state0, body.username, body.openingBalance, body.lat, body.lng);
-        if (result.ok) setState_(result.state);
+        if (result.ok) {
+          setState_(result.state);
+          logActivity_({
+            actorUsername: body.username, actorRole: role, actionType: "START_SHIFT",
+            shiftId: result.state.activeShiftId,
+            description: body.username + " started a shift (opening $" + (body.openingBalance || 0).toFixed(2) + ")",
+            after: { openingBalance: body.openingBalance, lat: body.lat, lng: body.lng },
+          });
+        }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "endShift": {
-        requireRole_(body.username, ["admin", "cashier"]);
+        const role = requireRole_(body.username, ["admin", "cashier"]);
         const state0 = getState_();
         const geoErr = checkGeofence_(state0, body.lat, body.lng);
-        if (geoErr) return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
+        if (geoErr) {
+          logActivity_({
+            actorUsername: body.username, actorRole: role, actionType: "GEOFENCE_DENIED",
+            shiftId: state0.activeShiftId,
+            description: "Blocked shift END — " + geoErr + (typeof body.lat === "number" ? " (" + body.lat + "," + body.lng + ")" : " (no location)"),
+          });
+          return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
+        }
+        const shiftIdBefore = state0.activeShiftId;
         const ledger = readObjects_("Ledger");
         const result = bizCloseActiveShift_(state0, ledger, body.actualCash, false, body.lat, body.lng);
-        if (result.ok) setState_(result.state);
+        if (result.ok) {
+          setState_(result.state);
+          const closed = result.state.shifts.find((sh) => sh.id === shiftIdBefore);
+          logActivity_({
+            actorUsername: body.username, actorRole: role, actionType: "END_SHIFT", shiftId: shiftIdBefore,
+            description: body.username + " ended shift — expected $" + (closed ? closed.expectedCash.toFixed(2) : "?") + ", counted $" + (closed ? closed.closingActualCash.toFixed(2) : "?"),
+            after: closed ? { expectedCash: closed.expectedCash, closingActualCash: closed.closingActualCash, discrepancy: closed.discrepancy, lat: body.lat, lng: body.lng } : null,
+          });
+        }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "forceEndShift": {
         requireRole_(body.username, ["admin"]);
         const state = getState_();
         if (!state.activeShiftId) return json_({ ok: true, state: withStockView_(state) });
+        const shiftIdBefore = state.activeShiftId;
         const ledger = readObjects_("Ledger");
         const result = bizCloseActiveShift_(state, ledger, body.actualCash, true);
         setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "FORCE_END_SHIFT", shiftId: shiftIdBefore,
+          description: "Admin force-closed shift " + shiftIdBefore,
+        });
         return json_({ ok: true, state: withStockView_(result.state) });
       }
 
@@ -759,14 +1105,37 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0 };
         appendObject_("RawMaterials", item);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
+          description: "Added raw material '" + body.name + "'", after: item,
+        });
         return json_({ ok: true, item: item });
       }
-      case "updateRawMaterial":
+      case "updateRawMaterial": {
         requireRole_(body.username, ["admin"]);
-        return json_({ ok: updateObjectById_("RawMaterials", body.id, body.patch) });
-      case "deleteRawMaterial":
+        const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
+        const ok = updateObjectById_("RawMaterials", body.id, body.patch);
+        if (ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
+            description: "Edited raw material '" + (before ? before.name : body.id) + "'",
+            before: before, after: Object.assign({}, before, body.patch),
+          });
+        }
+        return json_({ ok: ok });
+      }
+      case "deleteRawMaterial": {
         requireRole_(body.username, ["admin"]);
-        return json_({ ok: deleteObjectById_("RawMaterials", body.id) });
+        const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
+        const ok = deleteObjectById_("RawMaterials", body.id);
+        if (ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
+            description: "Deleted raw material '" + (before ? before.name : body.id) + "'", before: before,
+          });
+        }
+        return json_({ ok: ok });
+      }
 
       case "getSuppliers":
         requireRole_(body.username, ["admin", "cashier"]);
@@ -775,14 +1144,37 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const item = { id: newId_("sup"), name: body.name, contact: body.contact || "", category: body.category || "" };
         appendObject_("Suppliers", item);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "SUPPLIER_CHANGED",
+          description: "Added supplier '" + body.name + "'", after: item,
+        });
         return json_({ ok: true, item: item });
       }
-      case "updateSupplier":
+      case "updateSupplier": {
         requireRole_(body.username, ["admin"]);
-        return json_({ ok: updateObjectById_("Suppliers", body.id, body.patch) });
-      case "deleteSupplier":
+        const before = readObjects_("Suppliers").find((s) => s.id === body.id);
+        const ok = updateObjectById_("Suppliers", body.id, body.patch);
+        if (ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "SUPPLIER_CHANGED",
+            description: "Edited supplier '" + (before ? before.name : body.id) + "'",
+            before: before, after: Object.assign({}, before, body.patch),
+          });
+        }
+        return json_({ ok: ok });
+      }
+      case "deleteSupplier": {
         requireRole_(body.username, ["admin"]);
-        return json_({ ok: deleteObjectById_("Suppliers", body.id) });
+        const before = readObjects_("Suppliers").find((s) => s.id === body.id);
+        const ok = deleteObjectById_("Suppliers", body.id);
+        if (ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "SUPPLIER_CHANGED",
+            description: "Deleted supplier '" + (before ? before.name : body.id) + "'", before: before,
+          });
+        }
+        return json_({ ok: ok });
+      }
 
       case "getRecurringExpenses":
         requireRole_(body.username, ["admin"]);
@@ -812,6 +1204,11 @@ function doPost(e) {
           paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
         };
         appendObject_("Ledger", entry);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "RECURRING_EXPENSE_PAID",
+          description: "Logged payment of $" + body.amount + " for '" + body.name + "'",
+          after: { name: body.name, amount: body.amount },
+        });
         return json_({ ok: true, entry: entry });
       }
 
@@ -838,11 +1235,22 @@ function doPost(e) {
           });
         }
         updateObjectById_("Ledger", entry.id, { status: "approved" });
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_APPROVED", shiftId: entry.shiftId,
+          description: "Approved purchase of " + entry.qty + " " + entry.materialId + " ($" + entry.amount.toFixed(2) + "), submitted by " + entry.staffUsername,
+          before: { status: "pending" }, after: { status: "approved" },
+        });
         return json_({ ok: true });
       }
       case "rejectPurchase": {
         requireRole_(body.username, ["admin"]);
+        const before = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
         updateObjectById_("Ledger", body.ledgerId, { status: "rejected", description: (body.reason ? "[Rejected: " + body.reason + "] " : "[Rejected] ") });
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_REJECTED", shiftId: before ? before.shiftId : null,
+          description: "Rejected purchase submitted by " + (before ? before.staffUsername : "?") + (body.reason ? " — " + body.reason : ""),
+          before: { status: "pending" }, after: { status: "rejected" },
+        });
         return json_({ ok: true });
       }
 
@@ -894,6 +1302,13 @@ function doPost(e) {
         // batches — the item stays fully on the live bill (and therefore in
         // Expected Drawer Cash) until an admin approves it.
         appendObject_("VoidRequests", req);
+        const wasteClass = (body.reason === "spilled" || body.reason === "customerRejected") ? "Wasted" : "Non-Waste";
+        logActivity_({
+          actorUsername: body.username, actorRole: role, actionType: "VOID_REQUESTED",
+          location: room.name, shiftId: state.activeShiftId,
+          description: req.qty + "x " + req.itemName + " voided (" + VOID_REASONS[body.reason].label + ", " + wasteClass + ") — " + req.status,
+          before: { qty: line.qty }, after: { voided: req.qty, status: req.status, reason: body.reason, wasteClass: wasteClass },
+        });
         return json_({ ok: true, request: req, state: withStockView_(getState_()) });
       }
 
@@ -930,33 +1345,62 @@ function doPost(e) {
             paidFromDrawer: false, shiftId: req.shiftId, materialId: null, qty: null, unitCost: null,
           });
         }
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "VOID_APPROVED",
+          location: req.roomName, shiftId: req.shiftId,
+          description: "Approved void of " + req.qty + "x " + req.itemName + " (originally requested by " + req.cashierUsername + ")",
+          before: { status: "pending" }, after: { status: "approved", cogs: result.cogs },
+        });
         return json_({ ok: true, state: withStockView_(result.state) });
       }
 
       case "denyVoid": {
         requireRole_(body.username, ["admin"]);
+        const before = readObjects_("VoidRequests").find((r) => r.id === body.voidId);
         updateObjectById_("VoidRequests", body.voidId, { status: "denied", approvedBy: body.username, approvedAt: Date.now() });
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "VOID_DENIED",
+          location: before ? before.roomName : "", shiftId: before ? before.shiftId : null,
+          description: "Denied void request" + (before ? " for " + before.qty + "x " + before.itemName + " (requested by " + before.cashierUsername + ")" : ""),
+          before: { status: "pending" }, after: { status: "denied" },
+        });
         return json_({ ok: true });
       }
 
       case "setFraudThreshold": {
         requireRole_(body.username, ["admin"]);
         const state = getState_();
+        const before = state.fraudThresholdPercent;
         state.fraudThresholdPercent = Number(body.percent) || 0;
         setState_(state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "FRAUD_THRESHOLD_CHANGED",
+          description: "Fraud threshold changed from " + before + "% to " + state.fraudThresholdPercent + "%",
+          before: { percent: before }, after: { percent: state.fraudThresholdPercent },
+        });
         return json_({ state: withStockView_(state) });
       }
 
       case "setGeofenceConfig": {
         requireRole_(body.username, ["admin"]);
         const state = getState_();
+        const before = { enabled: state.geofenceEnabled, lat: state.cafeLat, lng: state.cafeLng, radiusMeters: state.geofenceRadiusMeters };
         state.geofenceEnabled = !!body.enabled;
         state.cafeLat = Number(body.lat) || 0;
         state.cafeLng = Number(body.lng) || 0;
         state.geofenceRadiusMeters = Number(body.radiusMeters) || 50;
         setState_(state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "GEOFENCE_CONFIG_CHANGED",
+          description: "Geofence config updated — enabled=" + state.geofenceEnabled + ", radius=" + state.geofenceRadiusMeters + "m",
+          before: before, after: { enabled: state.geofenceEnabled, lat: state.cafeLat, lng: state.cafeLng, radiusMeters: state.geofenceRadiusMeters },
+        });
         return json_({ state: withStockView_(state) });
       }
+
+      case "getActivityLogs":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readObjects_("ActivityLogs") });
 
       default:
         return json_({ error: "Unknown action" });
@@ -1038,6 +1482,12 @@ function handleSubmitPurchase_(body) {
       });
     }
 
+    logActivity_({
+      actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
+      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " " + body.purchaseType + ": " + body.qty + " " + body.materialId + " for $" + amount.toFixed(2),
+      after: { status: entry.status, amount: amount, materialId: body.materialId, qty: body.qty },
+    });
+
     return json_({ ok: true, status: entry.status, entry: entry });
   } finally {
     lock.releaseLock();
@@ -1114,6 +1564,18 @@ function getState_() {
         if (typeof parsed.cafeLat !== "number") parsed.cafeLat = 0;
         if (typeof parsed.cafeLng !== "number") parsed.cafeLng = 0;
         if (typeof parsed.geofenceRadiusMeters !== "number") parsed.geofenceRadiusMeters = 50;
+        if (parsed.rooms) {
+          parsed.rooms = parsed.rooms.map(function (r) {
+            if (r.zone) return r;
+            return Object.assign({}, r, { zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+          });
+          const hasLounge = parsed.rooms.some(function (r) { return r.zone === "lounge"; });
+          if (!hasLounge) {
+            for (let i = 1; i <= 4; i++) {
+              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
+            }
+          }
+        }
         delete parsed.stock; // stock is always a computed view now, never persisted
         delete parsed.pendingVoidCountForActiveShift; // also computed, never persisted
         return parsed;

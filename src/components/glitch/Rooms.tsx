@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, type Room, type Session, type PaymentMethod, type VoidReason } from "@/lib/glitch-store";
-import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat } from "lucide-react";
+import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
 export function RoomsPage() {
   const { state, computeElapsed, activeShift } = useStore();
@@ -9,12 +9,16 @@ export function RoomsPage() {
 
   const [receipt, setReceipt] = useState<Session | null>(null);
 
+  const roomZone = state.rooms.filter((r) => r.zone === "room");
+  const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
+  const splitZone = state.rooms.filter((r) => r.zone === "split");
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Rooms Management</h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
-          8 Bays · 1 VIP Suite
+          {roomZone.length - 1} Bays · 1 VIP Suite · {loungeZone.length} Lounge Tables
         </p>
       </div>
 
@@ -24,18 +28,43 @@ export function RoomsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {state.rooms.map((r) => (
-          <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} />
-        ))}
+      <div>
+        <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Rooms &amp; VIP</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {roomZone.map((r) => (
+            <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} loungeTargets={loungeZone} />
+          ))}
+        </div>
       </div>
+
+      {(loungeZone.some((t) => t.status === "active") || loungeZone.length > 0) && (
+        <div>
+          <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Lounge Tables</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {loungeZone.map((r) => (
+              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} loungeTargets={loungeZone} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {splitZone.length > 0 && (
+        <div>
+          <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Split Invoices</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {splitZone.map((r) => (
+              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} loungeTargets={loungeZone} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {receipt && <ReceiptModal session={receipt} onClose={() => setReceipt(null)} />}
     </div>
   );
 }
 
-function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; onCheckout: (s: Session) => void }) {
+function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; loungeTargets: Room[] }) {
   const { state, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
@@ -48,6 +77,8 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
   const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState("");
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   const timeCost = (elapsed / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
@@ -105,6 +136,16 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
               Premium
             </span>
           )}
+          {room.zone === "split" && (
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.85_0.16_200)] border border-[oklch(0.7_0.19_260/0.5)]">
+              {room.splitInvoiceNumber}
+            </span>
+          )}
+          {room.transferredFrom && (
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/10">
+              from {room.transferredFrom}
+            </span>
+          )}
         </div>
         <div className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
           room.status === "active"
@@ -116,33 +157,35 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
       </div>
 
       {/* Rate */}
-      <div className="mt-3 flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground font-mono uppercase tracking-widest">Rate</span>
-        {isAdmin && editingRate ? (
-          <>
-            <input
-              type="number"
-              step="0.5"
-              value={rateInput}
-              onChange={(e) => setRateInput(e.target.value)}
-              className="w-20 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
-            />
-            <button
-              className="text-[oklch(0.78_0.2_155)] hover:underline"
-              onClick={() => { void setRoomRate(room.id, parseFloat(rateInput) || 0); setEditingRate(false); }}
-            >save</button>
-          </>
-        ) : (
-          <>
-            <span className="font-mono font-semibold">{fmtMoney(room.hourlyRate)}/hr</span>
-            {isAdmin && (
-              <button className="text-[oklch(0.85_0.16_200)] hover:underline text-[10px] uppercase" onClick={() => setEditingRate(true)}>
-                edit
-              </button>
-            )}
-          </>
-        )}
-      </div>
+      {room.zone === "room" && (
+        <div className="mt-3 flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground font-mono uppercase tracking-widest">Rate</span>
+          {isAdmin && editingRate ? (
+            <>
+              <input
+                type="number"
+                step="0.5"
+                value={rateInput}
+                onChange={(e) => setRateInput(e.target.value)}
+                className="w-20 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
+              />
+              <button
+                className="text-[oklch(0.78_0.2_155)] hover:underline"
+                onClick={() => { void setRoomRate(room.id, parseFloat(rateInput) || 0); setEditingRate(false); }}
+              >save</button>
+            </>
+          ) : (
+            <>
+              <span className="font-mono font-semibold">{fmtMoney(room.hourlyRate)}/hr</span>
+              {isAdmin && (
+                <button className="text-[oklch(0.85_0.16_200)] hover:underline text-[10px] uppercase" onClick={() => setEditingRate(true)}>
+                  edit
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Timer + cost */}
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -241,16 +284,38 @@ function RoomCard({ room, elapsed, onCheckout }: { room: Room; elapsed: number; 
         </div>
       )}
 
-      {room.orders.length > 0 && (
-        <button
-          onClick={() => setTicketOpen(true)}
-          className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs no-print"
-        >
-          <ChefHat className="w-3.5 h-3.5" /> Print Barista Ticket
-        </button>
-      )}
+      <div className="flex items-center gap-2 mt-2 no-print">
+        {room.orders.length > 0 && (
+          <button
+            onClick={() => setTicketOpen(true)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
+          >
+            <ChefHat className="w-3.5 h-3.5" /> Ticket
+          </button>
+        )}
+        {room.zone === "room" && room.status === "active" && loungeTargets.length > 0 && (
+          <button
+            onClick={() => setTransferOpen(true)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
+          >
+            <ArrowRightLeft className="w-3.5 h-3.5" /> Transfer
+          </button>
+        )}
+        {room.status === "active" && room.orders.length > 0 && (
+          <button
+            onClick={() => setSplitOpen(true)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
+          >
+            <SplitSquareHorizontal className="w-3.5 h-3.5" /> Split
+          </button>
+        )}
+      </div>
 
       {ticketOpen && <BaristaTicketModal room={room} onClose={() => setTicketOpen(false)} />}
+      {transferOpen && (
+        <TransferModal room={room} targets={loungeTargets} onClose={() => setTransferOpen(false)} />
+      )}
+      {splitOpen && <SplitModal room={room} onClose={() => setSplitOpen(false)} />}
 
       {voidTarget && (
         <VoidRequestModal
@@ -624,6 +689,169 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold disabled:opacity-60"
           >
             {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]; onClose: () => void }) {
+  const { transferToLounge } = useStore();
+  const [targetId, setTargetId] = useState(targets[0]?.id ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!targetId) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await transferToLounge(room.id, targetId);
+      if (!res.ok) { setErr(res.error ?? "Transfer failed"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+            <ArrowRightLeft className="w-4 h-4" /> Transfer {room.name}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-xs text-muted-foreground">
+            This freezes {room.name}'s time charge right now, folds it into the target table as a line item, and moves any remaining orders over. {room.name} becomes available again immediately.
+          </p>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Move to</label>
+            <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
+              {targets.map((t) => (
+                <option key={t.id} value={t.id}>{t.name} {t.status === "active" ? "(active)" : "(available)"}</option>
+              ))}
+            </select>
+          </div>
+          {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={submitting || !targetId}
+            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-semibold disabled:opacity-60"
+          >
+            {submitting ? "Transferring..." : "Confirm Transfer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
+  const { splitOrder, openSplitInterface } = useStore();
+  // Right-panel selection: menuItemId -> qty being extracted into the new split invoice.
+  const [selected, setSelected] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    openSplitInterface(room.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const move = (menuItemId: string, maxQty: number, delta: number) => {
+    setSelected((prev) => {
+      const next = Math.max(0, Math.min(maxQty, (prev[menuItemId] ?? 0) + delta));
+      const copy = { ...prev };
+      if (next === 0) delete copy[menuItemId];
+      else copy[menuItemId] = next;
+      return copy;
+    });
+  };
+
+  const items = Object.entries(selected).map(([menuItemId, qty]) => ({ menuItemId, qty }));
+  const selectedTotal = room.orders.reduce((a, o) => a + (selected[o.menuItemId] ?? 0) * o.price, 0);
+
+  const submit = async () => {
+    if (items.length === 0) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await splitOrder(room.id, items);
+      if (!res.ok) { setErr(res.error ?? "Split failed"); return; }
+      setResult("Split invoice created — check the Split Invoices section to check it out independently.");
+      setTimeout(onClose, 1600);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+      <div className="w-full max-w-2xl glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+            <SplitSquareHorizontal className="w-4 h-4" /> Split {room.name}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <p className="px-4 pt-3 text-xs text-muted-foreground">
+          Move items to the right to extract them into a brand-new, independent invoice. {room.name} keeps everything you don't move (and its timer, if any, keeps running).
+        </p>
+        <div className="grid grid-cols-2 gap-4 p-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Staying on {room.name}</div>
+            <div className="space-y-2">
+              {room.orders.map((o) => {
+                const moved = selected[o.menuItemId] ?? 0;
+                const remaining = o.qty - moved;
+                if (remaining <= 0) return null;
+                return (
+                  <div key={o.menuItemId} className="flex items-center justify-between bg-black/30 rounded-lg p-2.5 border border-white/5 text-sm">
+                    <span>{remaining}x {o.name}</span>
+                    <button onClick={() => move(o.menuItemId, o.qty, 1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move one to split">
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-[oklch(0.85_0.16_200)] mb-2">New Split Invoice</div>
+            <div className="space-y-2 min-h-[60px]">
+              {items.length === 0 && <div className="text-xs text-muted-foreground italic p-2.5">Nothing selected yet</div>}
+              {room.orders.filter((o) => selected[o.menuItemId]).map((o) => (
+                <div key={o.menuItemId} className="flex items-center justify-between bg-[oklch(0.7_0.19_260/0.1)] rounded-lg p-2.5 border border-[oklch(0.7_0.19_260/0.4)] text-sm">
+                  <span>{selected[o.menuItemId]}x {o.name}</span>
+                  <button onClick={() => move(o.menuItemId, o.qty, -1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move back">
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {items.length > 0 && (
+              <div className="mt-2 text-xs font-mono text-muted-foreground">Split total: {fmtMoney(selectedTotal)}</div>
+            )}
+          </div>
+        </div>
+        {err && <div className="px-4 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+        {result && <div className="px-4 text-sm text-[oklch(0.78_0.2_155)]">{result}</div>}
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={submitting || items.length === 0}
+            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-semibold disabled:opacity-60"
+          >
+            {submitting ? "Splitting..." : "Create Split Invoice"}
           </button>
         </div>
       </div>
