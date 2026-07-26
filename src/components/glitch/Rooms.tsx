@@ -12,6 +12,7 @@ export function RoomsPage() {
   const roomZone = state.rooms.filter((r) => r.zone === "room");
   const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
   const splitZone = state.rooms.filter((r) => r.zone === "split");
+  const transferTargets = [...roomZone, ...loungeZone];
 
   return (
     <div className="space-y-8">
@@ -32,7 +33,7 @@ export function RoomsPage() {
         <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Rooms &amp; VIP</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {roomZone.map((r) => (
-            <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} loungeTargets={loungeZone} />
+            <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
           ))}
         </div>
       </div>
@@ -42,7 +43,7 @@ export function RoomsPage() {
           <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Lounge Tables</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {loungeZone.map((r) => (
-              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} loungeTargets={loungeZone} />
+              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
             ))}
           </div>
         </div>
@@ -53,7 +54,7 @@ export function RoomsPage() {
           <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Split Invoices</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {splitZone.map((r) => (
-              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} loungeTargets={loungeZone} />
+              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
             ))}
           </div>
         </div>
@@ -64,7 +65,7 @@ export function RoomsPage() {
   );
 }
 
-function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; loungeTargets: Room[] }) {
+function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
   const { state, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
@@ -73,12 +74,14 @@ function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; el
   const [ticketOpen, setTicketOpen] = useState(false);
   const [warn, setWarn] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
-  const [rateInput, setRateInput] = useState(String(room.hourlyRate));
+  const [singleRateInput, setSingleRateInput] = useState(String(room.singleRate));
+  const [multiRateInput, setMultiRateInput] = useState(String(room.multiRate));
   const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState("");
   const [transferOpen, setTransferOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
+  const [pickingRateToStart, setPickingRateToStart] = useState(false);
 
   const timeCost = (elapsed / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
@@ -95,8 +98,13 @@ function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; el
     setTimeout(() => setWarn(null), 3000);
   };
 
-  const handleStart = async () => {
-    const r = await startRoom(room.id);
+  const handleStart = async (rateMode?: "single" | "multi") => {
+    if (room.zone === "room" && !rateMode) {
+      setPickingRateToStart(true);
+      return;
+    }
+    setPickingRateToStart(false);
+    const r = await startRoom(room.id, rateMode);
     if (!r.ok) flashWarn(r.error ?? "Could not start room");
   };
 
@@ -158,31 +166,41 @@ function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; el
 
       {/* Rate */}
       {room.zone === "room" && (
-        <div className="mt-3 flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground font-mono uppercase tracking-widest">Rate</span>
+        <div className="mt-3 text-xs">
           {isAdmin && editingRate ? (
-            <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-muted-foreground font-mono uppercase tracking-widest">Single</span>
               <input
-                type="number"
-                step="0.5"
-                value={rateInput}
-                onChange={(e) => setRateInput(e.target.value)}
-                className="w-20 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
+                type="number" step="0.5" value={singleRateInput}
+                onChange={(e) => setSingleRateInput(e.target.value)}
+                className="w-16 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
+              />
+              <span className="text-muted-foreground font-mono uppercase tracking-widest">Multi</span>
+              <input
+                type="number" step="0.5" value={multiRateInput}
+                onChange={(e) => setMultiRateInput(e.target.value)}
+                className="w-16 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
               />
               <button
                 className="text-[oklch(0.78_0.2_155)] hover:underline"
-                onClick={() => { void setRoomRate(room.id, parseFloat(rateInput) || 0); setEditingRate(false); }}
+                onClick={() => { void setRoomRate(room.id, parseFloat(singleRateInput) || 0, parseFloat(multiRateInput) || 0); setEditingRate(false); }}
               >save</button>
-            </>
+            </div>
           ) : (
-            <>
-              <span className="font-mono font-semibold">{fmtMoney(room.hourlyRate)}/hr</span>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground font-mono uppercase tracking-widest">Rate</span>
+              <span className="font-mono font-semibold">Single {fmtMoney(room.singleRate)}/hr · Multi {fmtMoney(room.multiRate)}/hr</span>
               {isAdmin && (
                 <button className="text-[oklch(0.85_0.16_200)] hover:underline text-[10px] uppercase" onClick={() => setEditingRate(true)}>
                   edit
                 </button>
               )}
-            </>
+            </div>
+          )}
+          {room.status === "active" && room.rateMode && (
+            <div className="mt-1 text-[10px] uppercase tracking-widest text-[oklch(0.78_0.2_155)]">
+              Running: {room.rateMode} @ {fmtMoney(room.hourlyRate)}/hr
+            </div>
           )}
         </div>
       )}
@@ -293,7 +311,7 @@ function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; el
             <ChefHat className="w-3.5 h-3.5" /> Ticket
           </button>
         )}
-        {room.zone === "room" && room.status === "active" && loungeTargets.length > 0 && (
+        {room.status === "active" && transferTargets.filter((t) => t.id !== room.id).length > 0 && (
           <button
             onClick={() => setTransferOpen(true)}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
@@ -313,7 +331,7 @@ function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; el
 
       {ticketOpen && <BaristaTicketModal room={room} onClose={() => setTicketOpen(false)} />}
       {transferOpen && (
-        <TransferModal room={room} targets={loungeTargets} onClose={() => setTransferOpen(false)} />
+        <TransferModal room={room} targets={transferTargets.filter((t) => t.id !== room.id)} onClose={() => setTransferOpen(false)} />
       )}
       {splitOpen && <SplitModal room={room} onClose={() => setSplitOpen(false)} />}
 
@@ -338,12 +356,30 @@ function RoomCard({ room, elapsed, onCheckout, loungeTargets }: { room: Room; el
       {/* Actions */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {room.status === "available" ? (
-          <button
-            onClick={handleStart}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-bold uppercase tracking-wider text-xs shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)] hover:shadow-[0_0_30px_oklch(0.78_0.2_155/0.7)] transition"
-          >
-            <Play className="w-4 h-4" /> Start
-          </button>
+          pickingRateToStart ? (
+            <div className="flex-1 flex items-center gap-2">
+              <button
+                onClick={() => handleStart("single")}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] font-bold uppercase tracking-wider text-xs"
+              >
+                Single {fmtMoney(room.singleRate)}/hr
+              </button>
+              <button
+                onClick={() => handleStart("multi")}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-bold uppercase tracking-wider text-xs"
+              >
+                Multi {fmtMoney(room.multiRate)}/hr
+              </button>
+              <button onClick={() => setPickingRateToStart(false)} className="text-muted-foreground hover:text-white px-2"><X className="w-4 h-4" /></button>
+            </div>
+          ) : (
+            <button
+              onClick={() => handleStart()}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-bold uppercase tracking-wider text-xs shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)] hover:shadow-[0_0_30px_oklch(0.78_0.2_155/0.7)] transition"
+            >
+              <Play className="w-4 h-4" /> Start
+            </button>
+          )
         ) : (
           <>
             <div className="flex-1">
@@ -697,17 +733,25 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
 }
 
 function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]; onClose: () => void }) {
-  const { transferToLounge } = useStore();
-  const [targetId, setTargetId] = useState(targets[0]?.id ?? "");
+  const { transferZone } = useStore();
+  // Only offer targets that are actually eligible: rooms must be available
+  // (can't merge into an already-running timed session), lounge tables can
+  // be either.
+  const eligibleTargets = targets.filter((t) => t.zone !== "room" || t.status === "available");
+  const [targetId, setTargetId] = useState(eligibleTargets[0]?.id ?? "");
+  const [rateMode, setRateMode] = useState<"single" | "multi">("single");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const target = eligibleTargets.find((t) => t.id === targetId);
+  const targetIsRoom = target?.zone === "room";
 
   const submit = async () => {
     if (!targetId) return;
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await transferToLounge(room.id, targetId);
+      const res = await transferZone(room.id, targetId, targetIsRoom ? rateMode : undefined);
       if (!res.ok) { setErr(res.error ?? "Transfer failed"); return; }
       onClose();
     } finally {
@@ -726,16 +770,37 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
         </div>
         <div className="p-4 space-y-3">
           <p className="text-xs text-muted-foreground">
-            This freezes {room.name}'s time charge right now, folds it into the target table as a line item, and moves any remaining orders over. {room.name} becomes available again immediately.
+            {room.zone === "room"
+              ? `This freezes ${room.name}'s time charge right now, folds it into the target as a line item, and moves any remaining orders over.`
+              : `This moves ${room.name}'s orders to the target.`} {room.name} becomes available again immediately.
           </p>
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Move to</label>
             <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
-              {targets.map((t) => (
-                <option key={t.id} value={t.id}>{t.name} {t.status === "active" ? "(active)" : "(available)"}</option>
+              {eligibleTargets.map((t) => (
+                <option key={t.id} value={t.id}>{t.name} {t.zone === "room" ? "(room)" : `(${t.status === "active" ? "active" : "available"} table)`}</option>
               ))}
             </select>
           </div>
+          {targetIsRoom && (
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Starting rate for {target?.name}</label>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setRateMode("single")}
+                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "single" ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+                >
+                  Single {fmtMoney(target?.singleRate ?? 0)}/hr
+                </button>
+                <button
+                  onClick={() => setRateMode("multi")}
+                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "multi" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+                >
+                  Multi {fmtMoney(target?.multiRate ?? 0)}/hr
+                </button>
+              </div>
+            </div>
+          )}
           {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-white/10 flex justify-end gap-2">

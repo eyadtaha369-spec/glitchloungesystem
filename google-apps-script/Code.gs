@@ -105,11 +105,11 @@ function defaultAppState_() {
   ];
   const rooms = [];
   for (let i = 1; i <= 8; i++) {
-    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 5, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 0, singleRate: 5, multiRate: 8, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
   }
-  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 10, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 0, singleRate: 10, multiRate: 15, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
   for (let i = 1; i <= 4; i++) {
-    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
+    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
   }
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
@@ -273,6 +273,7 @@ const ACTION_RISK = {
   EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
   RECURRING_EXPENSE_PAID: "yellow",
   ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
+  SESSION_TRANSFERRED: "yellow", SPLIT_INTERFACE_OPENED: "yellow", SESSION_SPLIT: "yellow",
   ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
   RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
@@ -317,20 +318,29 @@ function pushActivity_(state, message) {
   return state;
 }
 
-function bizSetRoomRate_(state, roomId, rate) {
-  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { hourlyRate: rate }) : r));
+function bizSetRoomRate_(state, roomId, singleRate, multiRate) {
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { singleRate: singleRate, multiRate: multiRate }) : r));
   return state;
 }
 
-function bizStartRoom_(state, roomId) {
+function bizStartRoom_(state, roomId, rateMode) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before starting a room.", state: state };
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status === "active") return { ok: true, state: state };
+  let hourlyRate = 0;
+  let mode = null;
+  if (room.zone === "room") {
+    if (rateMode !== "single" && rateMode !== "multi") {
+      return { ok: false, error: "Select a Single or Multi rate to start this room.", state: state };
+    }
+    hourlyRate = rateMode === "single" ? room.singleRate : room.multiRate;
+    mode = rateMode;
+  }
   const now = Date.now();
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: [] }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: [], hourlyRate: hourlyRate, rateMode: mode }) : r
   );
-  pushActivity_(state, room.name + " session started");
+  pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ $" + hourlyRate + "/hr)" : ""));
   return { ok: true, state: state };
 }
 
@@ -511,49 +521,82 @@ function bizSetActualCash_(state, n) {
 // Freezes the room's time charge as of THIS exact second (it does not
 // keep running once the customer leaves the physical room), folds it in
 // as a line item on the target table, merges over any remaining orders,
-// and frees the room for the next customer.
-function bizTransferToLounge_(state, roomId, targetTableId) {
-  const room = state.rooms.find((r) => r.id === roomId && r.zone === "room");
-  if (!room) return { ok: false, error: "Source room not found", state: state };
-  if (room.status !== "active" || !room.startedAt) return { ok: false, error: "Room is not active", state: state };
-  const table = state.rooms.find((r) => r.id === targetTableId && (r.zone === "lounge" || r.zone === "split"));
-  if (!table) return { ok: false, error: "Target table not found", state: state };
+// and frees the room for the next customer. Works in ANY direction between
+// rooms and lounge tables:
+//  - Room source: timer stops, elapsed charge freezes as a line item.
+//  - Lounge source: no timer, orders just migrate as-is.
+//  - Room target: must start fresh (can't merge into an already-active
+//    room), and requires a Single/Multi rate selection to start its timer.
+//  - Lounge target: no rate needed, can merge into an available OR
+//    already-active table.
+function bizTransferZone_(state, sourceId, targetId, rateMode) {
+  const source = state.rooms.find((r) => r.id === sourceId);
+  if (!source) return { ok: false, error: "Source not found", state: state };
+  if (source.zone === "split") return { ok: false, error: "Cannot transfer a split invoice — check it out independently instead.", state: state };
+  if (source.status !== "active") return { ok: false, error: "Source is not active", state: state };
+  const target = state.rooms.find((r) => r.id === targetId);
+  if (!target) return { ok: false, error: "Target not found", state: state };
+  if (target.id === source.id) return { ok: false, error: "Source and target must be different", state: state };
+  if (target.zone === "split") return { ok: false, error: "Cannot transfer into a split invoice", state: state };
+  if (target.zone === "room" && target.status === "active") {
+    return { ok: false, error: target.name + " already has an active session", state: state };
+  }
+  if (target.zone === "room" && rateMode !== "single" && rateMode !== "multi") {
+    return { ok: false, error: "Select a Single or Multi rate to start " + target.name, state: state };
+  }
 
   const now = Date.now();
-  const durationSec = Math.max(1, Math.floor((now - room.startedAt) / 1000));
-  const roomCharge = (durationSec / 3600) * room.hourlyRate;
+  let durationSec = 0;
+  let roomCharge = 0;
+  if (source.zone === "room" && source.startedAt) {
+    durationSec = Math.max(1, Math.floor((now - source.startedAt) / 1000));
+    roomCharge = (durationSec / 3600) * source.hourlyRate;
+  }
 
   state.rooms = state.rooms.map((r) => {
-    if (r.id === roomId) {
-      return Object.assign({}, r, { status: "available", startedAt: null, orders: [] });
+    if (r.id === sourceId) {
+      return Object.assign({}, r, {
+        status: "available", startedAt: null, orders: [],
+        hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode,
+      });
     }
-    if (r.id === targetTableId) {
+    if (r.id === targetId) {
       let orders = r.orders.slice();
       if (roomCharge > 0) {
         orders = orders.concat([{
-          menuItemId: "transfer-charge-" + room.id + "-" + now,
-          name: "Room Charge (" + room.name + ")",
+          menuItemId: "transfer-charge-" + source.id + "-" + now,
+          name: "Room Charge (" + source.name + ")",
           qty: 1, price: roomCharge,
         }]);
       }
-      room.orders.forEach((o) => {
+      source.orders.forEach((o) => {
         const existing = orders.find((x) => x.menuItemId === o.menuItemId);
         orders = existing
           ? orders.map((x) => (x.menuItemId === o.menuItemId ? Object.assign({}, x, { qty: x.qty + o.qty }) : x))
           : orders.concat([o]);
       });
-      return Object.assign({}, r, {
-        status: "active",
-        startedAt: r.startedAt || now,
-        orders: orders,
-        transferredFrom: room.name,
-      });
+      const patch = { orders: orders, transferredFrom: source.name };
+      if (r.zone === "room") {
+        const rate = rateMode === "single" ? r.singleRate : r.multiRate;
+        Object.assign(patch, { status: "active", startedAt: now, hourlyRate: rate, rateMode: rateMode });
+      } else {
+        Object.assign(patch, { status: "active", startedAt: r.startedAt || now });
+      }
+      return Object.assign({}, r, patch);
     }
     return r;
   });
 
-  pushActivity_(state, room.name + " transferred to " + table.name + " ($" + roomCharge.toFixed(2) + " room charge)");
-  return { ok: true, state: state, roomCharge: roomCharge, roomName: room.name, tableName: table.name, durationSec: durationSec };
+  pushActivity_(
+    state,
+    source.name + " transferred to " + target.name +
+      (roomCharge > 0 ? " ($" + roomCharge.toFixed(2) + " room charge)" : "") +
+      (target.zone === "room" ? " — started " + rateMode : ""),
+  );
+  return {
+    ok: true, state: state, roomCharge: roomCharge, roomName: source.name, tableName: target.name,
+    durationSec: durationSec, targetZone: target.zone,
+  };
 }
 
 let splitInvoiceCounter_ = null;
@@ -844,27 +887,27 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const state0 = getState_();
         const before = state0.rooms.find((r) => r.id === body.roomId);
-        const state = bizSetRoomRate_(state0, body.roomId, body.rate);
+        const state = bizSetRoomRate_(state0, body.roomId, body.singleRate, body.multiRate);
         setState_(state);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "ROOM_RATE_CHANGED",
           location: before ? before.name : body.roomId,
-          description: (before ? before.name : body.roomId) + " hourly rate changed to $" + body.rate,
-          before: before ? { hourlyRate: before.hourlyRate } : null,
-          after: { hourlyRate: body.rate },
+          description: (before ? before.name : body.roomId) + " rates changed to Single $" + body.singleRate + "/hr, Multi $" + body.multiRate + "/hr",
+          before: before ? { singleRate: before.singleRate, multiRate: before.multiRate } : null,
+          after: { singleRate: body.singleRate, multiRate: body.multiRate },
         });
         return json_({ state: withStockView_(state) });
       }
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizStartRoom_(getState_(), body.roomId);
+        const result = bizStartRoom_(getState_(), body.roomId, body.rateMode);
         if (result.ok) {
           setState_(result.state);
           const room = result.state.rooms.find((r) => r.id === body.roomId);
           logActivity_({
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_STARTED",
             location: room ? room.name : body.roomId, shiftId: result.state.activeShiftId,
-            description: (room ? room.name : body.roomId) + " session started",
+            description: (room ? room.name : body.roomId) + " session started" + (room && room.rateMode ? " (" + room.rateMode + " @ $" + room.hourlyRate + "/hr)" : ""),
           });
         }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
@@ -954,17 +997,19 @@ function doPost(e) {
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
 
-      case "transferToLounge": {
+      case "transferZone": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizTransferToLounge_(getState_(), body.roomId, body.targetTableId);
+        const result = bizTransferZone_(getState_(), body.sourceId, body.targetId, body.rateMode);
         if (result.ok) {
           setState_(result.state);
           logActivity_({
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_TRANSFERRED",
             location: result.roomName + " -> " + result.tableName, shiftId: result.state.activeShiftId,
-            description: result.roomName + " transferred to " + result.tableName + " ($" + result.roomCharge.toFixed(2) + " frozen room charge, " + result.durationSec + "s elapsed)",
-            before: { room: result.roomName, durationSec: result.durationSec },
-            after: { targetTable: result.tableName, roomCharge: result.roomCharge },
+            description: result.roomName + " transferred to " + result.tableName +
+              (result.roomCharge > 0 ? " ($" + result.roomCharge.toFixed(2) + " frozen room charge, " + result.durationSec + "s elapsed)" : "") +
+              (result.targetZone === "room" ? " — started " + body.rateMode : ""),
+            before: { source: result.roomName, durationSec: result.durationSec },
+            after: { target: result.tableName, roomCharge: result.roomCharge, rateMode: result.targetZone === "room" ? body.rateMode : null },
           });
         }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
@@ -1566,13 +1611,20 @@ function getState_() {
         if (typeof parsed.geofenceRadiusMeters !== "number") parsed.geofenceRadiusMeters = 50;
         if (parsed.rooms) {
           parsed.rooms = parsed.rooms.map(function (r) {
-            if (r.zone) return r;
-            return Object.assign({}, r, { zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+            const withZone = r.zone ? r : Object.assign({}, r, { zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+            if (typeof withZone.singleRate === "number") return withZone;
+            const legacyRate = typeof withZone.hourlyRate === "number" ? withZone.hourlyRate : 0;
+            return Object.assign({}, withZone, {
+              singleRate: withZone.zone === "room" ? (legacyRate || 5) : 0,
+              multiRate: withZone.zone === "room" ? (legacyRate ? legacyRate * 1.6 : 8) : 0,
+              rateMode: withZone.status === "active" && withZone.zone === "room" ? "single" : null,
+              hourlyRate: withZone.status === "active" ? legacyRate : 0,
+            });
           });
           const hasLounge = parsed.rooms.some(function (r) { return r.zone === "lounge"; });
           if (!hasLounge) {
             for (let i = 1; i <= 4; i++) {
-              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
+              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
             }
           }
         }

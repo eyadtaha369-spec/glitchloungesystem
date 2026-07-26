@@ -48,14 +48,17 @@ export interface Room {
   id: string;
   name: string;
   isVip: boolean;
-  hourlyRate: number;
+  hourlyRate: number; // the EFFECTIVE rate for the current/last session (0 for lounge/split, or before first start)
+  singleRate: number; // configurable base rate — Single mode (room zone only)
+  multiRate: number; // configurable base rate — Multi mode (room zone only)
+  rateMode: "single" | "multi" | null; // which rate is active for the current session
   status: "available" | "active";
   startedAt: number | null;
   orders: OrderLine[];
-  // "room" = the original hourly-billed bays/VIP suite. "lounge" = a
-  // no-time-charge table customers can be transferred to. "split" = an
-  // ephemeral independent invoice created by extracting items off another
-  // active room/table — checked out on its own, separately from the source.
+  // "room" = the original timed bays/VIP suite. "lounge" = a no-time-charge
+  // table customers can be transferred to. "split" = an ephemeral
+  // independent invoice created by extracting items off another active
+  // room/table — checked out on its own, separately from the source.
   zone: "room" | "lounge" | "split";
   splitInvoiceNumber: string | null;
   transferredFrom: string | null;

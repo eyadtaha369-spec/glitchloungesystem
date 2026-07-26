@@ -34,7 +34,7 @@ import {
   openShiftFn,
   endShiftFn,
   forceEndShiftFn,
-  transferToLoungeFn,
+  transferZoneFn,
   logSplitInterfaceOpenedFn,
   splitOrderFn,
 } from "@/backend/state";
@@ -99,8 +99,8 @@ interface StoreContextValue {
     patch: { username?: string; password?: string; role?: Role },
   ) => Promise<{ ok: boolean; error?: string }>;
   deleteAccount: (username: string) => Promise<void>;
-  setRoomRate: (roomId: string, rate: number) => Promise<void>;
-  startRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
+  startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod) => Promise<Session | null>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -155,7 +155,7 @@ interface StoreContextValue {
   denyVoid: (voidId: string) => Promise<void>;
 
   // Cross-zone transfer & interactive split
-  transferToLounge: (roomId: string, targetTableId: string) => Promise<{ ok: boolean; error?: string }>;
+  transferZone: (sourceId: string, targetId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   openSplitInterface: (roomId: string) => Promise<void>;
   splitOrder: (sourceId: string, items: { menuItemId: string; qty: number }[]) => Promise<{ ok: boolean; error?: string }>;
   refreshActivityLogs: () => Promise<void>;
@@ -306,25 +306,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const setRoomRate: StoreContextValue["setRoomRate"] = async (roomId, rate) => {
+  const setRoomRate: StoreContextValue["setRoomRate"] = async (roomId, singleRate, multiRate) => {
     return withPending(`setRoomRate:${roomId}`, async () => {
       setAppState((prev) => ({
         ...prev,
-        rooms: prev.rooms.map((r) => (r.id === roomId ? { ...r, hourlyRate: rate } : r)),
+        rooms: prev.rooms.map((r) => (r.id === roomId ? { ...r, singleRate, multiRate } : r)),
       }));
-      setAppState(await setRoomRateFn({ data: { roomId, rate } }));
+      setAppState(await setRoomRateFn({ data: { roomId, singleRate, multiRate } }));
     });
   };
-  const startRoom: StoreContextValue["startRoom"] = async (roomId) => {
+  const startRoom: StoreContextValue["startRoom"] = async (roomId, rateMode) => {
     return withPending(`startRoom:${roomId}`, async () => {
       const now = Date.now();
       setAppState((prev) => ({
         ...prev,
-        rooms: prev.rooms.map((r) =>
-          r.id === roomId && r.status !== "active" ? { ...r, status: "active", startedAt: now, orders: [] } : r,
-        ),
+        rooms: prev.rooms.map((r) => {
+          if (r.id !== roomId || r.status === "active") return r;
+          const rate = r.zone === "room" ? (rateMode === "multi" ? r.multiRate : r.singleRate) : 0;
+          return { ...r, status: "active", startedAt: now, orders: [], hourlyRate: rate, rateMode: r.zone === "room" ? (rateMode ?? null) : null };
+        }),
       }));
-      const res = await startRoomFn({ data: { roomId } });
+      const res = await startRoomFn({ data: { roomId, rateMode } });
       setAppState(res.state);
       return { ok: res.ok, error: res.error };
     });
@@ -573,9 +575,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   // ---------- Cross-zone transfer & interactive split ----------
-  const transferToLounge: StoreContextValue["transferToLounge"] = async (roomId, targetTableId) => {
-    return withPending(`transfer:${roomId}`, async () => {
-      const res = await transferToLoungeFn({ data: { roomId, targetTableId } });
+  const transferZone: StoreContextValue["transferZone"] = async (sourceId, targetId, rateMode) => {
+    return withPending(`transfer:${sourceId}`, async () => {
+      const res = await transferZoneFn({ data: { sourceId, targetId, rateMode } });
       if (res.ok) setAppState(res.state);
       return { ok: res.ok, error: res.error };
     });
@@ -661,7 +663,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, approveVoid, denyVoid, setFraudThreshold, setGeofenceConfig,
-    transferToLounge, openSplitInterface, splitOrder, refreshActivityLogs,
+    transferZone, openSplitInterface, splitOrder, refreshActivityLogs,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

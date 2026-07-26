@@ -13,7 +13,7 @@ export const getStateFn = createServerFn({ method: "GET" }).handler(async () => 
 });
 
 export const startRoomFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string }) => d)
+  .validator((d: { roomId: string; rateMode?: "single" | "multi" }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("startRoom", {
@@ -67,7 +67,7 @@ export const setOrderLineNoteFn = createServerFn({ method: "POST" })
   });
 
 export const setRoomRateFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; rate: number }) => d)
+  .validator((d: { roomId: string; singleRate: number; multiRate: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     const res = await callAppsScript<{ state: AppState }>("setRoomRate", { ...data, username: user.username });
@@ -113,11 +113,11 @@ export const setActualCashFn = createServerFn({ method: "POST" })
 
 // ---------- Cross-zone transfer & interactive split ----------
 
-export const transferToLoungeFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; targetTableId: string }) => d)
+export const transferZoneFn = createServerFn({ method: "POST" })
+  .validator((d: { sourceId: string; targetId: string; rateMode?: "single" | "multi" }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("transferToLounge", {
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("transferZone", {
       ...data,
       username: user.username,
     });
