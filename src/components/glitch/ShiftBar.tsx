@@ -12,7 +12,7 @@ export function ShiftBar() {
   const [closedSummary, setClosedSummary] = useState<{ expected: number; actual: number; discrepancy: number } | null>(null);
 
   const shiftSessions = activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id) : [];
-  const cashSalesOnly = shiftSessions.filter((s) => s.paymentMethod === "cash").reduce((a, s) => a + s.total, 0);
+  const cashSalesOnly = shiftSessions.reduce((a, s) => a + s.cashAmount, 0);
   const shiftRevenue = shiftSessions.reduce((a, s) => a + s.total, 0);
 
   const handleOpen = async () => {

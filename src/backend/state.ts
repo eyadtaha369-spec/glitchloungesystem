@@ -23,10 +23,10 @@ export const startRoomFn = createServerFn({ method: "POST" })
   });
 
 export const endRoomFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; splitBill: boolean; paymentMethod: PaymentMethod }) => d)
+  .validator((d: { roomId: string; splitBill: boolean; paymentMethod: PaymentMethod; cashAmount?: number; secondaryAmount?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    return callAppsScript<{ session: Session | null; state: AppState }>("endRoom", {
+    return callAppsScript<{ session: Session | null; error?: string; state: AppState }>("endRoom", {
       ...data,
       username: user.username,
     });

@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, type Room, type Session, type PaymentMethod, type VoidReason } from "@/lib/glitch-store";
 import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
+const PAYMENT_LABELS: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  visa: "Visa",
+  mixed_cash_visa: "Cash + Visa",
+  mixed_cash_instapay: "Cash + InstaPay",
+};
+
 export function RoomsPage() {
   const { state, computeElapsed, activeShift } = useStore();
   const [, setTick] = useState(0);
@@ -122,10 +129,36 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
     if (!r.ok) flashWarn(r.error ?? "Could not update item");
   };
 
-  const handleCheckout = async (paymentMethod: PaymentMethod) => {
-    const s = await endRoom(room.id, split, paymentMethod);
-    setCheckoutOpen(false);
-    if (s) onCheckout(s);
+  const [paymentOption, setPaymentOption] = useState<PaymentMethod>("cash");
+  const [cashInput, setCashInput] = useState("");
+  const [secondaryInput, setSecondaryInput] = useState("");
+  const [checkoutErr, setCheckoutErr] = useState<string | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+
+  const mixedSum = (parseFloat(cashInput) || 0) + (parseFloat(secondaryInput) || 0);
+  const mixedValid = Math.abs(mixedSum - total) < 0.01;
+  const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
+
+  const handleCheckout = async () => {
+    setCheckoutErr(null);
+    if (isMixed && !mixedValid) {
+      setCheckoutErr(`Cash + ${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} must equal ${fmtMoney(total)} exactly.`);
+      return;
+    }
+    setCheckingOut(true);
+    try {
+      const res = await endRoom(
+        room.id, split, paymentOption,
+        isMixed ? parseFloat(cashInput) || 0 : undefined,
+        isMixed ? parseFloat(secondaryInput) || 0 : undefined,
+      );
+      if (res.error) { setCheckoutErr(res.error); return; }
+      setCheckoutOpen(false);
+      setCashInput(""); setSecondaryInput(""); setPaymentOption("cash");
+      if (res.session) onCheckout(res.session);
+    } finally {
+      setCheckingOut(false);
+    }
   };
 
   return (
@@ -458,18 +491,73 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               <div className="text-xs uppercase tracking-widest text-muted-foreground pt-2">Payment Method</div>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => handleCheckout("cash")}
-                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] hover:bg-[oklch(0.78_0.2_155/0.25)] transition"
+                  onClick={() => setPaymentOption("cash")}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] border-[oklch(0.78_0.2_155/0.6)]" : "bg-[oklch(0.78_0.2_155/0.08)] border-[oklch(0.78_0.2_155/0.3)] hover:bg-[oklch(0.78_0.2_155/0.15)]"} text-[oklch(0.78_0.2_155)]`}
                 >
-                  <Banknote className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">Cash</span>
+                  <Banknote className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">100% Cash</span>
                 </button>
                 <button
-                  onClick={() => handleCheckout("visa")}
-                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
+                  onClick={() => setPaymentOption("visa")}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.25)] border-[oklch(0.7_0.19_260/0.6)]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)] hover:bg-[oklch(0.7_0.19_260/0.15)]"} text-[oklch(0.85_0.16_200)]`}
                 >
-                  <CreditCard className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">Visa</span>
+                  <CreditCard className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">100% Visa</span>
+                </button>
+                <button
+                  onClick={() => setPaymentOption("mixed_cash_visa")}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "mixed_cash_visa" ? "bg-[oklch(0.82_0.16_85/0.25)] border-[oklch(0.82_0.16_85/0.6)]" : "bg-[oklch(0.82_0.16_85/0.08)] border-[oklch(0.82_0.16_85/0.3)] hover:bg-[oklch(0.82_0.16_85/0.15)]"} text-[oklch(0.82_0.16_85)]`}
+                >
+                  <SplitSquareHorizontal className="w-5 h-5" /> <span className="text-[11px] font-semibold uppercase text-center leading-tight">Cash + Visa</span>
+                </button>
+                <button
+                  onClick={() => setPaymentOption("mixed_cash_instapay")}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "mixed_cash_instapay" ? "bg-[oklch(0.65_0.24_305/0.25)] border-[oklch(0.65_0.24_305/0.6)]" : "bg-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.65_0.24_305/0.3)] hover:bg-[oklch(0.65_0.24_305/0.15)]"} text-[oklch(0.75_0.2_305)]`}
+                >
+                  <SplitSquareHorizontal className="w-5 h-5" /> <span className="text-[11px] font-semibold uppercase text-center leading-tight">Cash + InstaPay</span>
                 </button>
               </div>
+
+              {isMixed && (
+                <div className="space-y-2 pt-1">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter Cash Amount</label>
+                    <input
+                      type="number" step="0.01" autoFocus value={cashInput}
+                      onChange={(e) => setCashInput(e.target.value)}
+                      placeholder="0.00"
+                      className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount
+                    </label>
+                    <input
+                      type="number" step="0.01" value={secondaryInput}
+                      onChange={(e) => setSecondaryInput(e.target.value)}
+                      placeholder="0.00"
+                      className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div className={`flex justify-between text-xs font-mono px-1 ${mixedValid ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+                    <span>Entered: {fmtMoney(mixedSum)}</span>
+                    <span>{mixedValid ? "✓ matches total" : `Needs ${fmtMoney(total)}`}</span>
+                  </div>
+                </div>
+              )}
+
+              {checkoutErr && (
+                <div className="text-xs p-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">
+                  {checkoutErr}
+                </div>
+              )}
+
+              <button
+                onClick={handleCheckout}
+                disabled={checkingOut || (isMixed && !mixedValid)}
+                className="w-full mt-1 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-50"
+              >
+                {checkingOut ? "Processing..." : "Confirm & Close Ticket"}
+              </button>
             </div>
           </div>
         </div>
@@ -515,7 +603,19 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             <div className="flex justify-between"><span>Start</span><span>{startD.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>End</span><span>{endD.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>Duration</span><span>{fmtDuration(session.durationSec)}</span></div>
-            <div className="flex justify-between"><span>Payment</span><span className="uppercase">{session.paymentMethod}</span></div>
+            <div className="flex justify-between"><span>Payment</span><span className="uppercase">{PAYMENT_LABELS[session.paymentMethod]}</span></div>
+            {session.paymentMethod === "mixed_cash_visa" && (
+              <>
+                <div className="flex justify-between text-[10px] opacity-80"><span>&nbsp;&nbsp;Cash</span><span>{fmtMoney(session.cashAmount)}</span></div>
+                <div className="flex justify-between text-[10px] opacity-80"><span>&nbsp;&nbsp;Visa</span><span>{fmtMoney(session.visaAmount)}</span></div>
+              </>
+            )}
+            {session.paymentMethod === "mixed_cash_instapay" && (
+              <>
+                <div className="flex justify-between text-[10px] opacity-80"><span>&nbsp;&nbsp;Cash</span><span>{fmtMoney(session.cashAmount)}</span></div>
+                <div className="flex justify-between text-[10px] opacity-80"><span>&nbsp;&nbsp;InstaPay</span><span>{fmtMoney(session.instapayAmount)}</span></div>
+              </>
+            )}
           </div>
 
           {session.splitBill ? (

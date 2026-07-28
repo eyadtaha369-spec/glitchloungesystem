@@ -42,7 +42,11 @@ export interface OrderLine {
   notes?: string;
 }
 
-export type PaymentMethod = "cash" | "visa";
+// 4 checkout options. Mixed options split the ticket across two methods —
+// the exact amounts are recorded on the Session (cashAmount/visaAmount/
+// instapayAmount) rather than inferred from this label, so revenue
+// aggregation is exact regardless of pure vs. mixed payment.
+export type PaymentMethod = "cash" | "visa" | "mixed_cash_visa" | "mixed_cash_instapay";
 
 export interface Room {
   id: string;
@@ -78,6 +82,12 @@ export interface Session {
   cogs: number;
   splitBill: boolean;
   paymentMethod: PaymentMethod;
+  // Exact per-method breakdown. For pure cash/visa, one of these equals
+  // `total` and the others are 0. For mixed payments, cashAmount +
+  // (visaAmount or instapayAmount) === total exactly (server-validated).
+  cashAmount: number;
+  visaAmount: number;
+  instapayAmount: number;
   shiftId: string | null;
 }
 

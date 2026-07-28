@@ -101,7 +101,7 @@ interface StoreContextValue {
   deleteAccount: (username: string) => Promise<void>;
   setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
-  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod) => Promise<Session | null>;
+  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number) => Promise<{ session: Session | null; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineNote: (roomId: string, menuItemId: string, notes: string) => Promise<{ ok: boolean; error?: string }>;
@@ -331,17 +331,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
-  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod) => {
+  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod, cashAmount, secondaryAmount) => {
     return withPending(`endRoom:${roomId}`, async () => {
-      setAppState((prev) => ({
-        ...prev,
-        rooms: prev.rooms.map((r) =>
-          r.id === roomId ? { ...r, status: "available", startedAt: null, orders: [] } : r,
-        ),
-      }));
-      const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod } });
+      // No optimistic clear here — a mixed-payment split that doesn't sum
+      // to the ticket total is rejected server-side, and the room must
+      // stay exactly as it was so the cashier can correct the amounts.
+      const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount } });
       setAppState(res.state);
-      return res.session;
+      return { session: res.session, error: res.error };
     });
   };
   const addOrder: StoreContextValue["addOrder"] = async (roomId, menuItemId, qty) => {

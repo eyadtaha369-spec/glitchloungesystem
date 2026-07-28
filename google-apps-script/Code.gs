@@ -466,14 +466,38 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
   return { cost: cost, shortfall: remaining, touched: touched };
 }
 
-function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod) {
+const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
+
+function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput) {
   const room = state.rooms.find((r) => r.id === roomId);
-  if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state, touchedBatchIds: [] };
+  if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state, touchedBatchIds: [], error: null };
   const endedAt = Date.now();
   const durationSec = Math.max(1, Math.floor((endedAt - room.startedAt) / 1000));
   const timeCost = (durationSec / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const total = timeCost + ordersCost;
+
+  const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
+  let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
+  if (method === "cash") {
+    cashAmount = total;
+  } else if (method === "visa") {
+    visaAmount = total;
+  } else {
+    // Mixed: cash + (visa or instapay). Server-side safety guard — the
+    // split MUST sum to exactly the ticket total, or checkout is refused.
+    const c = Number(cashAmountInput) || 0;
+    const s = Number(secondaryAmountInput) || 0;
+    if (Math.abs(c + s - total) > 0.01) {
+      return {
+        session: null, state: state, touchedBatchIds: [],
+        error: "Cash + " + (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " must equal the ticket total ($" +
+          total.toFixed(2) + "). You entered $" + (c + s).toFixed(2) + ".",
+      };
+    }
+    cashAmount = c;
+    if (method === "mixed_cash_visa") visaAmount = s; else instapayAmount = s;
+  }
 
   // FIFO-consume ingredients for everything ordered, computing real COGS.
   let cogs = 0;
@@ -501,15 +525,21 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod) {
     total: total,
     cogs: cogs,
     splitBill: !!splitBill,
-    paymentMethod: paymentMethod === "visa" ? "visa" : "cash",
+    paymentMethod: method,
+    cashAmount: cashAmount,
+    visaAmount: visaAmount,
+    instapayAmount: instapayAmount,
     shiftId: state.activeShiftId || null,
   };
   state.rooms = state.rooms.map((r) =>
     r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r
   );
   state.sessions = [session].concat(state.sessions);
-  pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected (" + session.paymentMethod + ")");
-  return { session: session, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)) };
+  const paymentLabel = method === "mixed_cash_visa" ? "Cash $" + cashAmount.toFixed(2) + " + Visa $" + visaAmount.toFixed(2)
+    : method === "mixed_cash_instapay" ? "Cash $" + cashAmount.toFixed(2) + " + InstaPay $" + instapayAmount.toFixed(2)
+    : method;
+  pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected (" + paymentLabel + ")");
+  return { session: session, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
 }
 
 function bizSetActualCash_(state, n) {
@@ -737,7 +767,7 @@ function bizCloseActiveShift_(state, ledger, actualCash, forced, lat, lng) {
   const shiftId = state.activeShiftId;
   const shift = state.shifts.find((sh) => sh.id === shiftId);
   const shiftSessions = state.sessions.filter((s) => s.shiftId === shiftId);
-  const cashSales = shiftSessions.filter((s) => s.paymentMethod === "cash").reduce((a, s) => a + s.total, 0);
+  const cashSales = shiftSessions.reduce((a, s) => a + (Number(s.cashAmount) || 0), 0);
   const drawerExpenses = ledger
     .filter((l) => l.shiftId === shiftId && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow")
     .reduce((a, l) => a + Number(l.amount), 0);
@@ -915,7 +945,10 @@ function doPost(e) {
       case "endRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod);
+        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount);
+        if (result.error) {
+          return json_({ session: null, error: result.error, state: withStockView_(result.state) });
+        }
         if (result.session) {
           setState_(result.state);
           result.touchedBatchIds.forEach(function (id) {
@@ -927,7 +960,7 @@ function doPost(e) {
             id: newId_("ledg"), ts: result.session.endedAt, amount: result.session.total, direction: "inflow",
             type: "sale", category: "Room Sale", description: result.session.roomName + " checkout",
             supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-            paidFromDrawer: result.session.paymentMethod === "cash", shiftId: result.session.shiftId,
+            paidFromDrawer: result.session.cashAmount > 0, shiftId: result.session.shiftId,
             materialId: null, qty: null, unitCost: null,
           });
           logActivity_({
@@ -936,7 +969,10 @@ function doPost(e) {
             location: result.session.roomName, shiftId: result.session.shiftId,
             description: result.session.roomName + " checked out — $" + result.session.total.toFixed(2) + " (" + result.session.paymentMethod + ")",
             before: { orders: result.session.orders },
-            after: { total: result.session.total, cogs: result.session.cogs },
+            after: {
+              total: result.session.total, cogs: result.session.cogs,
+              cashAmount: result.session.cashAmount, visaAmount: result.session.visaAmount, instapayAmount: result.session.instapayAmount,
+            },
           });
         }
         return json_({ session: result.session, state: withStockView_(result.state) });

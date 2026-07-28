@@ -31,9 +31,14 @@ export function ReportsPage() {
     [state.shifts],
   );
 
-  const totalRevenue = todaySessions.reduce((a, s) => a + s.total, 0);
-  const cashRevenue = todaySessions.filter((s) => s.paymentMethod === "cash").reduce((a, s) => a + s.total, 0);
-  const visaRevenue = todaySessions.filter((s) => s.paymentMethod === "visa").reduce((a, s) => a + s.total, 0);
+  // Exact aggregation: cashAmount + visaAmount + instapayAmount always sums
+  // to session.total for every session (pure or mixed), so summing these
+  // three fields across all of today's sessions IS the definitive Total
+  // Daily Revenue — no separate "combined" calculation needed.
+  const cashRevenue = todaySessions.reduce((a, s) => a + s.cashAmount, 0);
+  const visaRevenue = todaySessions.reduce((a, s) => a + s.visaAmount, 0);
+  const instapayRevenue = todaySessions.reduce((a, s) => a + s.instapayAmount, 0);
+  const totalRevenue = cashRevenue + visaRevenue + instapayRevenue;
 
   // Material consumption today, derived from today's orders × recipes —
   // NOT from stock.used, since that's cumulative since last restock, not
@@ -63,24 +68,22 @@ export function ReportsPage() {
           <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">All shifts · Today</p>
         </div>
         <button
-          onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue)}
+          onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue)}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
         >
           <FileDown className="w-4 h-4" /> Generate Daily Report
         </button>
       </div>
 
-      {/* Total revenue */}
-      <div className="glass rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-4">
+      {/* Total Daily Revenue — the definitive benchmark, before any expenses */}
+      <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
+        <div className="flex items-center gap-2 mb-1">
           <TrendingUp className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-          <h2 className="text-lg font-semibold">Total Revenue — Today</h2>
+          <h2 className="text-lg font-semibold">Total Daily Revenue</h2>
         </div>
+        <p className="text-xs text-muted-foreground mb-4">Cash + Visa + InstaPay, combined across every pure and mixed-method sale — before expenses.</p>
+        <div className="text-4xl font-mono font-bold mb-4">{fmtMoney(totalRevenue)}</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">Combined</div>
-            <div className="text-2xl font-mono font-bold mt-1">{fmtMoney(totalRevenue)}</div>
-          </div>
           <div className="bg-black/30 rounded-lg p-4 border border-white/5">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Cash</div>
             <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(cashRevenue)}</div>
@@ -88,6 +91,10 @@ export function ReportsPage() {
           <div className="bg-black/30 rounded-lg p-4 border border-white/5">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Visa</div>
             <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.85_0.16_200)]">{fmtMoney(visaRevenue)}</div>
+          </div>
+          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">InstaPay</div>
+            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.75_0.2_305)]">{fmtMoney(instapayRevenue)}</div>
           </div>
         </div>
       </div>
@@ -471,6 +478,7 @@ function generateDailyReport(
   totalRevenue: number,
   cashRevenue: number,
   visaRevenue: number,
+  instapayRevenue: number,
 ) {
   const win = window.open("", "_blank", "width=900,height=1200");
   if (!win) return;
@@ -486,14 +494,15 @@ function generateDailyReport(
   th { background: #f5f5f5; text-transform: uppercase; letter-spacing: 1px; font-size: 10px; }
   .totals { margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px; }
   .totals div { display: flex; justify-content: space-between; padding: 4px 0; font-family: ui-monospace, monospace; }
-  .grand { font-weight: bold; border-top: 2px solid #111; margin-top: 6px; padding-top: 8px !important; }
+  .grand { font-weight: bold; border-top: 2px solid #111; margin-top: 6px; padding-top: 8px !important; font-size: 15px; }
 </style></head><body>
 <h1>GLITCH LOUNGE</h1>
 <div class="sub">Daily Owner Report — ${today}</div>
 <div class="totals">
-  <div><span>Cash Revenue</span><span>$${cashRevenue.toFixed(2)}</span></div>
-  <div><span>Visa Revenue</span><span>$${visaRevenue.toFixed(2)}</span></div>
-  <div class="grand"><span>TOTAL REVENUE</span><span>$${totalRevenue.toFixed(2)}</span></div>
+  <div class="grand"><span>TOTAL DAILY REVENUE</span><span>$${totalRevenue.toFixed(2)}</span></div>
+  <div><span>&nbsp;&nbsp;Cash</span><span>$${cashRevenue.toFixed(2)}</span></div>
+  <div><span>&nbsp;&nbsp;Visa</span><span>$${visaRevenue.toFixed(2)}</span></div>
+  <div><span>&nbsp;&nbsp;InstaPay</span><span>$${instapayRevenue.toFixed(2)}</span></div>
 </div>
 <h3 style="margin-top:24px">Shift Comparison</h3>
 <table>
@@ -519,12 +528,15 @@ function generateDailyReport(
 </table>
 <h3 style="margin-top:24px">Sessions (${sessions.length})</h3>
 <table>
-  <thead><tr><th>Room</th><th>End</th><th>Payment</th><th>Total</th></tr></thead>
+  <thead><tr><th>Room</th><th>End</th><th>Payment</th><th>Cash</th><th>Visa</th><th>InstaPay</th><th>Total</th></tr></thead>
   <tbody>
     ${sessions.map((s) => `<tr>
       <td>${s.roomName}</td>
       <td>${new Date(s.endedAt).toLocaleTimeString()}</td>
       <td>${s.paymentMethod.toUpperCase()}</td>
+      <td>$${s.cashAmount.toFixed(2)}</td>
+      <td>$${s.visaAmount.toFixed(2)}</td>
+      <td>$${s.instapayAmount.toFixed(2)}</td>
       <td>$${s.total.toFixed(2)}</td>
     </tr>`).join("")}
   </tbody>
