@@ -125,34 +125,34 @@ export function ShiftBar() {
       </div>
 
       {endOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setEndOpen(false)}>
-          <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)] p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 mb-3">
-              <DollarSign className="w-5 h-5 text-[oklch(0.75_0.22_25)]" />
-              <h3 className="text-lg font-semibold">Close Out Shift</h3>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={() => setEndOpen(false)}>
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)] p-7" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <DollarSign className="w-8 h-8 text-[oklch(0.75_0.22_25)]" />
+              <h3 className="text-2xl font-bold">Close Out Shift</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">Count your cash drawer and enter the actual amount. Expected cash = opening balance + cash sales − any approved drawer expenses, computed when you confirm. This closes the shift permanently and resets counters for the next cashier.</p>
+            <p className="text-sm text-muted-foreground mb-5">Count your cash drawer and enter the actual amount. Expected cash = opening balance + cash sales − any approved drawer expenses, computed when you confirm. This closes the shift permanently and resets counters for the next cashier.</p>
 
             {state.pendingVoidCountForActiveShift > 0 && (
-              <div className="mb-4 p-3 rounded-lg bg-[oklch(0.82_0.16_85/0.1)] border border-[oklch(0.82_0.16_85/0.4)] text-xs text-[oklch(0.82_0.16_85)]">
+              <div className="mb-5 p-4 rounded-xl bg-[oklch(0.82_0.16_85/0.12)] border-2 border-[oklch(0.82_0.16_85/0.5)] text-sm text-[oklch(0.82_0.16_85)] font-medium">
                 ⚠ {state.pendingVoidCountForActiveShift} void request{state.pendingVoidCountForActiveShift > 1 ? "s are" : " is"} still awaiting admin approval this shift. Closing now will flag {state.pendingVoidCountForActiveShift > 1 ? "them" : "it"} as an <strong>Unapproved Discrepancy</strong> for the owner to reconcile later.
               </div>
             )}
 
-            <div className="flex justify-between text-sm font-mono mb-3 p-3 rounded-lg bg-black/30 border border-white/5">
-              <span className="text-muted-foreground">Cash Sales So Far</span><span>{fmtMoney(cashSalesOnly)}</span>
+            <div className="flex justify-between text-lg font-mono font-bold mb-4 p-4 rounded-xl bg-black/30 border border-white/10">
+              <span className="text-muted-foreground text-sm uppercase tracking-widest self-center">Cash Sales So Far</span><span>{fmtMoney(cashSalesOnly)}</span>
             </div>
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Actual Cash Counted</label>
+            <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">Actual Cash Counted</label>
             <input
               type="number" step="0.01" value={actualCash} autoFocus
               onChange={(e) => setActualCash(e.target.value)}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 font-mono outline-none focus:border-[oklch(0.7_0.19_260)]"
+              className="mt-2 w-full bg-black/50 border-2 border-white/15 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
             />
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => setEndOpen(false)} className="flex-1 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm">Cancel</button>
-              <button onClick={handleEnd} disabled={locating} className="flex-1 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold text-sm disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
+            {err && <div className="mt-3 text-sm p-3 rounded-xl bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold">{err}</div>}
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setEndOpen(false)} className="flex-1 py-4 rounded-xl bg-white/5 border-2 border-white/10 text-base font-semibold hover:bg-white/10 transition">Cancel</button>
+              <button onClick={handleEnd} disabled={locating} className="flex-1 py-4 rounded-xl bg-[oklch(0.62_0.24_25/0.25)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-bold text-base uppercase tracking-wide disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
             </div>
-            {err && <div className="mt-2 text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, type Room, type Session, type PaymentMethod, type VoidReason } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
@@ -10,6 +10,13 @@ const PAYMENT_LABELS: Record<PaymentMethod, string> = {
 };
 
 export function RoomsPage() {
+  return <ZonePage scope="room" />;
+}
+export function LoungePage() {
+  return <ZonePage scope="lounge" />;
+}
+
+function ZonePage({ scope }: { scope: "room" | "lounge" }) {
   const { state, computeElapsed, activeShift } = useStore();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
@@ -19,43 +26,41 @@ export function RoomsPage() {
   const roomZone = state.rooms.filter((r) => r.zone === "room");
   const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
   const splitZone = state.rooms.filter((r) => r.zone === "split");
+  // Any room or lounge table is a valid transfer target regardless of which
+  // view you're on — transfer is explicitly cross-zone.
   const transferTargets = [...roomZone, ...loungeZone];
+  const primaryZone = scope === "room" ? roomZone : loungeZone;
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Rooms Management</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{scope === "room" ? "Rooms Management" : "Lounge Management"}</h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
-          {roomZone.length - 1} Bays · 1 VIP Suite · {loungeZone.length} Lounge Tables
+          {scope === "room"
+            ? `${roomZone.length - 1} Bays · 1 VIP Suite`
+            : `${loungeZone.length} Standard Tables`}
         </p>
       </div>
 
       {!activeShift && (
         <div className="glass rounded-2xl p-4 border border-[oklch(0.82_0.16_85/0.4)] text-sm text-[oklch(0.82_0.16_85)]">
-          No shift is open — open one from the Dashboard before starting rooms or taking orders.
+          No shift is open — open one from the Dashboard before starting {scope === "room" ? "rooms" : "tables"} or taking orders.
         </div>
       )}
 
       <div>
-        <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Rooms &amp; VIP</h2>
+        <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">
+          {scope === "room" ? "Rooms & VIP" : "Lounge Tables"}
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {roomZone.map((r) => (
+          {primaryZone.map((r) => (
             <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
           ))}
         </div>
       </div>
 
-      {(loungeZone.some((t) => t.status === "active") || loungeZone.length > 0) && (
-        <div>
-          <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Lounge Tables</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {loungeZone.map((r) => (
-              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* Split invoices are shown on both Rooms and Lounge views so whoever
+          created one can always find and check it out. */}
       {splitZone.length > 0 && (
         <div>
           <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Split Invoices</h2>
@@ -422,49 +427,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               >
                 <Plus className="w-4 h-4" /> Order
               </button>
-              {menuOpen && (
-                <div
-                  className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <div
-                    className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)] shadow-[0_0_40px_oklch(0.7_0.19_260/0.4)]"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-                      <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
-                        {room.name} · Add Order
-                      </div>
-                      <button onClick={() => setMenuOpen(false)} className="text-muted-foreground hover:text-white">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="p-2 max-h-[60vh] overflow-y-auto">
-                      {state.menu.length === 0 && (
-                        <div className="text-center text-xs text-muted-foreground font-mono uppercase tracking-widest py-6">
-                          No menu items available
-                        </div>
-                      )}
-                      {state.menu.map((m) => {
-                        const ok = canFulfill(m.id, 1);
-                        return (
-                          <button
-                            key={m.id}
-                            disabled={!ok}
-                            onClick={() => handleOrder(m.id)}
-                            className={`w-full flex justify-between items-center px-3 py-2.5 rounded-lg text-sm transition ${
-                              ok ? "hover:bg-[oklch(0.7_0.19_260/0.15)] border border-transparent hover:border-[oklch(0.7_0.19_260/0.4)]" : "opacity-40 cursor-not-allowed"
-                            }`}
-                          >
-                            <span className="font-semibold">{m.name}</span>
-                            <span className="font-mono text-xs text-[oklch(0.78_0.2_155)]">{fmtMoney(m.price)}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {menuOpen && <MenuPickerModal room={room} onClose={() => setMenuOpen(false)} onOrder={handleOrder} canFulfill={canFulfill} state={state} />}
             </div>
             <button
               onClick={() => setCheckoutOpen(true)}
@@ -477,76 +440,76 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
       </div>
 
       {checkoutOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={() => setCheckoutOpen(false)}>
-          <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.75_0.22_25)]">{room.name} · Checkout</div>
-              <button onClick={() => setCheckoutOpen(false)} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => setCheckoutOpen(false)}>
+          <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
+              <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.75_0.22_25)]">{room.name} · Checkout</div>
+              <button onClick={() => setCheckoutOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-white transition"><X className="w-6 h-6" /></button>
             </div>
-            <div className="p-4 space-y-3">
-              <div className="text-center">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Due</div>
-                <div className="text-3xl font-mono font-bold mt-1">{fmtMoney(total)}</div>
+            <div className="p-6 space-y-5">
+              <div className="text-center py-2">
+                <div className="text-xs uppercase tracking-widest text-muted-foreground">Total Due</div>
+                <div className="text-6xl font-mono font-black mt-2">{fmtMoney(total)}</div>
               </div>
-              <div className="text-xs uppercase tracking-widest text-muted-foreground pt-2">Payment Method</div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="text-sm uppercase tracking-widest font-bold text-muted-foreground pt-2">Payment Method</div>
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setPaymentOption("cash")}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] border-[oklch(0.78_0.2_155/0.6)]" : "bg-[oklch(0.78_0.2_155/0.08)] border-[oklch(0.78_0.2_155/0.3)] hover:bg-[oklch(0.78_0.2_155/0.15)]"} text-[oklch(0.78_0.2_155)]`}
+                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "cash" ? "bg-[oklch(0.78_0.2_155/0.3)] border-[oklch(0.78_0.2_155/0.8)] scale-[1.02]" : "bg-[oklch(0.78_0.2_155/0.08)] border-[oklch(0.78_0.2_155/0.3)] hover:bg-[oklch(0.78_0.2_155/0.18)]"} text-[oklch(0.78_0.2_155)]`}
                 >
-                  <Banknote className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">100% Cash</span>
+                  <Banknote className="w-8 h-8" /> <span className="text-base font-bold uppercase">100% Cash</span>
                 </button>
                 <button
                   onClick={() => setPaymentOption("visa")}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.25)] border-[oklch(0.7_0.19_260/0.6)]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)] hover:bg-[oklch(0.7_0.19_260/0.15)]"} text-[oklch(0.85_0.16_200)]`}
+                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.3)] border-[oklch(0.7_0.19_260/0.8)] scale-[1.02]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)] hover:bg-[oklch(0.7_0.19_260/0.18)]"} text-[oklch(0.85_0.16_200)]`}
                 >
-                  <CreditCard className="w-5 h-5" /> <span className="text-xs font-semibold uppercase">100% Visa</span>
+                  <CreditCard className="w-8 h-8" /> <span className="text-base font-bold uppercase">100% Visa</span>
                 </button>
                 <button
                   onClick={() => setPaymentOption("mixed_cash_visa")}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "mixed_cash_visa" ? "bg-[oklch(0.82_0.16_85/0.25)] border-[oklch(0.82_0.16_85/0.6)]" : "bg-[oklch(0.82_0.16_85/0.08)] border-[oklch(0.82_0.16_85/0.3)] hover:bg-[oklch(0.82_0.16_85/0.15)]"} text-[oklch(0.82_0.16_85)]`}
+                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "mixed_cash_visa" ? "bg-[oklch(0.82_0.16_85/0.3)] border-[oklch(0.82_0.16_85/0.8)] scale-[1.02]" : "bg-[oklch(0.82_0.16_85/0.08)] border-[oklch(0.82_0.16_85/0.3)] hover:bg-[oklch(0.82_0.16_85/0.18)]"} text-[oklch(0.82_0.16_85)]`}
                 >
-                  <SplitSquareHorizontal className="w-5 h-5" /> <span className="text-[11px] font-semibold uppercase text-center leading-tight">Cash + Visa</span>
+                  <SplitSquareHorizontal className="w-8 h-8" /> <span className="text-base font-bold uppercase text-center leading-tight">Cash + Visa</span>
                 </button>
                 <button
                   onClick={() => setPaymentOption("mixed_cash_instapay")}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border transition ${paymentOption === "mixed_cash_instapay" ? "bg-[oklch(0.65_0.24_305/0.25)] border-[oklch(0.65_0.24_305/0.6)]" : "bg-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.65_0.24_305/0.3)] hover:bg-[oklch(0.65_0.24_305/0.15)]"} text-[oklch(0.75_0.2_305)]`}
+                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "mixed_cash_instapay" ? "bg-[oklch(0.65_0.24_305/0.3)] border-[oklch(0.65_0.24_305/0.8)] scale-[1.02]" : "bg-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.65_0.24_305/0.3)] hover:bg-[oklch(0.65_0.24_305/0.18)]"} text-[oklch(0.75_0.2_305)]`}
                 >
-                  <SplitSquareHorizontal className="w-5 h-5" /> <span className="text-[11px] font-semibold uppercase text-center leading-tight">Cash + InstaPay</span>
+                  <SplitSquareHorizontal className="w-8 h-8" /> <span className="text-base font-bold uppercase text-center leading-tight">Cash + InstaPay</span>
                 </button>
               </div>
 
               {isMixed && (
-                <div className="space-y-2 pt-1">
+                <div className="space-y-4 pt-2 p-4 rounded-2xl bg-black/30 border border-white/10">
                   <div>
-                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter Cash Amount</label>
+                    <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">Enter Cash Amount</label>
                     <input
                       type="number" step="0.01" autoFocus value={cashInput}
                       onChange={(e) => setCashInput(e.target.value)}
                       placeholder="0.00"
-                      className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      className="mt-2 w-full bg-black/50 border-2 border-white/15 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                    <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">
                       Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount
                     </label>
                     <input
                       type="number" step="0.01" value={secondaryInput}
                       onChange={(e) => setSecondaryInput(e.target.value)}
                       placeholder="0.00"
-                      className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      className="mt-2 w-full bg-black/50 border-2 border-white/15 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
                     />
                   </div>
-                  <div className={`flex justify-between text-xs font-mono px-1 ${mixedValid ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+                  <div className={`flex justify-between text-sm font-mono font-bold px-1 ${mixedValid ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
                     <span>Entered: {fmtMoney(mixedSum)}</span>
-                    <span>{mixedValid ? "✓ matches total" : `Needs ${fmtMoney(total)}`}</span>
+                    <span>{mixedValid ? "✓ Matches Total" : `Needs ${fmtMoney(total)}`}</span>
                   </div>
                 </div>
               )}
 
               {checkoutErr && (
-                <div className="text-xs p-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">
+                <div className="text-sm p-4 rounded-xl bg-[oklch(0.62_0.24_25/0.2)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-semibold">
                   {checkoutErr}
                 </div>
               )}
@@ -554,7 +517,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               <button
                 onClick={handleCheckout}
                 disabled={checkingOut || (isMixed && !mixedValid)}
-                className="w-full mt-1 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-50"
+                className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
               >
                 {checkingOut ? "Processing..." : "Confirm & Close Ticket"}
               </button>
@@ -577,6 +540,88 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         </span>
         <span className="uppercase tracking-widest text-[10px]">Split Bill</span>
       </label>
+    </div>
+  );
+}
+
+// Large, high-contrast, touch-friendly menu picker with category tabs
+// across the top — replaces the old small dropdown list entirely.
+function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
+  room: Room;
+  onClose: () => void;
+  onOrder: (menuItemId: string) => void;
+  canFulfill: (menuItemId: string, qty: number) => boolean;
+  state: ReturnType<typeof useStore>["state"];
+}) {
+  const categoriesWithItems = MENU_CATEGORIES.filter((c) => state.menu.some((m) => m.category === c));
+  const [activeCategory, setActiveCategory] = useState<MenuCategory | null>(categoriesWithItems[0] ?? null);
+  const itemsInCategory = state.menu.filter((m) => m.category === activeCategory);
+
+  return (
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md no-print" onClick={onClose}>
+      <div
+        className="w-full max-w-4xl h-[85vh] glass-strong rounded-3xl border-2 border-[oklch(0.7_0.19_260/0.5)] shadow-[0_0_60px_oklch(0.7_0.19_260/0.4)] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
+          <div className="font-mono uppercase tracking-widest text-lg font-bold text-[oklch(0.85_0.16_200)]">
+            {room.name} · Add Order
+          </div>
+          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-white transition">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Oversized category tabs */}
+        <div className="flex items-center gap-2 px-6 py-4 border-b border-white/10 overflow-x-auto shrink-0">
+          {categoriesWithItems.length === 0 && (
+            <span className="text-sm text-muted-foreground font-mono uppercase tracking-widest">No menu items available</span>
+          )}
+          {categoriesWithItems.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`shrink-0 px-5 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition border-2 ${
+                activeCategory === cat
+                  ? "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white border-transparent shadow-[0_0_20px_oklch(0.7_0.19_260/0.6)]"
+                  : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Large touch-friendly item grid */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {itemsInCategory.map((m: MenuItem) => {
+              const ok = canFulfill(m.id, 1);
+              return (
+                <button
+                  key={m.id}
+                  disabled={!ok}
+                  onClick={() => onOrder(m.id)}
+                  className={`flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition ${
+                    ok
+                      ? "bg-white/5 border-white/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
+                      : "bg-white/5 border-white/5 opacity-40 cursor-not-allowed"
+                  }`}
+                >
+                  <span className="text-lg font-bold leading-tight">{m.name}</span>
+                  <span className="text-2xl font-mono font-black text-[oklch(0.78_0.2_155)]">{fmtMoney(m.price)}</span>
+                  {!ok && <span className="text-xs uppercase tracking-widest text-[oklch(0.75_0.22_25)]">Out of stock</span>}
+                </button>
+              );
+            })}
+            {activeCategory && itemsInCategory.length === 0 && (
+              <div className="col-span-full text-center text-sm text-muted-foreground font-mono uppercase tracking-widest py-10">
+                No items in {activeCategory} yet
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -27,10 +27,17 @@ export interface RecipeIngredient {
   qty: number;
 }
 
+export const MENU_CATEGORIES = [
+  "Fresh Juice", "Desserts", "Frozen Fresh", "Cocktails", "Mojito",
+  "Soft Drinks", "Hot Drinks", "Shisha", "Extras",
+] as const;
+export type MenuCategory = typeof MENU_CATEGORIES[number];
+
 export interface MenuItem {
   id: string;
   name: string;
   price: number;
+  category: MenuCategory;
   ingredients: RecipeIngredient[];
 }
 
@@ -253,6 +260,8 @@ export const VOID_REASON_LABELS: Record<VoidReason, string> = {
   customerRejected: "Customer Rejected (Taste/Quality)",
   complimentary: "Complimentary / VIP Gift (Free)",
 };
+
+export type StockAdjustmentReason = "waste" | "correction" | "opening_balance";
 
 // ---------- System-wide Activity Log ("the Black Box") ----------
 // Write-Once, Read-Many — enforced by simply never providing an update or

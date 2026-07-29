@@ -98,10 +98,10 @@ function initSheets() {
 
 function defaultAppState_() {
   const menu = [
-    { id: "latte", name: "Latte", price: 4.5, ingredients: [{ stockId: "coffee", qty: 18 }, { stockId: "milk", qty: 200 }, { stockId: "cups", qty: 1 }] },
-    { id: "espresso", name: "Espresso", price: 3.0, ingredients: [{ stockId: "coffee", qty: 18 }, { stockId: "cups", qty: 1 }] },
-    { id: "soda-drink", name: "Soda", price: 2.5, ingredients: [{ stockId: "soda", qty: 1 }] },
-    { id: "chips-snack", name: "Chips", price: 2.0, ingredients: [{ stockId: "chips", qty: 1 }] },
+    { id: "latte", name: "Latte", price: 4.5, category: "Hot Drinks", ingredients: [{ stockId: "coffee", qty: 18 }, { stockId: "milk", qty: 200 }, { stockId: "cups", qty: 1 }] },
+    { id: "espresso", name: "Espresso", price: 3.0, category: "Hot Drinks", ingredients: [{ stockId: "coffee", qty: 18 }, { stockId: "cups", qty: 1 }] },
+    { id: "soda-drink", name: "Soda", price: 2.5, category: "Soft Drinks", ingredients: [{ stockId: "soda", qty: 1 }] },
+    { id: "chips-snack", name: "Chips", price: 2.0, category: "Extras", ingredients: [{ stockId: "chips", qty: 1 }] },
   ];
   const rooms = [];
   for (let i = 1; i <= 8; i++) {
@@ -275,7 +275,7 @@ const ACTION_RISK = {
   ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
   SESSION_TRANSFERRED: "yellow", SPLIT_INTERFACE_OPENED: "yellow", SESSION_SPLIT: "yellow",
   ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
-  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow",
+  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
 };
 function riskFor_(actionType) {
@@ -798,6 +798,42 @@ function bizCloseActiveShift_(state, ledger, actualCash, forced, lat, lng) {
   return { ok: true, state: state };
 }
 
+// ---------- Manual Stock Adjustment (admin) ----------
+// Positive delta: logs a new batch (an administrative addition — Opening
+// Balance or a correction that found MORE stock than expected). Negative
+// delta: consumes existing batches via FIFO, same as a sale would (Waste,
+// or a correction that found LESS than expected). Either way this is
+// fully audited via the Activity Log, and Waste additionally posts to the
+// financial ledger as a real cost.
+function adjustStock_(materialId, deltaQty, reason, note, username) {
+  const batches = readObjects_("Batches");
+  const before = batches.filter((b) => b.materialId === materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
+  let cost = 0;
+  if (deltaQty > 0) {
+    appendObject_("Batches", {
+      id: newId_("batch"), materialId: materialId, supplierId: null,
+      qtyPurchased: deltaQty, qtyRemaining: deltaQty, unitCost: 0,
+      purchasedAt: Date.now(), source: "dailyFresh",
+    });
+  } else if (deltaQty < 0) {
+    const res = consumeFifo_(batches, materialId, Math.abs(deltaQty));
+    cost = res.cost;
+    writeBatchesBack_(batches, res.touched);
+  }
+  const after = before + deltaQty;
+
+  if (reason === "waste" && deltaQty < 0 && cost > 0) {
+    appendObject_("Ledger", {
+      id: newId_("ledg"), ts: Date.now(), amount: cost, direction: "outflow", type: "manualAdjustment",
+      category: "Operational Waste / Damaged Goods", description: "Manual stock adjustment: " + (note || "waste"),
+      supplierId: null, staffUsername: username, status: "approved", receiptUrl: null,
+      paidFromDrawer: false, shiftId: null, materialId: materialId, qty: Math.abs(deltaQty), unitCost: null,
+    });
+  }
+
+  return { ok: true, before: before, after: after, cost: cost };
+}
+
 // ---------- Derived "stock" view for backward-compat with the UI's low
 // -stock alerts (initialStock = ever purchased, used = ever consumed) ----
 function computeStockView_(materials, batches) {
@@ -1182,6 +1218,24 @@ function doPost(e) {
       case "getRawMaterials":
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ items: readObjects_("RawMaterials") });
+
+      case "adjustStock": {
+        requireRole_(body.username, ["admin"]);
+        const materials = readObjects_("RawMaterials");
+        const material = materials.find((m) => m.id === body.materialId);
+        if (!material) return json_({ ok: false, error: "Material not found" });
+        const delta = Number(body.deltaQty) || 0;
+        if (delta === 0) return json_({ ok: false, error: "Enter a non-zero adjustment" });
+        const result = adjustStock_(body.materialId, delta, body.reason, body.note, body.username);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "STOCK_ADJUSTED",
+          description: (delta > 0 ? "+" : "") + delta + " " + material.unit + " of " + material.name +
+            " (" + body.reason + (body.note ? ": " + body.note : "") + ")",
+          before: { remaining: result.before }, after: { remaining: result.after, reason: body.reason, note: body.note || "" },
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
       case "addRawMaterial": {
         requireRole_(body.username, ["admin"]);
         const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0 };
@@ -1645,6 +1699,11 @@ function getState_() {
         if (typeof parsed.cafeLat !== "number") parsed.cafeLat = 0;
         if (typeof parsed.cafeLng !== "number") parsed.cafeLng = 0;
         if (typeof parsed.geofenceRadiusMeters !== "number") parsed.geofenceRadiusMeters = 50;
+        if (parsed.menu) {
+          parsed.menu = parsed.menu.map(function (m) {
+            return m.category ? m : Object.assign({}, m, { category: "Extras" });
+          });
+        }
         if (parsed.rooms) {
           parsed.rooms = parsed.rooms.map(function (r) {
             const withZone = r.zone ? r : Object.assign({}, r, { zone: "room", splitInvoiceNumber: null, transferredFrom: null });

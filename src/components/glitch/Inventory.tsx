@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useStore, fmtMoney, isToday, monthKey, type MenuItem, type Session } from "@/lib/glitch-store";
+import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, type MenuItem, type MenuCategory, type Session } from "@/lib/glitch-store";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon } from "lucide-react";
 
 export function InventoryPage() {
@@ -220,7 +220,8 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
 }
 
 function StockTable() {
-  const { state } = useStore();
+  const { state, adjustStock } = useStore();
+  const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
 
   return (
     <div className="glass rounded-2xl p-6">
@@ -246,6 +247,7 @@ function StockTable() {
                 <th className="text-right py-2 px-2">Used</th>
                 <th className="text-right py-2 px-2">Remaining</th>
                 <th className="text-right py-2 px-2">Min</th>
+                <th className="py-2 px-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -262,6 +264,14 @@ function StockTable() {
                       {remaining} {low && "⚠"}
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
+                    <td className="py-2 px-2 text-right">
+                      <button
+                        onClick={() => setAdjustTarget({ id: s.id, name: s.name, unit: s.unit })}
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-muted-foreground hover:text-white"
+                      >
+                        Adjust
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -269,6 +279,82 @@ function StockTable() {
           </table>
         </div>
       )}
+
+      {adjustTarget && (
+        <AdjustStockModal target={adjustTarget} adjustStock={adjustStock} onClose={() => setAdjustTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+function AdjustStockModal({ target, adjustStock, onClose }: {
+  target: { id: string; name: string; unit: string };
+  adjustStock: ReturnType<typeof useStore>["adjustStock"];
+  onClose: () => void;
+}) {
+  const [delta, setDelta] = useState("");
+  const [reason, setReason] = useState<"waste" | "correction" | "opening_balance">("correction");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    const deltaQty = parseFloat(delta);
+    if (!deltaQty) { setErr("Enter a non-zero amount (negative to remove, positive to add)."); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await adjustStock(target.id, deltaQty, reason, note || undefined);
+      if (!res.ok) { setErr(res.error ?? "Adjustment failed"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Adjust {target.name}</div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">
+              Adjustment ({target.unit}) — negative removes, positive adds
+            </label>
+            <input
+              type="number" step="0.01" autoFocus value={delta}
+              onChange={(e) => setDelta(e.target.value)}
+              placeholder="e.g. -50 or 100"
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason</label>
+            <select value={reason} onChange={(e) => setReason(e.target.value as typeof reason)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
+              <option value="correction">Stock Count Correction</option>
+              <option value="waste">Waste</option>
+              <option value="opening_balance">Opening Balance</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          {reason === "waste" && (
+            <p className="text-[11px] text-[oklch(0.82_0.16_85)]">Waste removals post their cost to the financial ledger under Operational Waste / Damaged Goods.</p>
+          )}
+          {err && <div className="text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold disabled:opacity-60">
+            {submitting ? "Saving..." : "Apply Adjustment"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -283,28 +369,31 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [price, setPrice] = useState(0);
+  const [category, setCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [ings, setIngs] = useState<{ stockId: string; qty: number }[]>([]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editPrice, setEditPrice] = useState(0);
+  const [editCategory, setEditCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [editIngs, setEditIngs] = useState<{ stockId: string; qty: number }[]>([]);
 
   const save = () => {
     if (!id || !name) return;
-    onAdd({ id, name, price, ingredients: ings.filter((i) => i.stockId && i.qty > 0) });
-    setId(""); setName(""); setPrice(0); setIngs([]); setShowForm(false);
+    onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0) });
+    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setShowForm(false);
   };
 
   const beginEdit = (m: MenuItem) => {
     setEditingId(m.id);
     setEditName(m.name);
     setEditPrice(m.price);
+    setEditCategory(m.category ?? MENU_CATEGORIES[0]);
     setEditIngs(m.ingredients.map((i) => ({ ...i })));
   };
   const saveEdit = () => {
     if (!editingId || !editName) return;
-    onUpdate(editingId, { name: editName, price: editPrice, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0) });
+    onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0) });
     setEditingId(null);
   };
 
@@ -323,6 +412,9 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
             <input placeholder="id (e.g. cappuccino)" value={id} onChange={(e) => setId(e.target.value)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10" />
             <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10" />
             <input type="number" step="0.5" placeholder="Price" value={price} onChange={(e) => setPrice(+e.target.value)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10" />
+            <select value={category} onChange={(e) => setCategory(e.target.value as MenuCategory)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10">
+              {MENU_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Ingredients</div>
@@ -350,6 +442,9 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
               <div key={m.id} className="bg-black/30 rounded-lg p-4 border border-[oklch(0.7_0.19_260/0.5)] space-y-2">
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10 font-semibold" placeholder="Name" />
                 <input type="number" step="0.5" value={editPrice} onChange={(e) => setEditPrice(+e.target.value)} className="w-full bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10 font-mono" placeholder="Price" />
+                <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as MenuCategory)} className="w-full bg-black/40 rounded px-2 py-1.5 text-xs border border-white/10">
+                  {MENU_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>
                   {editIngs.map((ing, idx) => (
@@ -376,7 +471,10 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="font-semibold">{m.name}</div>
-                  <div className="font-mono text-xs text-[oklch(0.85_0.16_200)] mt-0.5">{fmtMoney(m.price)}</div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="font-mono text-xs text-[oklch(0.85_0.16_200)]">{fmtMoney(m.price)}</span>
+                    <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/5 text-muted-foreground">{m.category ?? "Extras"}</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.85_0.16_200)]"><Pencil className="w-4 h-4" /></button>

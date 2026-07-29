@@ -3,7 +3,7 @@ import { StoreProvider, useStore } from "@/lib/glitch-store";
 import { Login } from "./Login";
 import { Sidebar, type View } from "./Sidebar";
 import { Dashboard } from "./Dashboard";
-import { RoomsPage } from "./Rooms";
+import { RoomsPage, LoungePage } from "./Rooms";
 import { InventoryPage } from "./Inventory";
 import { UsersPage } from "./Users";
 import { ReportsPage } from "./Reports";
@@ -42,6 +42,7 @@ function Shell() {
             </div>
           ) : view === "dashboard" ? <Dashboard />
             : view === "rooms" ? <RoomsPage />
+            : view === "lounge" ? <LoungePage />
             : view === "inventory" ? <InventoryPage />
             : view === "procurement" ? <ProcurementPage />
             : view === "setup" ? <SetupPage />
