@@ -347,7 +347,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
             onClick={() => setTicketOpen(true)}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
           >
-            <ChefHat className="w-3.5 h-3.5" /> Ticket
+            <ChefHat className="w-3.5 h-3.5" /> Send to Kitchen
           </button>
         )}
         {room.status === "active" && transferTargets.filter((t) => t.id !== room.id).length > 0 && (
@@ -642,11 +642,12 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
         </div>
 
         <div className="print-area p-6 font-mono text-sm bg-black/20">
-          <div className="text-center mb-4">
+          <div className="text-center mb-4 receipt-block">
             <div className="text-xl font-bold tracking-widest">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">PlayStation &amp; Lounge</div>
           </div>
-          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs">
+          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs receipt-block">
+            <div className="flex justify-between"><span>Order #</span><span className="font-bold">{session.id.replace("sess-", "")}</span></div>
             <div className="flex justify-between"><span>Room</span><span>{session.roomName}</span></div>
             <div className="flex justify-between"><span>Start</span><span>{startD.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>End</span><span>{endD.toLocaleString()}</span></div>
@@ -669,12 +670,12 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           {session.splitBill ? (
             <>
               <div className="mt-3 text-xs uppercase tracking-widest opacity-70">Time</div>
-              <div className="flex justify-between"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>
+              <div className="flex justify-between receipt-line"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>
 
               <div className="mt-3 text-xs uppercase tracking-widest opacity-70">Orders</div>
               {session.orders.length === 0 && <div className="opacity-60">— none —</div>}
               {session.orders.map((o) => (
-                <div key={o.menuItemId} className="flex justify-between">
+                <div key={o.menuItemId} className="flex justify-between receipt-line">
                   <span>{o.qty}× {o.name}</span>
                   <span>{fmtMoney(o.qty * o.price)}</span>
                 </div>
@@ -685,9 +686,9 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             </>
           ) : (
             <>
-              <div className="mt-2 flex justify-between"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>
+              <div className="mt-2 flex justify-between receipt-line"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>
               {session.orders.map((o) => (
-                <div key={o.menuItemId} className="flex justify-between">
+                <div key={o.menuItemId} className="flex justify-between receipt-line">
                   <span>{o.qty}× {o.name}</span>
                   <span>{fmtMoney(o.qty * o.price)}</span>
                 </div>
@@ -695,7 +696,10 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             </>
           )}
 
-          <div className="border-t border-double border-white/40 mt-4 pt-2 flex justify-between text-base font-bold">
+          <div className="flex justify-between border-t border-dashed border-white/30 mt-3 pt-2 text-xs">
+            <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
+          </div>
+          <div className="border-t border-double border-white/40 mt-2 pt-2 flex justify-between text-base font-bold receipt-block">
             <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
           </div>
           <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">
@@ -719,33 +723,39 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 }
 
 function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void }) {
+  const { state } = useStore();
   const now = new Date();
+  // Short, human-readable KOT number derived from the print timestamp —
+  // no server round trip needed, unique enough for a kitchen ticket.
+  const kotNumber = "KOT-" + String(now.getTime()).slice(-6);
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-sm text-[oklch(0.82_0.16_85)]">
-            <ChefHat className="w-4 h-4" /> Barista Ticket
+            <ChefHat className="w-4 h-4" /> Kitchen Order Ticket
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
         </div>
 
-        {/* No prices here on purpose — this goes to the kitchen, not the customer. */}
+        {/* No prices/totals here on purpose — this goes to the kitchen, not the customer. */}
         <div className="print-area p-6 font-mono text-sm bg-black/20">
-          <div className="text-center mb-3">
+          <div className="text-center mb-3 receipt-block">
             <div className="text-lg font-bold tracking-widest">GLITCH</div>
-            <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Barista Ticket</div>
+            <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Kitchen Order Ticket</div>
           </div>
-          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs">
-            <div className="flex justify-between"><span>Room</span><span className="font-bold">{room.name}</span></div>
-            <div className="flex justify-between"><span>Printed</span><span>{now.toLocaleString()}</span></div>
+          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs receipt-block">
+            <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
+            <div className="flex justify-between"><span>KOT #</span><span className="font-bold">{kotNumber}</span></div>
+            <div className="flex justify-between"><span>Time</span><span>{now.toLocaleString()}</span></div>
+            <div className="flex justify-between"><span>Server</span><span>{state.currentUser?.username ?? "—"}</span></div>
           </div>
 
           <div className="mt-3 space-y-3">
             {room.orders.length === 0 && <div className="opacity-60 text-center">— no items —</div>}
             {room.orders.map((o) => (
-              <div key={o.menuItemId}>
+              <div key={o.menuItemId} className="receipt-line">
                 <div className="font-bold">{o.qty}× {o.name}</div>
                 {o.notes && (
                   <div className="pl-3 text-[oklch(0.82_0.16_85)] italic">
