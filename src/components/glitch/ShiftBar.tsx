@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import { Lock, Unlock, DollarSign } from "lucide-react";
 
@@ -124,7 +125,7 @@ export function ShiftBar() {
         </div>
       </div>
 
-      {endOpen && (
+      {endOpen && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={() => setEndOpen(false)}>
           <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)] p-7" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
@@ -154,7 +155,8 @@ export function ShiftBar() {
               <button onClick={handleEnd} disabled={locating} className="flex-1 py-4 rounded-xl bg-[oklch(0.62_0.24_25/0.25)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-bold text-base uppercase tracking-wide disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

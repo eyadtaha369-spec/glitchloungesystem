@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
@@ -439,7 +440,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         )}
       </div>
 
-      {checkoutOpen && (
+      {checkoutOpen && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => setCheckoutOpen(false)}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
@@ -523,7 +524,8 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Split toggle */}
@@ -557,7 +559,7 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
   const [activeCategory, setActiveCategory] = useState<MenuCategory | null>(categoriesWithItems[0] ?? null);
   const itemsInCategory = state.menu.filter((m) => m.category === activeCategory);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md no-print" onClick={onClose}>
       <div
         className="w-full max-w-4xl h-[85vh] glass-strong rounded-3xl border-2 border-[oklch(0.7_0.19_260/0.5)] shadow-[0_0_60px_oklch(0.7_0.19_260/0.4)] flex flex-col overflow-hidden"
@@ -573,7 +575,7 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
         </div>
 
         {/* Oversized category tabs */}
-        <div className="flex items-center gap-2 px-6 py-4 border-b border-white/10 overflow-x-auto shrink-0">
+        <div className="flex flex-wrap items-center gap-2 px-6 py-4 border-b border-white/10 shrink-0">
           {categoriesWithItems.length === 0 && (
             <span className="text-sm text-muted-foreground font-mono uppercase tracking-widest">No menu items available</span>
           )}
@@ -622,7 +624,8 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -630,7 +633,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
   const startD = new Date(session.startedAt);
   const endD = new Date(session.endedAt);
 
-  return (
+  return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-md glass-strong rounded-2xl border border-white/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -710,14 +713,15 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const now = new Date();
 
-  return (
+  return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -763,7 +767,8 @@ function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -803,7 +808,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
@@ -873,7 +878,8 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -904,7 +910,7 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
@@ -959,7 +965,8 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1003,7 +1010,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-2xl glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
@@ -1065,6 +1072,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
