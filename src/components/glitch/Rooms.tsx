@@ -517,7 +517,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
 
               <button
                 onClick={handleCheckout}
-                disabled={checkingOut || (isMixed && !mixedValid)}
+                disabled={checkingOut}
                 className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
               >
                 {checkingOut ? "Processing..." : "Confirm & Close Ticket"}
