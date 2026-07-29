@@ -12,10 +12,65 @@ export function SetupPage() {
           Raw Materials · Suppliers · Recurring Expenses · Geofence
         </p>
       </div>
+      <MenuImportPanel />
       <GeofencePanel />
       <MaterialsPanel />
       <SuppliersPanel />
       <RecurringExpensesPanel />
+    </div>
+  );
+}
+
+function MenuImportPanel() {
+  const { importMenuCatalog } = useStore();
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ materialsAdded: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] } | null>(null);
+
+  const run = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await importMenuCatalog();
+      setResult(res);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.4)]">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Import Full Menu Catalog</h2>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+            Adds the full Coffee / Frappe / Ice Coffee / Milkshake / Fresh Juice / Frozen Fresh / Mojito / Desserts
+            catalog with recipes. Safe to run more than once — matches by name, so existing items (like Espresso and
+            Latte) get updated in place instead of duplicated, and nothing already in your menu is removed.
+          </p>
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="shrink-0 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white text-sm font-semibold disabled:opacity-60"
+        >
+          {running ? "Importing..." : "Run Import"}
+        </button>
+      </div>
+      {result && (
+        <div className="mt-4 p-4 rounded-lg bg-black/30 border border-white/5 text-sm space-y-1">
+          <div className="text-[oklch(0.78_0.2_155)]">
+            {result.materialsAdded} new raw material{result.materialsAdded === 1 ? "" : "s"} added ·{" "}
+            {result.itemsAdded} new item{result.itemsAdded === 1 ? "" : "s"} added ·{" "}
+            {result.itemsUpdated} item{result.itemsUpdated === 1 ? "" : "s"} updated in place
+          </div>
+          {result.itemsWithoutRecipe.length > 0 && (
+            <div className="text-[oklch(0.82_0.16_85)] text-xs mt-2">
+              No recipe was provided for these — they won't deduct stock until you add ingredients on the Inventory page:{" "}
+              {result.itemsWithoutRecipe.join(", ")}.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

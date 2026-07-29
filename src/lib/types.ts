@@ -28,8 +28,9 @@ export interface RecipeIngredient {
 }
 
 export const MENU_CATEGORIES = [
-  "Fresh Juice", "Desserts", "Frozen Fresh", "Cocktails", "Mojito",
-  "Soft Drinks", "Hot Drinks", "Shisha", "Extras",
+  "Coffee", "Coffee Frappe", "Ice Coffee", "Milkshake",
+  "Fresh Juice", "Frozen Fresh", "Mojito", "Desserts",
+  "Cocktails", "Soft Drinks", "Hot Drinks", "Shisha", "Extras",
 ] as const;
 export type MenuCategory = typeof MENU_CATEGORIES[number];
 

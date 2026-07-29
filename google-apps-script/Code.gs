@@ -276,6 +276,7 @@ const ACTION_RISK = {
   SESSION_TRANSFERRED: "yellow", SPLIT_INTERFACE_OPENED: "yellow", SESSION_SPLIT: "yellow",
   ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
   RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow",
+  MENU_CATALOG_IMPORTED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
 };
 function riskFor_(actionType) {
@@ -1537,6 +1538,23 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_({ items: readObjects_("ActivityLogs") });
 
+      case "importMenuCatalog": {
+        requireRole_(body.username, ["admin"]);
+        const result = importMenuCatalog_();
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "MENU_CATALOG_IMPORTED",
+          description: "Imported menu catalog — " + result.materialsAdded + " new materials, " +
+            result.itemsAdded + " new items, " + result.itemsUpdated + " items updated" +
+            (result.itemsWithoutRecipe.length ? " (" + result.itemsWithoutRecipe.length + " without a recipe: " + result.itemsWithoutRecipe.join(", ") + ")" : ""),
+          after: { materialsAdded: result.materialsAdded, itemsAdded: result.itemsAdded, itemsUpdated: result.itemsUpdated, itemsWithoutRecipe: result.itemsWithoutRecipe },
+        });
+        return json_({
+          ok: true, materialsAdded: result.materialsAdded, itemsAdded: result.itemsAdded,
+          itemsUpdated: result.itemsUpdated, itemsWithoutRecipe: result.itemsWithoutRecipe,
+          state: withStockView_(result.state),
+        });
+      }
+
       default:
         return json_({ error: "Unknown action" });
     }
@@ -1546,6 +1564,181 @@ function doPost(e) {
     lock.releaseLock();
   }
 }
+
+// ---------- Full Menu Catalog Import (one-time, additive, admin) ----------
+// Materials: [name, unit, minStockAlert]. Units are inferred from the scale
+// of the recipe amounts given (kg for solids/powders, L for liquids/syrups,
+// pcs for whole countable items, "bunch"/"scoop" for the two special cases).
+function menuCatalogMaterials_() {
+  return [
+    ["Soda Can Base", "pcs", 10], ["Mojito Syrup", "L", 1], ["Fresh Mint", "bunch", 5],
+    ["Lemon Wedges", "pcs", 20], ["Berry Topping", "L", 1], ["Raspberry Topping", "L", 1],
+    ["Passion Fruit Topping", "L", 1], ["Strawberry Topping", "L", 1], ["Blue Curaçao Syrup", "L", 1],
+    ["Cherry Syrup", "L", 1], ["Mango Topping", "L", 1], ["Smoothie Base Mix", "L", 1],
+    ["Watermelon Syrup", "L", 1], ["Mint Syrup", "L", 1], ["Sugar", "kg", 2],
+    ["Passion Fruit Syrup", "L", 1], ["Mango Syrup", "L", 1], ["Strawberry Syrup", "L", 1],
+    ["Fresh Lemon", "pcs", 15], ["Fresh Mango", "kg", 2], ["Fresh Strawberry", "kg", 2],
+    ["Fresh Guava", "kg", 2], ["Milk", "L", 3], ["Fresh Banana", "pcs", 10],
+    ["Fresh Kiwi", "pcs", 10], ["Kiwi Syrup", "L", 1], ["Honey", "kg", 1],
+    ["Fresh Watermelon", "kg", 2], ["Pomegranate Syrup", "L", 1], ["Fresh Pomegranate", "kg", 2],
+    ["Lemon Syrup", "L", 1], ["Yogurt", "kg", 2], ["Coffee Beans / Espresso Grounds", "kg", 1],
+    ["Sugar Scoop", "scoop", 20], ["Condensed Milk", "kg", 1], ["Chocolate Sauce", "L", 1],
+    ["Instant Coffee (Nescafe)", "kg", 1], ["Hazelnut Coffee Grounds", "kg", 1], ["Nutella", "kg", 1],
+    ["Plain Coffee Grounds", "kg", 1], ["French Coffee Grounds", "kg", 1], ["Vanilla Syrup", "L", 1],
+    ["Vanilla Ice Cream", "kg", 2], ["Whipped Cream", "L", 1], ["Chocolate Ice Cream", "kg", 2],
+    ["Oreo Biscuits", "pcs", 20], ["Lotus Biscoff Spread", "kg", 1], ["Lotus Biscuits", "pcs", 20],
+    ["Pistachio Butter / Paste", "kg", 1], ["Caramel Sauce", "kg", 1], ["Kinder Sauce", "kg", 1],
+    ["Frappe Powder", "kg", 1], ["Hazelnut Syrup", "L", 1],
+  ];
+}
+
+function menuCatalogRecipes_() {
+  return {
+    "Mix Berry Mojito": [["Soda Can Base", 1.0], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Lemon Wedges", 1.0], ["Berry Topping", 0.01], ["Raspberry Topping", 0.01]],
+    "Passion Fruit Mojito": [["Soda Can Base", 1.0], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Passion Fruit Topping", 0.02], ["Lemon Wedges", 1.0]],
+    "Strawberry Mojito": [["Soda Can Base", 1.0], ["Lemon Wedges", 1.0], ["Mojito Syrup", 0.01], ["Strawberry Topping", 0.02], ["Fresh Mint", 0.5]],
+    "Blue Sky Mojito": [["Soda Can Base", 1.0], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Lemon Wedges", 1.0], ["Blue Curaçao Syrup", 0.02]],
+    "Cherry Mojito": [["Soda Can Base", 1.0], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Lemon Wedges", 1.0], ["Cherry Syrup", 0.02]],
+    "Mango Mojito": [["Soda Can Base", 1.0], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Lemon Wedges", 1.0], ["Mango Topping", 0.02]],
+    "Watermelon Mint": [["Smoothie Base Mix", 0.06], ["Watermelon Syrup", 0.02], ["Mint Syrup", 0.01], ["Sugar", 0.01]],
+    "Passion Fruit Smoothie": [["Smoothie Base Mix", 0.06], ["Passion Fruit Topping", 0.03], ["Passion Fruit Syrup", 0.01], ["Sugar", 0.01]],
+    "Mango Smoothie": [["Smoothie Base Mix", 0.06], ["Mango Topping", 0.03], ["Mango Syrup", 0.01], ["Sugar", 0.01]],
+    "Strawberry Smoothie": [["Smoothie Base Mix", 0.06], ["Strawberry Topping", 0.03], ["Strawberry Syrup", 0.01], ["Sugar", 0.01]],
+    "Lemon Mint Smoothie": [["Smoothie Base Mix", 0.06], ["Fresh Lemon", 2.0], ["Mint Syrup", 0.02], ["Fresh Mint", 0.5], ["Sugar", 0.03]],
+    "Mango": [["Fresh Mango", 0.15], ["Mango Topping", 0.03], ["Sugar", 0.02]],
+    "Strawberry": [["Fresh Strawberry", 0.15], ["Strawberry Topping", 0.03], ["Sugar", 0.03]],
+    "Guava": [["Fresh Guava", 0.15], ["Milk", 0.05], ["Sugar", 0.03]],
+    "Banana": [["Fresh Banana", 2.0], ["Milk", 0.15], ["Sugar", 0.02]],
+    "Kiwi": [["Fresh Kiwi", 2.0], ["Kiwi Syrup", 0.01], ["Honey", 0.02]],
+    "Watermelon": [["Fresh Watermelon", 0.2], ["Watermelon Syrup", 0.01], ["Sugar", 0.01]],
+    "Pomegranate": [["Fresh Pomegranate", 0.15], ["Pomegranate Syrup", 0.02], ["Sugar", 0.02]],
+    "Lemon": [["Fresh Lemon", 3.0], ["Lemon Syrup", 0.01], ["Sugar", 0.04]],
+    "Lemon Mint": [["Fresh Lemon", 3.0], ["Mint Syrup", 0.02], ["Fresh Mint", 0.5], ["Sugar", 0.04]],
+    "Classic Yogurt": [["Yogurt", 1.0], ["Milk", 0.1], ["Honey", 0.02]],
+    "Espresso": [["Coffee Beans / Espresso Grounds", 0.009], ["Sugar Scoop", 1.0]],
+    "Espresso Double": [["Coffee Beans / Espresso Grounds", 0.018], ["Sugar Scoop", 1.0]],
+    "Macchiato": [["Coffee Beans / Espresso Grounds", 0.009], ["Milk", 0.02], ["Sugar Scoop", 1.0]],
+    "Macchiato Double": [["Coffee Beans / Espresso Grounds", 0.018], ["Milk", 0.02], ["Sugar Scoop", 1.0]],
+    "Cappuccino": [["Coffee Beans / Espresso Grounds", 0.009], ["Milk", 0.18], ["Sugar Scoop", 1.0]],
+    "Latte": [["Coffee Beans / Espresso Grounds", 0.009], ["Milk", 0.2], ["Sugar Scoop", 1.0]],
+    "Spanish Latte": [["Coffee Beans / Espresso Grounds", 0.009], ["Condensed Milk", 0.03], ["Milk", 0.17], ["Sugar Scoop", 1.0]],
+    "Mocha": [["Coffee Beans / Espresso Grounds", 0.009], ["Chocolate Sauce", 0.02], ["Milk", 0.18], ["Sugar Scoop", 1.0]],
+    "Cortado": [["Coffee Beans / Espresso Grounds", 0.009], ["Milk", 0.08], ["Sugar Scoop", 1.0]],
+    "Nescafe": [["Instant Coffee (Nescafe)", 0.008], ["Milk", 0.2], ["Sugar Scoop", 1.0]],
+    "Hazelnut Coffee": [["Hazelnut Coffee Grounds", 0.015], ["Milk", 0.1], ["Sugar Scoop", 1.0]],
+    "Nutella Coffee": [["Plain Coffee Grounds", 0.015], ["Nutella", 0.02], ["Milk", 0.1], ["Sugar Scoop", 1.0]],
+    "French Coffee": [["French Coffee Grounds", 0.015], ["Milk", 0.1], ["Sugar Scoop", 1.0]],
+    "Turkish Coffee": [["Coffee Beans / Espresso Grounds", 0.012], ["Sugar Scoop", 1.0]],
+    "Turkish Coffee Double": [["Coffee Beans / Espresso Grounds", 0.024], ["Sugar Scoop", 1.0]],
+    "Iced Latte": [["Coffee Beans / Espresso Grounds", 0.018], ["Milk", 0.18], ["Vanilla Syrup", 0.01], ["Sugar Scoop", 1.0]],
+    "Iced Spanish Latte": [["Coffee Beans / Espresso Grounds", 0.018], ["Condensed Milk", 0.03], ["Milk", 0.15], ["Sugar Scoop", 1.0]],
+    "Iced Mocha": [["Coffee Beans / Espresso Grounds", 0.018], ["Chocolate Sauce", 0.025], ["Milk", 0.15], ["Sugar Scoop", 1.0]],
+    "Iced Cappuccino": [["Coffee Beans / Espresso Grounds", 0.018], ["Milk", 0.18], ["Vanilla Syrup", 0.01], ["Sugar Scoop", 1.0]],
+    "Vanilla Shake": [["Vanilla Ice Cream", 0.12], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Chocolate Shake": [["Chocolate Ice Cream", 0.12], ["Chocolate Sauce", 0.02], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Mango Shake": [["Vanilla Ice Cream", 0.1], ["Mango Topping", 0.04], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Strawberry Shake": [["Vanilla Ice Cream", 0.1], ["Strawberry Topping", 0.04], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Mix Berry Shake": [["Vanilla Ice Cream", 0.1], ["Berry Topping", 0.02], ["Raspberry Topping", 0.02], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Passion Fruit Shake": [["Vanilla Ice Cream", 0.1], ["Passion Fruit Topping", 0.04], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Oreo Shake": [["Vanilla Ice Cream", 0.1], ["Oreo Biscuits", 3.0], ["Chocolate Sauce", 0.015], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Nutella Shake": [["Vanilla Ice Cream", 0.1], ["Nutella", 0.035], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Lotus Shake": [["Vanilla Ice Cream", 0.1], ["Lotus Biscoff Spread", 0.03], ["Lotus Biscuits", 1.0], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Pistachio Shake": [["Vanilla Ice Cream", 0.1], ["Pistachio Butter / Paste", 0.03], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Caramel Shake": [["Vanilla Ice Cream", 0.1], ["Caramel Sauce", 0.035], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Kinder Shake": [["Vanilla Ice Cream", 0.1], ["Kinder Sauce", 0.035], ["Milk", 0.1], ["Whipped Cream", 0.02]],
+    "Classic Frappe": [["Frappe Powder", 0.04], ["Instant Coffee (Nescafe)", 0.005], ["Milk", 0.15], ["Whipped Cream", 0.02]],
+    "Nutella Frappe": [["Frappe Powder", 0.035], ["Nutella", 0.03], ["Instant Coffee (Nescafe)", 0.005], ["Milk", 0.15], ["Whipped Cream", 0.02]],
+    "Lotus Frappe": [["Frappe Powder", 0.035], ["Lotus Biscoff Spread", 0.025], ["Lotus Biscuits", 1.0], ["Milk", 0.15], ["Whipped Cream", 0.02]],
+    "Caramel Frappe": [["Frappe Powder", 0.035], ["Caramel Sauce", 0.03], ["Instant Coffee (Nescafe)", 0.005], ["Milk", 0.15], ["Whipped Cream", 0.02]],
+    "Hazelnut Frappe": [["Frappe Powder", 0.035], ["Hazelnut Syrup", 0.02], ["Instant Coffee (Nescafe)", 0.005], ["Milk", 0.15], ["Whipped Cream", 0.02]],
+  };
+}
+
+// [name, price, category]. Items with no known recipe (Date, Avocado, a few
+// smoothies/mojitos, and all Desserts) get an empty ingredient list — they
+// won't deduct stock or track COGS until real recipes are supplied.
+function menuCatalogItems_() {
+  return [
+    ["Espresso", 35, "Coffee"], ["Espresso Double", 45, "Coffee"], ["Macchiato", 35, "Coffee"],
+    ["Macchiato Double", 50, "Coffee"], ["Cappuccino", 60, "Coffee"], ["Latte", 60, "Coffee"],
+    ["Spanish Latte", 65, "Coffee"], ["Mocha", 60, "Coffee"], ["Cortado", 50, "Coffee"],
+    ["Nescafe", 60, "Coffee"], ["Hazelnut Coffee", 60, "Coffee"], ["Nutella Coffee", 65, "Coffee"],
+    ["French Coffee", 45, "Coffee"], ["Turkish Coffee", 30, "Coffee"], ["Turkish Coffee Double", 35, "Coffee"],
+    ["Classic Frappe", 70, "Coffee Frappe"], ["Nutella Frappe", 75, "Coffee Frappe"], ["Lotus Frappe", 75, "Coffee Frappe"],
+    ["Caramel Frappe", 80, "Coffee Frappe"], ["Hazelnut Frappe", 90, "Coffee Frappe"],
+    ["Iced Latte", 70, "Ice Coffee"], ["Iced Spanish Latte", 75, "Ice Coffee"], ["Iced Mocha", 75, "Ice Coffee"], ["Iced Cappuccino", 70, "Ice Coffee"],
+    ["Vanilla Shake", 60, "Milkshake"], ["Chocolate Shake", 65, "Milkshake"], ["Mango Shake", 70, "Milkshake"],
+    ["Strawberry Shake", 65, "Milkshake"], ["Mix Berry Shake", 65, "Milkshake"], ["Passion Fruit Shake", 65, "Milkshake"],
+    ["Oreo Shake", 70, "Milkshake"], ["Nutella Shake", 75, "Milkshake"], ["Lotus Shake", 75, "Milkshake"],
+    ["Pistachio Shake", 80, "Milkshake"], ["Caramel Shake", 75, "Milkshake"], ["Kinder Shake", 75, "Milkshake"],
+    ["Mango", 65, "Fresh Juice"], ["Strawberry", 60, "Fresh Juice"], ["Guava", 60, "Fresh Juice"], ["Banana", 60, "Fresh Juice"],
+    ["Kiwi", 70, "Fresh Juice"], ["Watermelon", 65, "Fresh Juice"], ["Pomegranate", 60, "Fresh Juice"], ["Lemon", 45, "Fresh Juice"],
+    ["Lemon Mint", 55, "Fresh Juice"], ["Date", 70, "Fresh Juice"], ["Avocado", 80, "Fresh Juice"], ["Classic Yogurt", 60, "Fresh Juice"],
+    ["Watermelon Mint", 70, "Frozen Fresh"], ["Passion Fruit Smoothie", 65, "Frozen Fresh"], ["Mango Smoothie", 70, "Frozen Fresh"],
+    ["Strawberry Smoothie", 70, "Frozen Fresh"], ["Lemon Mint Smoothie", 60, "Frozen Fresh"], ["Mix Berry Smoothie", 65, "Frozen Fresh"],
+    ["Peach Smoothie", 65, "Frozen Fresh"], ["Pina Colada", 75, "Frozen Fresh"],
+    ["Classic Mojito", 60, "Mojito"], ["Mix Berry Mojito", 65, "Mojito"], ["Strawberry Mojito", 65, "Mojito"],
+    ["Passion Fruit Mojito", 70, "Mojito"], ["Blue Sky Mojito", 75, "Mojito"], ["Mango Mojito", 70, "Mojito"],
+    ["Cherry Mojito", 70, "Mojito"], ["Peach Mojito", 65, "Mojito"], ["Red Bull Mojito", 90, "Mojito"],
+    ["Molten Cake", 70, "Desserts"], ["Cheesecake", 70, "Desserts"], ["Brownies", 65, "Desserts"],
+    ["Waffle Nutella", 75, "Desserts"], ["Waffle Four Seasons", 85, "Desserts"],
+  ];
+}
+
+function slugify_(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+// Additive + idempotent: matches existing materials/menu items by NAME so
+// running this more than once (or after the placeholder seed) never
+// duplicates anything — an existing item with a matching name gets its
+// price/category/ingredients updated in place (same id, so past sessions
+// referencing it stay intact); anything new gets appended.
+function importMenuCatalog_() {
+  const existingMaterials = readObjects_("RawMaterials");
+  const materialIdByName = {};
+  existingMaterials.forEach((m) => { materialIdByName[m.name.toLowerCase()] = m.id; });
+
+  let materialsAdded = 0;
+  menuCatalogMaterials_().forEach((row) => {
+    const name = row[0], unit = row[1], minStockAlert = row[2];
+    const key = name.toLowerCase();
+    if (materialIdByName[key]) return;
+    const id = "mat-" + slugify_(name);
+    appendObject_("RawMaterials", { id: id, name: name, unit: unit, minStockAlert: minStockAlert });
+    materialIdByName[key] = id;
+    materialsAdded++;
+  });
+
+  const recipes = menuCatalogRecipes_();
+  const state = getState_();
+  const existingByName = {};
+  state.menu.forEach((m, idx) => { existingByName[m.name.toLowerCase()] = idx; });
+
+  let itemsAdded = 0, itemsUpdated = 0, itemsWithoutRecipe = [];
+  menuCatalogItems_().forEach((row) => {
+    const name = row[0], price = row[1], category = row[2];
+    const recipeRows = recipes[name] || [];
+    if (recipeRows.length === 0) itemsWithoutRecipe.push(name);
+    const ingredients = recipeRows.map((r) => ({ stockId: materialIdByName[r[0].toLowerCase()], qty: r[1] }));
+    const existingIdx = existingByName[name.toLowerCase()];
+    if (existingIdx !== undefined) {
+      const existing = state.menu[existingIdx];
+      state.menu[existingIdx] = Object.assign({}, existing, { price: price, category: category, ingredients: ingredients });
+      itemsUpdated++;
+    } else {
+      state.menu.push({ id: "item-" + slugify_(name), name: name, price: price, category: category, ingredients: ingredients });
+      itemsAdded++;
+    }
+  });
+  setState_(state);
+
+  return {
+    ok: true, materialsAdded: materialsAdded, itemsAdded: itemsAdded, itemsUpdated: itemsUpdated,
+    itemsWithoutRecipe: itemsWithoutRecipe, state: state,
+  };
+}
+
 
 function withStockView_(state) {
   if (!state) return state;

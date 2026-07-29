@@ -142,3 +142,13 @@ export const rejectPurchaseFn = createServerFn({ method: "POST" })
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean }>("rejectPurchase", { ...data, username: user.username });
   });
+
+// One-time (idempotent) full menu + recipe catalog import — additive,
+// matches existing items/materials by name so it never duplicates.
+export const importMenuCatalogFn = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireAdmin();
+  return callAppsScript<{
+    ok: boolean; materialsAdded: number; itemsAdded: number; itemsUpdated: number;
+    itemsWithoutRecipe: string[]; state: AppState;
+  }>("importMenuCatalog", { username: user.username });
+});

@@ -40,6 +40,7 @@ import {
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn,
+  importMenuCatalogFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
   logRecurringExpensePaymentFn,
@@ -124,6 +125,7 @@ interface StoreContextValue {
   // Raw materials / suppliers / recurring expense templates [admin CRUD]
   addRawMaterial: (m: { name: string; unit: string; minStockAlert: number }) => Promise<void>;
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
+  importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<void>;
   deleteRawMaterial: (id: string) => Promise<void>;
   addSupplier: (s: { name: string; contact: string; category: string }) => Promise<void>;
@@ -440,6 +442,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const importMenuCatalog: StoreContextValue["importMenuCatalog"] = async () => {
+    return withPending("importMenuCatalog", async () => {
+      const res = await importMenuCatalogFn();
+      if (res.ok) {
+        setAppState(res.state);
+        setMaterials(await getRawMaterialsFn());
+      }
+      return {
+        ok: res.ok, materialsAdded: res.materialsAdded, itemsAdded: res.itemsAdded,
+        itemsUpdated: res.itemsUpdated, itemsWithoutRecipe: res.itemsWithoutRecipe,
+      };
+    });
+  };
   const updateRawMaterial: StoreContextValue["updateRawMaterial"] = async (id, patch) => {
     return withPending(`updateRawMaterial:${id}`, async () => {
       const res = await updateRawMaterialFn({ data: { id, patch } });
@@ -664,7 +679,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
-    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock,
+    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, importMenuCatalog,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
