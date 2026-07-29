@@ -4,13 +4,14 @@ import { MapPin, ShieldOff, Unlock, RotateCcw } from "lucide-react";
 import logo from "@/assets/glitch-logo.jpg";
 
 // Blocks the ENTIRE app (no Sidebar, no Rooms, nothing) for a cashier until
-// they successfully start a shift from right here. Location permission is
-// mandatory — if it's denied there is no way through this screen except
-// granting it and retrying.
+// they successfully start a shift from right here. Location is only
+// required/enforced when the admin has actually turned on geofencing in
+// Setup — otherwise a device that can't get a location fix (permission
+// denied, no GPS, etc.) would never be able to open a shift at all.
 export function Gatekeeper() {
   const { state, openShift } = useStore();
   const [geo, setGeo] = useState<GeoResult | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(state.geofenceEnabled);
   const [openingBalance, setOpeningBalance] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -24,23 +25,30 @@ export function Gatekeeper() {
   };
 
   useEffect(() => {
-    tryLocate();
+    if (state.geofenceEnabled) {
+      tryLocate();
+    } else {
+      // Still try to attach coordinates if easily available (nice-to-have
+      // for the attendance log), but never block on it.
+      captureGeolocation().then(setGeo);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleStart = async () => {
-    if (!geo?.ok) return;
+    if (state.geofenceEnabled && !geo?.ok) return;
     setErr(null);
     setSubmitting(true);
     try {
-      const res = await openShift(parseFloat(openingBalance) || 0, { lat: geo.lat, lng: geo.lng });
+      const res = await openShift(parseFloat(openingBalance) || 0, geo?.ok ? { lat: geo.lat, lng: geo.lng } : null);
       if (!res.ok) setErr(res.error ?? "Could not start shift");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const locationBlocked = geo !== null && !geo.ok;
+  const locationBlocked = state.geofenceEnabled && geo !== null && !geo.ok;
+  const readyToStart = !state.geofenceEnabled || geo?.ok;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -82,7 +90,7 @@ export function Gatekeeper() {
           </div>
         )}
 
-        {!checking && geo?.ok && (
+        {!checking && readyToStart && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground text-center">
               Enter your starting cash drawer amount to begin your shift. None of the previous shift's numbers will be visible to you.
