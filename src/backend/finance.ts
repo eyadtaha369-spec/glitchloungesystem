@@ -175,7 +175,7 @@ export const rejectPurchaseFn = createServerFn({ method: "POST" })
 export const importMenuCatalogFn = createServerFn({ method: "POST" }).handler(async () => {
   const user = await requireAdmin();
   return callAppsScript<{
-    ok: boolean; materialsAdded: number; itemsAdded: number; itemsUpdated: number;
+    ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number;
     itemsWithoutRecipe: string[]; state: AppState;
   }>("importMenuCatalog", { username: user.username });
 });

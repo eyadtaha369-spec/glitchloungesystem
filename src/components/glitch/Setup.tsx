@@ -24,7 +24,7 @@ export function SetupPage() {
 function MenuImportPanel() {
   const { importMenuCatalog } = useStore();
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ materialsAdded: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] } | null>(null);
+  const [result, setResult] = useState<{ materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] } | null>(null);
 
   const run = async () => {
     setRunning(true);
@@ -44,8 +44,9 @@ function MenuImportPanel() {
           <h2 className="text-lg font-semibold">Import Full Menu Catalog</h2>
           <p className="text-xs text-muted-foreground mt-1 max-w-xl">
             Adds the full Coffee / Frappe / Ice Coffee / Milkshake / Fresh Juice / Frozen Fresh / Mojito / Desserts
-            catalog with recipes. Safe to run more than once — matches by name, so existing items (like Espresso and
-            Latte) get updated in place instead of duplicated, and nothing already in your menu is removed.
+            catalog with recipes and verified real unit costs from GLITCH's own recipe book. Safe to run more than
+            once — matches by name, so existing items get updated in place instead of duplicated (and existing raw
+            materials get their price refreshed to the verified figure), and nothing already in your menu is removed.
           </p>
         </div>
         <button
@@ -60,6 +61,7 @@ function MenuImportPanel() {
         <div className="mt-4 p-4 rounded-lg bg-white/60 border border-black/8 text-sm space-y-1">
           <div className="text-[oklch(0.78_0.2_155)]">
             {result.materialsAdded} new raw material{result.materialsAdded === 1 ? "" : "s"} added ·{" "}
+            {result.materialsPriced} existing material{result.materialsPriced === 1 ? "" : "s"} re-priced ·{" "}
             {result.itemsAdded} new item{result.itemsAdded === 1 ? "" : "s"} added ·{" "}
             {result.itemsUpdated} item{result.itemsUpdated === 1 ? "" : "s"} updated in place
           </div>

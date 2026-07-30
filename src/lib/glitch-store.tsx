@@ -140,7 +140,7 @@ interface StoreContextValue {
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
   setActualStock: (materialId: string, actualStock: number) => Promise<{ ok: boolean; error?: string; variance?: number }>;
   refreshRestockLog: () => Promise<void>;
-  importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
+  importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<void>;
   deleteRawMaterial: (id: string) => Promise<void>;
   addSupplier: (s: { name: string; contact: string; category: string }) => Promise<void>;
@@ -551,7 +551,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setMaterials(await getRawMaterialsFn());
       }
       return {
-        ok: res.ok, materialsAdded: res.materialsAdded, itemsAdded: res.itemsAdded,
+        ok: res.ok, materialsAdded: res.materialsAdded, materialsPriced: res.materialsPriced, itemsAdded: res.itemsAdded,
         itemsUpdated: res.itemsUpdated, itemsWithoutRecipe: res.itemsWithoutRecipe,
       };
     });
