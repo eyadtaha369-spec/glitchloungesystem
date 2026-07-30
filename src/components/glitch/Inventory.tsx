@@ -318,6 +318,8 @@ function StockTable() {
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [unitInput, setUnitInput] = useState("");
   const [costInput, setCostInput] = useState("");
 
   const totalInventoryValue = state.stock.reduce((a, s) => a + s.totalValue, 0);
@@ -361,7 +363,35 @@ function StockTable() {
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{s.unit}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">
+                      {editingUnitId === s.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            autoFocus value={unitInput}
+                            onChange={(e) => setUnitInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && unitInput.trim()) { void updateRawMaterial(s.id, { unit: unitInput.trim() }); setEditingUnitId(null); }
+                              if (e.key === "Escape") setEditingUnitId(null);
+                            }}
+                            className="w-16 bg-white/70 border border-black/10 rounded px-2 py-1 text-xs"
+                          />
+                          <button
+                            onClick={() => { if (unitInput.trim()) { void updateRawMaterial(s.id, { unit: unitInput.trim() }); setEditingUnitId(null); } }}
+                            className="text-[oklch(0.62_0.16_155)]"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setEditingUnitId(s.id); setUnitInput(s.unit); }}
+                          className="hover:underline decoration-dotted"
+                          title="Changing this only relabels the unit — existing recorded quantities are not converted"
+                        >
+                          {s.unit}
+                        </button>
+                      )}
+                    </td>
                     <td className="py-2 px-2 text-right font-mono">
                       {editingCostId === s.id ? (
                         <div className="flex items-center justify-end gap-1">
