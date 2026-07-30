@@ -340,9 +340,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // No optimistic clear here — a mixed-payment split that doesn't sum
       // to the ticket total is rejected server-side, and the room must
       // stay exactly as it was so the cashier can correct the amounts.
-      const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount } });
-      setAppState(res.state);
-      return { session: res.session, error: res.error };
+      try {
+        const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount } });
+        setAppState(res.state);
+        return { session: res.session, error: res.error };
+      } catch (err) {
+        // A server function that throws (network failure, or a mismatch
+        // against a stale Apps Script deployment) would otherwise vanish
+        // as a silent unhandled rejection — always surface something.
+        return { session: null, error: err instanceof Error ? err.message : "Checkout failed unexpectedly. Please try again." };
+      }
     });
   };
   const addOrder: StoreContextValue["addOrder"] = async (roomId, menuItemId, qty) => {
