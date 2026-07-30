@@ -26,10 +26,12 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 
   const roomZone = state.rooms.filter((r) => r.zone === "room");
   const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
+  const standardTables = loungeZone.filter((r) => !r.isOwnerTable);
+  const ownerTables = loungeZone.filter((r) => r.isOwnerTable);
   // Any room or lounge table is a valid transfer target regardless of which
   // view you're on — transfer is explicitly cross-zone.
   const transferTargets = [...roomZone, ...loungeZone];
-  const primaryZone = scope === "room" ? roomZone : loungeZone;
+  const primaryZone = scope === "room" ? roomZone : standardTables;
 
   return (
     <div className="space-y-8">
@@ -38,7 +40,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
           {scope === "room"
             ? `${roomZone.length - 1} Bays · 1 VIP Suite`
-            : `${loungeZone.length} Standard Tables`}
+            : `${standardTables.length} Standard Tables · ${ownerTables.length} Owner Tables`}
         </p>
       </div>
 
@@ -59,13 +61,24 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         </div>
       </div>
 
+      {scope === "lounge" && ownerTables.length > 0 && (
+        <div>
+          <h2 className="text-sm uppercase tracking-widest text-[oklch(0.82_0.16_85)] font-mono mb-3">Owner Tables — Automatic 25% Discount</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {ownerTables.map((r) => (
+              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {receipt && <ReceiptModal session={receipt} onClose={() => setReceipt(null)} />}
     </div>
   );
 }
 
 function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
-  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -75,6 +88,8 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
   const [editingRate, setEditingRate] = useState(false);
   const [singleRateInput, setSingleRateInput] = useState(String(room.singleRate));
   const [multiRateInput, setMultiRateInput] = useState(String(room.multiRate));
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(room.name);
   const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState("");
@@ -157,30 +172,52 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
     <div className={`glass rounded-2xl p-5 border transition-all relative ${cardStyle}`}>
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {room.isVip ? (
-            <Crown className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+            <Crown className="w-5 h-5 text-[oklch(0.82_0.16_85)] shrink-0" />
           ) : (
-            <Gamepad2 className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
+            <Gamepad2 className="w-5 h-5 text-[oklch(0.85_0.16_200)] shrink-0" />
           )}
-          <h3 className={`text-lg font-bold tracking-wide ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
+          {editingName ? (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <input
+                autoFocus value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { void renameRoom(room.id, nameInput); setEditingName(false); } if (e.key === "Escape") { setNameInput(room.name); setEditingName(false); } }}
+                className="w-32 bg-black/40 border border-white/10 rounded px-2 py-1 text-sm font-bold"
+              />
+              <button onClick={() => { void renameRoom(room.id, nameInput); setEditingName(false); }} className="text-[oklch(0.78_0.2_155)] hover:opacity-80"><Check className="w-4 h-4" /></button>
+              <button onClick={() => { setNameInput(room.name); setEditingName(false); }} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+          ) : (
+            <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
+          )}
+          {isAdmin && !editingName && (
+            <button onClick={() => setEditingName(true)} className="text-muted-foreground hover:text-white shrink-0" title="Rename">
+              <MessageSquare className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {room.isOwnerTable && (
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)] shrink-0">
+              Owner · 25% Off
+            </span>
+          )}
           {room.isVip && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)]">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)] shrink-0">
               Premium
             </span>
           )}
           {room.zone === "split" && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.85_0.16_200)] border border-[oklch(0.7_0.19_260/0.5)]">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.85_0.16_200)] border border-[oklch(0.7_0.19_260/0.5)] shrink-0">
               {room.splitInvoiceNumber}
             </span>
           )}
           {room.transferredFrom && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/10">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/10 shrink-0">
               from {room.transferredFrom}
             </span>
           )}
         </div>
-        <div className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
+        <div className={`shrink-0 text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
           room.status === "active"
             ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
             : "bg-white/5 text-muted-foreground border-white/10"
@@ -685,6 +722,11 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <div className="flex justify-between border-t border-dashed border-white/30 mt-3 pt-2 text-xs">
             <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
           </div>
+          {session.discountAmount > 0 && (
+            <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+              <span>{session.discountLabel ?? "Discount"}</span><span>-{fmtMoney(session.discountAmount)}</span>
+            </div>
+          )}
           <div className="border-t border-double border-white/40 mt-2 pt-2 flex justify-between text-base font-bold receipt-block">
             <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
           </div>
@@ -1065,6 +1107,16 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 </div>
               ))}
             </div>
+            {splitReceipt.discountAmount > 0 && (
+              <>
+                <div className="flex justify-between border-t border-dashed border-white/30 mt-2 pt-1 text-xs">
+                  <span>Subtotal</span><span>{fmtMoney(splitReceipt.ordersCost)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+                  <span>{splitReceipt.discountLabel ?? "Discount"}</span><span>-{fmtMoney(splitReceipt.discountAmount)}</span>
+                </div>
+              </>
+            )}
             <div className="border-t border-double border-white/40 mt-3 pt-2 flex justify-between text-base font-bold receipt-block">
               <span>SUB-BILL TOTAL</span><span>{fmtMoney(splitReceipt.total)}</span>
             </div>

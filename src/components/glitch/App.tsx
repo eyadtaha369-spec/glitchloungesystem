@@ -11,6 +11,7 @@ import { ProcurementPage } from "./Procurement";
 import { SetupPage } from "./Setup";
 import { VoidsPage } from "./Voids";
 import { AuditLogPage } from "./AuditLog";
+import { StaffOrdersPage } from "./StaffOrders";
 import { Gatekeeper } from "./Gatekeeper";
 import { Lock } from "lucide-react";
 
@@ -49,6 +50,7 @@ function Shell() {
             : view === "reports" ? <ReportsPage />
             : view === "voids" ? <VoidsPage />
             : view === "audit" ? <AuditLogPage />
+            : view === "staffOrders" ? <StaffOrdersPage />
             : <UsersPage />}
         </div>
       </main>

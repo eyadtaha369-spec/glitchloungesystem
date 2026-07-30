@@ -74,6 +74,9 @@ export interface Room {
   zone: "room" | "lounge" | "split";
   splitInvoiceNumber: string | null;
   transferredFrom: string | null;
+  // Owners Tables: lounge tables flagged for an automatic 25% discount on
+  // every checkout/split against them.
+  isOwnerTable: boolean;
 }
 
 export interface Session {
@@ -88,6 +91,8 @@ export interface Session {
   ordersCost: number;
   total: number;
   cogs: number;
+  discountAmount: number;
+  discountLabel: string | null;
   splitBill: boolean;
   paymentMethod: PaymentMethod;
   // Exact per-method breakdown. For pure cash/visa, one of these equals
@@ -263,6 +268,20 @@ export const VOID_REASON_LABELS: Record<VoidReason, string> = {
 };
 
 export type StockAdjustmentReason = "waste" | "correction" | "opening_balance";
+
+// ---------- Staff Orders & Consumption ----------
+// Standard menu prices are used for costing/inventory purposes, but the
+// amount is an EXPENSE (Staff Consumption Ledger), never retail revenue.
+export interface StaffOrder {
+  id: string;
+  ts: number;
+  staffName: string;
+  items: OrderLine[];
+  totalAmount: number;
+  cogs: number;
+  processedBy: string;
+  shiftId: string | null;
+}
 
 // ---------- System-wide Activity Log ("the Black Box") ----------
 // Write-Once, Read-Many — enforced by simply never providing an update or

@@ -74,6 +74,13 @@ export const setRoomRateFn = createServerFn({ method: "POST" })
     return res.state;
   });
 
+export const renameRoomFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; name: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("renameRoom", { ...data, username: user.username });
+  });
+
 // NOTE: raw stock is no longer edited directly here. It's a computed view
 // derived from Raw Materials + FIFO Batches (see finance.ts) — managed via
 // the Setup page (materials/suppliers) and the Procurement page (logging

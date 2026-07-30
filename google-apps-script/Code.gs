@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -105,11 +105,14 @@ function defaultAppState_() {
   ];
   const rooms = [];
   for (let i = 1; i <= 8; i++) {
-    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 0, singleRate: 5, multiRate: 8, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 0, singleRate: 5, multiRate: 8, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
   }
-  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 0, singleRate: 10, multiRate: 15, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null });
+  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 0, singleRate: 10, multiRate: 15, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
   for (let i = 1; i <= 4; i++) {
-    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
+    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
+  }
+  for (let i = 1; i <= 6; i++) {
+    rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true });
   }
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
@@ -171,8 +174,9 @@ function sheetObjectHeaders_(name) {
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
-    Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
+    Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng"],
+    StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
   };
   return map[name];
 }
@@ -185,7 +189,9 @@ function sessionToRow_(s) {
   return {
     id: s.id, roomId: s.roomId, roomName: s.roomName, startedAt: s.startedAt, endedAt: s.endedAt,
     durationSec: s.durationSec, timeCost: s.timeCost, orders: JSON.stringify(s.orders || []),
-    ordersCost: s.ordersCost, total: s.total, cogs: s.cogs, splitBill: !!s.splitBill,
+    ordersCost: s.ordersCost, total: s.total, cogs: s.cogs,
+    discountAmount: s.discountAmount || 0, discountLabel: s.discountLabel || null,
+    splitBill: !!s.splitBill,
     paymentMethod: s.paymentMethod, cashAmount: s.cashAmount, visaAmount: s.visaAmount,
     instapayAmount: s.instapayAmount, shiftId: s.shiftId,
   };
@@ -193,7 +199,10 @@ function sessionToRow_(s) {
 function rowToSession_(r) {
   let orders = [];
   try { orders = JSON.parse(r.orders || "[]"); } catch (e) { orders = []; }
-  return Object.assign({}, r, { orders: orders, splitBill: !!r.splitBill });
+  return Object.assign({}, r, {
+    orders: orders, splitBill: !!r.splitBill,
+    discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
+  });
 }
 function readSessions_() {
   return readObjects_("Sessions").map(rowToSession_).sort((a, b) => b.endedAt - a.endedAt);
@@ -205,6 +214,20 @@ function readShifts_() {
   return readObjects_("Shifts")
     .map(function (r) { return Object.assign({}, r, { forced: !!r.forced }); })
     .sort(function (a, b) { return b.openedAt - a.openedAt; });
+}
+function staffOrderToRow_(o) {
+  return {
+    id: o.id, ts: o.ts, staffName: o.staffName, items: JSON.stringify(o.items || []),
+    totalAmount: o.totalAmount, cogs: o.cogs, processedBy: o.processedBy, shiftId: o.shiftId,
+  };
+}
+function rowToStaffOrder_(r) {
+  let items = [];
+  try { items = JSON.parse(r.items || "[]"); } catch (e) { items = []; }
+  return Object.assign({}, r, { items: items });
+}
+function readStaffOrders_() {
+  return readObjects_("StaffOrders").map(rowToStaffOrder_).sort(function (a, b) { return b.ts - a.ts; });
 }
 
 // Each void reason carries its own inventory/ledger consequence, per spec.
@@ -308,7 +331,7 @@ const ACTION_RISK = {
   SESSION_TRANSFERRED: "yellow", SPLIT_INTERFACE_OPENED: "yellow", SESSION_SPLIT: "yellow",
   ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
   RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow",
-  MENU_CATALOG_IMPORTED: "yellow",
+  MENU_CATALOG_IMPORTED: "yellow", STAFF_ORDER_LOGGED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
 };
 function riskFor_(actionType) {
@@ -354,6 +377,13 @@ function pushActivity_(state, message) {
 function bizSetRoomRate_(state, roomId, singleRate, multiRate) {
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { singleRate: singleRate, multiRate: multiRate }) : r));
   return state;
+}
+
+function bizRenameRoom_(state, roomId, name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return { ok: false, error: "Name cannot be empty", state: state };
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { name: trimmed }) : r));
+  return { ok: true, state: state };
 }
 
 function bizStartRoom_(state, roomId, rateMode) {
@@ -508,7 +538,12 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   const durationSec = Math.max(1, Math.floor((endedAt - room.startedAt) / 1000));
   const timeCost = (durationSec / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
-  const total = timeCost + ordersCost;
+  const preDiscountTotal = timeCost + ordersCost;
+  // Owners Tables get an automatic, non-negotiable 25% discount on every
+  // checkout — itemized on the receipt, never silently folded into prices.
+  const discountAmount = room.isOwnerTable ? Math.round(preDiscountTotal * 0.25 * 100) / 100 : 0;
+  const discountLabel = room.isOwnerTable ? "Owner Discount (25%)" : null;
+  const total = preDiscountTotal - discountAmount;
 
   const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
@@ -557,6 +592,8 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     ordersCost: ordersCost,
     total: total,
     cogs: cogs,
+    discountAmount: discountAmount,
+    discountLabel: discountLabel,
     splitBill: !!splitBill,
     paymentMethod: method,
     cashAmount: cashAmount,
@@ -741,6 +778,13 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     return { ok: false, error: "Invalid split mode", state: state };
   }
 
+  // Owners Tables get the same automatic 25% discount on split sub-bills
+  // as a full checkout — itemized on the split receipt too.
+  const preDiscountSplitTotal = splitTotal;
+  const discountAmount = room.isOwnerTable ? Math.round(preDiscountSplitTotal * 0.25 * 100) / 100 : 0;
+  const discountLabel = room.isOwnerTable ? "Owner Discount (25%)" : null;
+  splitTotal = preDiscountSplitTotal - discountAmount;
+
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
   if (method === "cash") {
     cashAmount = splitTotal;
@@ -770,9 +814,11 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     durationSec: 0,
     timeCost: 0,
     orders: splitOrders,
-    ordersCost: splitTotal,
+    ordersCost: preDiscountSplitTotal,
     total: splitTotal,
     cogs: cogs,
+    discountAmount: discountAmount,
+    discountLabel: discountLabel,
     splitBill: true,
     paymentMethod: method,
     cashAmount: cashAmount,
@@ -902,6 +948,50 @@ function bizCloseActiveShift_(state, sessions, ledger, shifts, actualCash, force
     ok: true, state: state,
     closedShift: { id: shiftId, expectedCash: expectedCash, closingActualCash: closingActualCash, discrepancy: discrepancy },
   };
+}
+
+// ---------- Staff Orders & Consumption ----------
+// Standard menu prices are used (for costing/inventory consistency), but
+// the amount is routed to a Staff Consumption EXPENSE, never counted as
+// retail sales revenue — this never touches state.rooms or Sessions.
+function bizSubmitStaffOrder_(state, batches, staffName, items) {
+  const trimmedName = (staffName || "").trim();
+  if (!trimmedName) return { ok: false, error: "Staff member name is required", state: state };
+  if (!items || items.length === 0) return { ok: false, error: "No items selected", state: state };
+
+  let totalAmount = 0;
+  const orderLines = [];
+  for (const req of items) {
+    const menuItem = state.menu.find((m) => m.id === req.menuItemId);
+    if (!menuItem) return { ok: false, error: "Item not found", state: state };
+    if (!req.qty || req.qty <= 0) return { ok: false, error: "Invalid quantity for " + menuItem.name, state: state };
+    const insufficientIng = menuItem.ingredients.find((ing) => {
+      const remaining = materialRemaining_(batches, ing.stockId);
+      const reserved = materialReserved_(state.rooms, state.menu, ing.stockId);
+      return remaining - reserved - ing.qty * req.qty < -1e-9;
+    });
+    if (insufficientIng) return { ok: false, error: "Insufficient stock for " + menuItem.name, state: state };
+    orderLines.push({ menuItemId: req.menuItemId, name: menuItem.name, qty: req.qty, price: menuItem.price });
+    totalAmount += req.qty * menuItem.price;
+  }
+
+  let cogs = 0;
+  const touchedBatchIds = [];
+  orderLines.forEach((line) => {
+    const menuItem = state.menu.find((m) => m.id === line.menuItemId);
+    menuItem.ingredients.forEach((ing) => {
+      const res = consumeFifo_(batches, ing.stockId, ing.qty * line.qty);
+      cogs += res.cost;
+      touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+    });
+  });
+
+  const staffOrder = {
+    id: newId_("staff"), ts: Date.now(), staffName: trimmedName, items: orderLines,
+    totalAmount: totalAmount, cogs: cogs, processedBy: null, shiftId: state.activeShiftId || null,
+  };
+  pushActivity_(state, "Staff order: " + trimmedName + " — $" + totalAmount.toFixed(2) + " (" + orderLines.length + " item(s))");
+  return { ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), staffOrder: staffOrder };
 }
 
 // ---------- Manual Stock Adjustment (admin) ----------
@@ -1069,6 +1159,22 @@ function doPost(e) {
           after: { singleRate: body.singleRate, multiRate: body.multiRate },
         });
         return json_({ state: withStockView_(state) });
+      }
+      case "renameRoom": {
+        requireRole_(body.username, ["admin"]);
+        const state0 = getState_();
+        const before = state0.rooms.find((r) => r.id === body.roomId);
+        const result = bizRenameRoom_(state0, body.roomId, body.name);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(state0) });
+        setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "ROOM_RATE_CHANGED",
+          location: before ? before.name : body.roomId,
+          description: "Renamed '" + (before ? before.name : body.roomId) + "' to '" + body.name + "'",
+          before: before ? { name: before.name } : null,
+          after: { name: body.name },
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
       }
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
@@ -1335,6 +1441,34 @@ function doPost(e) {
       case "getRawMaterials":
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ items: readObjects_("RawMaterials") });
+
+      case "submitStaffOrder": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const batches = readObjects_("Batches");
+        const result = bizSubmitStaffOrder_(getState_(), batches, body.staffName, body.items);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+        setState_(result.state);
+        writeBatchesBack_(batches, result.touchedBatchIds);
+        result.staffOrder.processedBy = body.username;
+        appendObject_("StaffOrders", staffOrderToRow_(result.staffOrder));
+        appendObject_("Ledger", {
+          id: newId_("ledg"), ts: result.staffOrder.ts, amount: result.staffOrder.totalAmount, direction: "outflow",
+          type: "manualAdjustment", category: "Staff Consumption Expense",
+          description: result.staffOrder.staffName + " — " + result.staffOrder.items.length + " item(s)",
+          supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+          paidFromDrawer: false, shiftId: result.staffOrder.shiftId, materialId: null, qty: null, unitCost: null,
+        });
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STAFF_ORDER_LOGGED",
+          description: "Staff order for " + result.staffOrder.staffName + " — $" + result.staffOrder.totalAmount.toFixed(2),
+          shiftId: result.staffOrder.shiftId,
+          after: { staffName: result.staffOrder.staffName, totalAmount: result.staffOrder.totalAmount, items: result.staffOrder.items },
+        });
+        return json_({ ok: true, staffOrder: result.staffOrder, state: withStockView_(result.state) });
+      }
+      case "getStaffOrders":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readStaffOrders_() });
 
       case "adjustStock": {
         requireRole_(body.username, ["admin"]);
@@ -2021,19 +2155,26 @@ function getState_() {
         if (parsed.rooms) {
           parsed.rooms = parsed.rooms.map(function (r) {
             const withZone = r.zone ? r : Object.assign({}, r, { zone: "room", splitInvoiceNumber: null, transferredFrom: null });
-            if (typeof withZone.singleRate === "number") return withZone;
-            const legacyRate = typeof withZone.hourlyRate === "number" ? withZone.hourlyRate : 0;
-            return Object.assign({}, withZone, {
-              singleRate: withZone.zone === "room" ? (legacyRate || 5) : 0,
-              multiRate: withZone.zone === "room" ? (legacyRate ? legacyRate * 1.6 : 8) : 0,
-              rateMode: withZone.status === "active" && withZone.zone === "room" ? "single" : null,
-              hourlyRate: withZone.status === "active" ? legacyRate : 0,
+            const withOwnerFlag = typeof withZone.isOwnerTable === "boolean" ? withZone : Object.assign({}, withZone, { isOwnerTable: false });
+            if (typeof withOwnerFlag.singleRate === "number") return withOwnerFlag;
+            const legacyRate = typeof withOwnerFlag.hourlyRate === "number" ? withOwnerFlag.hourlyRate : 0;
+            return Object.assign({}, withOwnerFlag, {
+              singleRate: withOwnerFlag.zone === "room" ? (legacyRate || 5) : 0,
+              multiRate: withOwnerFlag.zone === "room" ? (legacyRate ? legacyRate * 1.6 : 8) : 0,
+              rateMode: withOwnerFlag.status === "active" && withOwnerFlag.zone === "room" ? "single" : null,
+              hourlyRate: withOwnerFlag.status === "active" ? legacyRate : 0,
             });
           });
-          const hasLounge = parsed.rooms.some(function (r) { return r.zone === "lounge"; });
+          const hasLounge = parsed.rooms.some(function (r) { return r.zone === "lounge" && !r.isOwnerTable; });
           if (!hasLounge) {
             for (let i = 1; i <= 4; i++) {
-              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null });
+              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
+            }
+          }
+          const hasOwnerTables = parsed.rooms.some(function (r) { return r.isOwnerTable; });
+          if (!hasOwnerTables) {
+            for (let i = 1; i <= 6; i++) {
+              parsed.rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true });
             }
           }
         }
