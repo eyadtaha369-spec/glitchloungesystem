@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -171,8 +171,40 @@ function sheetObjectHeaders_(name) {
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
+    Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
+    Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng"],
   };
   return map[name];
+}
+
+// Sessions carry an `orders` array, which the generic row helpers can't
+// serialize on their own — JSON-encode/decode just that one field. A
+// single session's own JSON is small (one order list), nowhere near the
+// per-cell limit that broke the old single-blob-holds-everything design.
+function sessionToRow_(s) {
+  return {
+    id: s.id, roomId: s.roomId, roomName: s.roomName, startedAt: s.startedAt, endedAt: s.endedAt,
+    durationSec: s.durationSec, timeCost: s.timeCost, orders: JSON.stringify(s.orders || []),
+    ordersCost: s.ordersCost, total: s.total, cogs: s.cogs, splitBill: !!s.splitBill,
+    paymentMethod: s.paymentMethod, cashAmount: s.cashAmount, visaAmount: s.visaAmount,
+    instapayAmount: s.instapayAmount, shiftId: s.shiftId,
+  };
+}
+function rowToSession_(r) {
+  let orders = [];
+  try { orders = JSON.parse(r.orders || "[]"); } catch (e) { orders = []; }
+  return Object.assign({}, r, { orders: orders, splitBill: !!r.splitBill });
+}
+function readSessions_() {
+  return readObjects_("Sessions").map(rowToSession_).sort((a, b) => b.endedAt - a.endedAt);
+}
+function appendSessionRow_(s) {
+  appendObject_("Sessions", sessionToRow_(s));
+}
+function readShifts_() {
+  return readObjects_("Shifts")
+    .map(function (r) { return Object.assign({}, r, { forced: !!r.forced }); })
+    .sort(function (a, b) { return b.openedAt - a.openedAt; });
 }
 
 // Each void reason carries its own inventory/ledger consequence, per spec.
@@ -535,7 +567,10 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   state.rooms = state.rooms.map((r) =>
     r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r
   );
-  state.sessions = [session].concat(state.sessions);
+  // NOTE: the session is NOT added to state.sessions here anymore — it's
+  // persisted directly to the dedicated Sessions sheet by the "endRoom"
+  // doPost handler (appendSessionRow_), since sessions no longer live in
+  // this blob at all (see getState_/setState_ for why).
   const paymentLabel = method === "mixed_cash_visa" ? "Cash $" + cashAmount.toFixed(2) + " + Visa $" + visaAmount.toFixed(2)
     : method === "mixed_cash_instapay" ? "Cash $" + cashAmount.toFixed(2) + " + InstaPay $" + instapayAmount.toFixed(2)
     : method;
@@ -630,11 +665,8 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   };
 }
 
-let splitInvoiceCounter_ = null;
 function nextSplitInvoiceNumber_(state) {
-  const existing = state.rooms.filter((r) => r.zone === "split").length +
-    state.sessions.filter((s) => s.splitInvoiceNumber).length;
-  return "SPL-" + String(existing + 1).padStart(4, "0");
+  return "SPL-" + String(Date.now()).slice(-6);
 }
 
 // The Interactive Split Protocol: extracts specific {menuItemId, qty} lines
@@ -752,7 +784,7 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
     closedLat: null,
     closedLng: null,
   };
-  state.shifts = [shift].concat(state.shifts);
+  appendObject_("Shifts", shift);
   state.activeShiftId = id;
   state.actualCashInput = 0;
   pushActivity_(state, username + " opened a shift (opening balance $" + (openingBalance || 0).toFixed(2) + ")");
@@ -763,11 +795,11 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
 // expenses logged against this shift. `forced` = true means this came
 // from the admin emergency-reset path rather than a cashier's normal End
 // Shift.
-function bizCloseActiveShift_(state, ledger, actualCash, forced, lat, lng) {
+function bizCloseActiveShift_(state, sessions, ledger, shifts, actualCash, forced, lat, lng) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift to close", state: state };
   const shiftId = state.activeShiftId;
-  const shift = state.shifts.find((sh) => sh.id === shiftId);
-  const shiftSessions = state.sessions.filter((s) => s.shiftId === shiftId);
+  const shift = shifts.find((sh) => sh.id === shiftId);
+  const shiftSessions = sessions.filter((s) => s.shiftId === shiftId);
   const cashSales = shiftSessions.reduce((a, s) => a + (Number(s.cashAmount) || 0), 0);
   const drawerExpenses = ledger
     .filter((l) => l.shiftId === shiftId && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow")
@@ -776,19 +808,15 @@ function bizCloseActiveShift_(state, ledger, actualCash, forced, lat, lng) {
   const closingActualCash = typeof actualCash === "number" ? actualCash : (state.actualCashInput || 0);
   const discrepancy = closingActualCash - expectedCash;
 
-  state.shifts = state.shifts.map((sh) =>
-    sh.id === shiftId
-      ? Object.assign({}, sh, {
-          closedAt: Date.now(),
-          closingActualCash: closingActualCash,
-          expectedCash: expectedCash,
-          discrepancy: discrepancy,
-          forced: !!forced,
-          closedLat: typeof lat === "number" ? lat : null,
-          closedLng: typeof lng === "number" ? lng : null,
-        })
-      : sh
-  );
+  updateObjectById_("Shifts", shiftId, {
+    closedAt: Date.now(),
+    closingActualCash: closingActualCash,
+    expectedCash: expectedCash,
+    discrepancy: discrepancy,
+    forced: !!forced,
+    closedLat: typeof lat === "number" ? lat : null,
+    closedLng: typeof lng === "number" ? lng : null,
+  });
   state.activeShiftId = null;
   state.actualCashInput = 0;
   pushActivity_(
@@ -796,7 +824,10 @@ function bizCloseActiveShift_(state, ledger, actualCash, forced, lat, lng) {
     (forced ? "Admin force-closed shift" : "Shift closed") +
       " — expected $" + expectedCash.toFixed(2) + ", counted $" + closingActualCash.toFixed(2),
   );
-  return { ok: true, state: state };
+  return {
+    ok: true, state: state,
+    closedShift: { id: shiftId, expectedCash: expectedCash, closingActualCash: closingActualCash, discrepancy: discrepancy },
+  };
 }
 
 // ---------- Manual Stock Adjustment (admin) ----------
@@ -988,6 +1019,7 @@ function doPost(e) {
         }
         if (result.session) {
           setState_(result.state);
+          appendSessionRow_(result.session);
           result.touchedBatchIds.forEach(function (id) {
             const b = batches.find(function (x) { return x.id === id; });
             if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
@@ -1188,10 +1220,10 @@ function doPost(e) {
         }
         const shiftIdBefore = state0.activeShiftId;
         const ledger = readObjects_("Ledger");
-        const result = bizCloseActiveShift_(state0, ledger, body.actualCash, false, body.lat, body.lng);
+        const result = bizCloseActiveShift_(state0, readSessions_(), ledger, readShifts_(), body.actualCash, false, body.lat, body.lng);
         if (result.ok) {
           setState_(result.state);
-          const closed = result.state.shifts.find((sh) => sh.id === shiftIdBefore);
+          const closed = result.closedShift;
           logActivity_({
             actorUsername: body.username, actorRole: role, actionType: "END_SHIFT", shiftId: shiftIdBefore,
             description: body.username + " ended shift — expected $" + (closed ? closed.expectedCash.toFixed(2) : "?") + ", counted $" + (closed ? closed.closingActualCash.toFixed(2) : "?"),
@@ -1206,7 +1238,7 @@ function doPost(e) {
         if (!state.activeShiftId) return json_({ ok: true, state: withStockView_(state) });
         const shiftIdBefore = state.activeShiftId;
         const ledger = readObjects_("Ledger");
-        const result = bizCloseActiveShift_(state, ledger, body.actualCash, true);
+        const result = bizCloseActiveShift_(state, readSessions_(), ledger, readShifts_(), body.actualCash, true);
         setState_(result.state);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "FORCE_END_SHIFT", shiftId: shiftIdBefore,
@@ -1746,6 +1778,11 @@ function withStockView_(state) {
   const batches = readObjects_("Batches");
   state.stock = computeStockView_(materials, batches);
   state.pendingVoidCountForActiveShift = pendingVoidCountForShift_(state.activeShiftId);
+  // Sessions live in their own sheet now (see the 50,000-char single-cell
+  // limit note in getState_/setState_ below) — always attach the current
+  // set fresh, same pattern as stock.
+  state.sessions = readSessions_();
+  state.shifts = readShifts_();
   return state;
 }
 
@@ -1916,6 +1953,28 @@ function getState_() {
             }
           }
         }
+        // ---- Migrate away from embedding sessions in this blob ----
+        // Sessions grow forever (one per checkout, forever) and this cell
+        // hit Google Sheets' 50,000-character single-cell limit, breaking
+        // every checkout. Move any still-embedded sessions to their own
+        // sheet ONE time (only if that sheet is still empty, so this never
+        // re-runs or duplicates), then never store sessions here again —
+        // they're attached fresh from the Sessions sheet in
+        // withStockView_ instead, same pattern as `stock`.
+        if (parsed.sessions && parsed.sessions.length > 0) {
+          const sessionsSheet = getSheet_("Sessions");
+          if (sessionsSheet.getLastRow() <= 1) {
+            parsed.sessions.forEach(function (s) { appendSessionRow_(s); });
+          }
+        }
+        if (parsed.shifts && parsed.shifts.length > 0) {
+          const shiftsSheet = getSheet_("Shifts");
+          if (shiftsSheet.getLastRow() <= 1) {
+            parsed.shifts.forEach(function (sh) { appendObject_("Shifts", sh); });
+          }
+        }
+        delete parsed.sessions;
+        delete parsed.shifts;
         delete parsed.stock; // stock is always a computed view now, never persisted
         delete parsed.pendingVoidCountForActiveShift; // also computed, never persisted
         return parsed;
@@ -1931,6 +1990,7 @@ function setState_(state) {
   const toSave = Object.assign({}, state);
   delete toSave.stock; // never persist the computed view
   delete toSave.pendingVoidCountForActiveShift; // also computed, never persisted
+  delete toSave.sessions; // sessions live in their own sheet now — see getState_ above
   const sheet = getSheet_(STATE_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
