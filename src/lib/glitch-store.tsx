@@ -559,7 +559,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const updateRawMaterial: StoreContextValue["updateRawMaterial"] = async (id, patch) => {
     return withPending(`updateRawMaterial:${id}`, async () => {
       const res = await updateRawMaterialFn({ data: { id, patch } });
-      if (res.ok) setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+      if (res.ok) {
+        setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+        // StockTable (Inventory page) renders from appState.stock — the
+        // COMPUTED view — not from `materials`, so without this patch the
+        // edit would silently appear to do nothing there until some other
+        // action happened to force a full state refresh.
+        setAppState((prev) => ({
+          ...prev,
+          stock: prev.stock.map((s) => {
+            if (s.id !== id) return s;
+            const next = { ...s };
+            if (patch.unit !== undefined) next.unit = patch.unit;
+            if (patch.unitCost !== undefined) next.unitCost = patch.unitCost;
+            if (patch.minStockAlert !== undefined) next.minStock = patch.minStockAlert;
+            return next;
+          }),
+        }));
+      }
     });
   };
   const deleteRawMaterial: StoreContextValue["deleteRawMaterial"] = async (id) => {
