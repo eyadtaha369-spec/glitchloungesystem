@@ -48,7 +48,7 @@ export function Login() {
                 autoComplete="off"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-lg pl-10 pr-3 py-2.5 outline-none focus:border-[oklch(0.7_0.19_260)] focus:shadow-[0_0_0_3px_oklch(0.7_0.19_260/0.25)] transition"
+                className="w-full bg-white/70 border border-black/10 rounded-lg pl-10 pr-3 py-2.5 outline-none focus:border-[oklch(0.7_0.19_260)] focus:shadow-[0_0_0_3px_oklch(0.7_0.19_260/0.25)] transition"
                 placeholder="Username"
               />
             </div>
@@ -61,7 +61,7 @@ export function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-lg pl-10 pr-3 py-2.5 outline-none focus:border-[oklch(0.7_0.19_260)] focus:shadow-[0_0_0_3px_oklch(0.7_0.19_260/0.25)] transition"
+                className="w-full bg-white/70 border border-black/10 rounded-lg pl-10 pr-3 py-2.5 outline-none focus:border-[oklch(0.7_0.19_260)] focus:shadow-[0_0_0_3px_oklch(0.7_0.19_260/0.25)] transition"
                 placeholder="••••••••"
               />
             </div>
@@ -70,7 +70,7 @@ export function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold tracking-wider uppercase text-sm shadow-[0_0_25px_oklch(0.7_0.19_260/0.5)] hover:shadow-[0_0_40px_oklch(0.7_0.19_260/0.7)] transition disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold tracking-wider uppercase text-sm shadow-[0_0_25px_oklch(0.7_0.19_260/0.5)] hover:shadow-[0_0_40px_oklch(0.7_0.19_260/0.7)] transition disabled:opacity-60"
           >
             <LogIn className="w-4 h-4" /> {loading ? "Checking..." : "Access Console"}
           </button>

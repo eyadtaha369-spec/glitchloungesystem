@@ -78,7 +78,7 @@ export function UsersPage() {
                 autoComplete="off"
                 value={selfUsername}
                 onChange={(e) => setSelfUsername(e.target.value)}
-                className="mt-1 w-full bg-black/40 rounded-lg px-3 py-2.5 text-sm border border-white/10 font-mono"
+                className="mt-1 w-full bg-white/70 rounded-lg px-3 py-2.5 text-sm border border-black/10 font-mono"
               />
             </div>
             <div>
@@ -89,7 +89,7 @@ export function UsersPage() {
                 placeholder="Leave blank to keep current"
                 value={selfPassword}
                 onChange={(e) => setSelfPassword(e.target.value)}
-                className="mt-1 w-full bg-black/40 rounded-lg px-3 py-2.5 text-sm border border-white/10 font-mono"
+                className="mt-1 w-full bg-white/70 rounded-lg px-3 py-2.5 text-sm border border-black/10 font-mono"
               />
             </div>
             <div className="flex items-end">
@@ -116,7 +116,7 @@ export function UsersPage() {
             placeholder="Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="bg-black/40 rounded-lg px-3 py-2.5 text-sm border border-white/10"
+            className="bg-white/70 rounded-lg px-3 py-2.5 text-sm border border-black/10"
           />
           <input
             type="password"
@@ -124,19 +124,19 @@ export function UsersPage() {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="bg-black/40 rounded-lg px-3 py-2.5 text-sm border border-white/10"
+            className="bg-white/70 rounded-lg px-3 py-2.5 text-sm border border-black/10"
           />
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as "admin" | "cashier")}
-            className="bg-black/40 rounded-lg px-3 py-2.5 text-sm border border-white/10"
+            className="bg-white/70 rounded-lg px-3 py-2.5 text-sm border border-black/10"
           >
             <option value="cashier">Cashier</option>
             <option value="admin">Admin</option>
           </select>
           <button
             onClick={submit}
-            className="rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+            className="rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
           >
             Create
           </button>
@@ -150,7 +150,7 @@ export function UsersPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Username</th>
                 <th className="text-left py-2 px-2">Role</th>
                 <th className="text-left py-2 px-2">Password</th>
@@ -162,13 +162,13 @@ export function UsersPage() {
                 const isEditing = editing === a.username;
                 const isSelf = a.username === state.currentUser?.username;
                 return (
-                  <tr key={a.username} className="border-b border-white/5">
+                  <tr key={a.username} className="border-b border-black/8">
                     <td className="py-3 px-2 font-semibold">
                       {isEditing ? (
                         <input
                           value={editUsername}
                           onChange={(e) => setEditUsername(e.target.value)}
-                          className="bg-black/40 rounded px-2 py-1 text-sm border border-white/10 w-full font-mono"
+                          className="bg-white/70 rounded px-2 py-1 text-sm border border-black/10 w-full font-mono"
                         />
                       ) : a.username}
                     </td>
@@ -190,7 +190,7 @@ export function UsersPage() {
                           placeholder="Leave blank to keep current"
                           value={editPassword}
                           onChange={(e) => setEditPassword(e.target.value)}
-                          className="bg-black/40 rounded px-2 py-1 text-sm border border-white/10 w-full font-mono"
+                          className="bg-white/70 rounded px-2 py-1 text-sm border border-black/10 w-full font-mono"
                         />
                       ) : "••••••••"}
                     </td>
@@ -201,7 +201,7 @@ export function UsersPage() {
                             <button onClick={() => saveEdit(a.username)} className="text-[oklch(0.78_0.2_155)] hover:opacity-80" title="Save">
                               <Save className="w-4 h-4" />
                             </button>
-                            <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-white" title="Cancel">
+                            <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-[#2b2416]" title="Cancel">
                               <X className="w-4 h-4" />
                             </button>
                           </>

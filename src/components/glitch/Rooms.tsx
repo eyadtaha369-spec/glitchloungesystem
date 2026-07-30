@@ -116,7 +116,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
     ? "animate-vip bg-gradient-to-br from-[oklch(0.82_0.16_85/0.08)] via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.82_0.16_85/0.4)]"
     : room.status === "active"
       ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
-      : "border-white/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
+      : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
 
   const flashWarn = (msg: string) => {
     setWarn(msg);
@@ -212,16 +212,16 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               <input
                 autoFocus value={nameInput} onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { void renameRoom(room.id, nameInput); setEditingName(false); } if (e.key === "Escape") { setNameInput(room.name); setEditingName(false); } }}
-                className="w-32 bg-black/40 border border-white/10 rounded px-2 py-1 text-sm font-bold"
+                className="w-32 bg-white/70 border border-black/10 rounded px-2 py-1 text-sm font-bold"
               />
               <button onClick={() => { void renameRoom(room.id, nameInput); setEditingName(false); }} className="text-[oklch(0.78_0.2_155)] hover:opacity-80"><Check className="w-4 h-4" /></button>
-              <button onClick={() => { setNameInput(room.name); setEditingName(false); }} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+              <button onClick={() => { setNameInput(room.name); setEditingName(false); }} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
             </div>
           ) : (
             <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
           )}
           {isAdmin && !editingName && (
-            <button onClick={() => setEditingName(true)} className="text-muted-foreground hover:text-white shrink-0" title="Rename">
+            <button onClick={() => setEditingName(true)} className="text-muted-foreground hover:text-[#2b2416] shrink-0" title="Rename">
               <MessageSquare className="w-3.5 h-3.5" />
             </button>
           )}
@@ -241,7 +241,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
             </span>
           )}
           {room.transferredFrom && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/10 shrink-0">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-black/5 text-muted-foreground border border-black/10 shrink-0">
               from {room.transferredFrom}
             </span>
           )}
@@ -251,7 +251,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
             ? "bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border-[oklch(0.82_0.16_85/0.5)]"
             : room.status === "active"
             ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
-            : "bg-white/5 text-muted-foreground border-white/10"
+            : "bg-black/5 text-muted-foreground border-black/10"
         }`}>
           {room.isPaused ? "⏸ Paused" : room.status === "active" ? "● Active" : "○ Available"}
         </div>
@@ -272,13 +272,13 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               <input
                 type="number" step="0.5" value={singleRateInput}
                 onChange={(e) => setSingleRateInput(e.target.value)}
-                className="w-16 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
+                className="w-16 bg-white/70 border border-black/10 rounded px-2 py-0.5 font-mono text-sm"
               />
               <span className="text-muted-foreground font-mono uppercase tracking-widest">Multi</span>
               <input
                 type="number" step="0.5" value={multiRateInput}
                 onChange={(e) => setMultiRateInput(e.target.value)}
-                className="w-16 bg-black/40 border border-white/10 rounded px-2 py-0.5 font-mono text-sm"
+                className="w-16 bg-white/70 border border-black/10 rounded px-2 py-0.5 font-mono text-sm"
               />
               <button
                 className="text-[oklch(0.78_0.2_155)] hover:underline"
@@ -306,13 +306,13 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
 
       {/* Timer + cost */}
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="bg-black/40 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/70 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
           <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.85_0.16_200)]" : "text-muted-foreground"}`}>
             {fmtDuration(elapsed)}
           </div>
         </div>
-        <div className="bg-black/40 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/70 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Running Cost</div>
           <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.78_0.2_155)]"}`}>
             {fmtMoney(total)}
@@ -322,7 +322,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
 
       {/* Split bill breakdown */}
       {split && room.status === "active" && (
-        <div className="mt-3 p-3 rounded-lg bg-black/30 border border-white/5 text-xs font-mono grid grid-cols-2 gap-2">
+        <div className="mt-3 p-3 rounded-lg bg-white/60 border border-black/8 text-xs font-mono grid grid-cols-2 gap-2">
           <div>
             <div className="text-muted-foreground uppercase tracking-widest text-[9px]">Time</div>
             <div>{fmtMoney(timeCost)}</div>
@@ -344,15 +344,15 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
-                    className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
+                    className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
                     title="Void this item"
                   >
                     <ShieldAlert className="w-3 h-3" />
                   </button>
-                  <span className="w-4 text-center text-white">{o.qty}</span>
+                  <span className="w-4 text-center text-[#2b2416]">{o.qty}</span>
                   <button
                     onClick={() => increaseQty(o.menuItemId, o.qty)}
-                    className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white"
+                    className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8 hover:text-[#2b2416]"
                     title="Increase"
                   >
                     <Plus className="w-3 h-3" />
@@ -360,7 +360,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                   <span className="w-14 text-right">{fmtMoney(o.qty * o.price)}</span>
                   <button
                     onClick={() => { setEditingNoteFor(o.menuItemId); setNoteInput(o.notes ?? ""); }}
-                    className={`w-5 h-5 flex items-center justify-center rounded border ${o.notes ? "bg-[oklch(0.82_0.16_85/0.15)] border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)]" : "bg-white/5 border-white/10 hover:bg-white/10"}`}
+                    className={`w-5 h-5 flex items-center justify-center rounded border ${o.notes ? "bg-[oklch(0.82_0.16_85/0.15)] border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)]" : "bg-black/5 border-black/10 hover:bg-black/8"}`}
                     title="Add/edit note"
                   >
                     <MessageSquare className="w-3 h-3" />
@@ -379,7 +379,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                       if (e.key === "Escape") setEditingNoteFor(null);
                     }}
                     placeholder="e.g. Extra Sugar, Skimmed Milk"
-                    className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-[11px]"
+                    className="flex-1 bg-white/70 border border-black/10 rounded px-2 py-1 text-[11px]"
                   />
                   <button
                     onClick={() => { setOrderLineNote(room.id, o.menuItemId, noteInput); setEditingNoteFor(null); }}
@@ -387,7 +387,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                   >
                     <Check className="w-3 h-3" />
                   </button>
-                  <button onClick={() => setEditingNoteFor(null)} className="w-5 h-5 flex items-center justify-center rounded bg-white/5 border border-white/10">
+                  <button onClick={() => setEditingNoteFor(null)} className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -405,7 +405,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         {room.orders.length > 0 && (
           <button
             onClick={() => setTicketOpen(true)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-xs"
           >
             <ChefHat className="w-3.5 h-3.5" /> Send to Kitchen
           </button>
@@ -413,7 +413,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         {room.status === "active" && transferTargets.filter((t) => t.id !== room.id).length > 0 && (
           <button
             onClick={() => setTransferOpen(true)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-xs"
           >
             <ArrowRightLeft className="w-3.5 h-3.5" /> Transfer
           </button>
@@ -421,7 +421,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         {room.status === "active" && room.orders.length > 0 && (
           <button
             onClick={() => setSplitOpen(true)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-xs"
           >
             <SplitSquareHorizontal className="w-3.5 h-3.5" /> Split
           </button>
@@ -469,7 +469,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               >
                 Multi {fmtMoney(room.multiRate)}/hr
               </button>
-              <button onClick={() => setPickingRateToStart(false)} className="text-muted-foreground hover:text-white px-2"><X className="w-4 h-4" /></button>
+              <button onClick={() => setPickingRateToStart(false)} className="text-muted-foreground hover:text-[#2b2416] px-2"><X className="w-4 h-4" /></button>
             </div>
           ) : (
             <button
@@ -520,9 +520,9 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
       {checkoutOpen && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-black/10">
               <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.75_0.22_25)]">{room.name} · Checkout</div>
-              <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-white transition"><X className="w-6 h-6" /></button>
+              <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-6 space-y-5">
               {room.zone === "room" && (
@@ -563,7 +563,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               </div>
 
               {isMixed && (
-                <div className="space-y-4 pt-2 p-4 rounded-2xl bg-black/30 border border-white/10">
+                <div className="space-y-4 pt-2 p-4 rounded-2xl bg-white/60 border border-black/10">
                   <div>
                     <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">
                       Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount
@@ -573,7 +573,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                       onChange={(e) => setSecondaryInput(e.target.value)}
                       placeholder="0.00"
                       max={total}
-                      className={`mt-2 w-full bg-black/50 border-2 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)] ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-white/15"}`}
+                      className={`mt-2 w-full bg-white/80 border-2 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)] ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-black/12"}`}
                     />
                   </div>
                   <div className="flex items-center justify-between rounded-xl bg-[oklch(0.78_0.2_155/0.1)] border border-[oklch(0.78_0.2_155/0.3)] px-4 py-4">
@@ -597,7 +597,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               <button
                 onClick={handleCheckout}
                 disabled={checkingOut}
-                className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
+                className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
               >
                 {checkingOut ? "Processing..." : "Confirm & Close Ticket"}
               </button>
@@ -616,7 +616,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
             onChange={(e) => setSplit(e.target.checked)}
             className="peer sr-only"
           />
-          <span className="w-9 h-5 flex items-center bg-black/50 border border-white/10 rounded-full peer-checked:bg-[oklch(0.7_0.19_260/0.4)] peer-checked:border-[oklch(0.7_0.19_260)] transition" />
+          <span className="w-9 h-5 flex items-center bg-white/80 border border-black/10 rounded-full peer-checked:bg-[oklch(0.7_0.19_260/0.4)] peer-checked:border-[oklch(0.7_0.19_260)] transition" />
           <span className="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow transition peer-checked:translate-x-4" />
         </span>
         <span className="uppercase tracking-widest text-[10px]">Split Bill</span>
@@ -644,17 +644,17 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
         className="w-full max-w-4xl h-[85vh] glass-strong rounded-3xl border-2 border-[oklch(0.7_0.19_260/0.5)] shadow-[0_0_60px_oklch(0.7_0.19_260/0.4)] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-black/10 shrink-0">
           <div className="font-mono uppercase tracking-widest text-lg font-bold text-[oklch(0.85_0.16_200)]">
             {room.name} · Add Order
           </div>
-          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-white transition">
+          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition">
             <X className="w-6 h-6" />
           </button>
         </div>
 
         {/* Oversized category tabs */}
-        <div className="flex flex-wrap items-center gap-2 px-6 py-4 border-b border-white/10 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 px-6 py-4 border-b border-black/10 shrink-0">
           {categoriesWithItems.length === 0 && (
             <span className="text-sm text-muted-foreground font-mono uppercase tracking-widest">No menu items available</span>
           )}
@@ -664,8 +664,8 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
               onClick={() => setActiveCategory(cat)}
               className={`shrink-0 px-5 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition border-2 ${
                 activeCategory === cat
-                  ? "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white border-transparent shadow-[0_0_20px_oklch(0.7_0.19_260/0.6)]"
-                  : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10 hover:text-white"
+                  ? "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] border-transparent shadow-[0_0_20px_oklch(0.7_0.19_260/0.6)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8 hover:text-[#2b2416]"
               }`}
             >
               {cat}
@@ -685,8 +685,8 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
                   onClick={() => onOrder(m.id)}
                   className={`flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition ${
                     ok
-                      ? "bg-white/5 border-white/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
-                      : "bg-white/5 border-white/5 opacity-40 cursor-not-allowed"
+                      ? "bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
+                      : "bg-black/5 border-black/8 opacity-40 cursor-not-allowed"
                   }`}
                 >
                   <span className="text-lg font-bold leading-tight">{m.name}</span>
@@ -714,18 +714,18 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md glass-strong rounded-2xl border border-white/10 shadow-2xl">
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-black/10">
           <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.85_0.16_200)]">Receipt</div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="print-area p-6 font-mono text-sm bg-black/20">
+        <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-4 receipt-block">
             <div className="text-xl font-bold tracking-widest">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">PlayStation &amp; Lounge</div>
           </div>
-          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs receipt-block">
+          <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
             <div className="flex justify-between"><span>Order #</span><span className="font-bold">{session.id.replace("sess-", "")}</span></div>
             <div className="flex justify-between"><span>Room</span><span>{session.roomName}</span></div>
             <div className="flex justify-between"><span>Start</span><span>{startD.toLocaleString()}</span></div>
@@ -759,7 +759,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
                   <span>{fmtMoney(o.qty * o.price)}</span>
                 </div>
               ))}
-              <div className="flex justify-between border-t border-dashed border-white/30 mt-2 pt-1">
+              <div className="flex justify-between border-t border-dashed border-black/20 mt-2 pt-1">
                 <span>Orders Subtotal</span><span>{fmtMoney(session.ordersCost)}</span>
               </div>
             </>
@@ -775,7 +775,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             </>
           )}
 
-          <div className="flex justify-between border-t border-dashed border-white/30 mt-3 pt-2 text-xs">
+          <div className="flex justify-between border-t border-dashed border-black/20 mt-3 pt-2 text-xs">
             <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
           </div>
           {session.discountAmount > 0 && (
@@ -783,7 +783,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
               <span>{session.discountLabel ?? "Discount"}</span><span>-{fmtMoney(session.discountAmount)}</span>
             </div>
           )}
-          <div className="border-t border-double border-white/40 mt-2 pt-2 flex justify-between text-base font-bold receipt-block">
+          <div className="border-t border-double border-black/25 mt-2 pt-2 flex justify-between text-base font-bold receipt-block">
             <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
           </div>
           <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">
@@ -791,11 +791,11 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           </div>
         </div>
 
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2 no-print">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Close</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
           >
             <Printer className="w-4 h-4" /> Print
           </button>
@@ -815,21 +815,21 @@ function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10 shadow-2xl">
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/10 shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-sm text-[oklch(0.82_0.16_85)]">
             <ChefHat className="w-4 h-4" /> Kitchen Order Ticket
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
 
         {/* No prices/totals here on purpose — this goes to the kitchen, not the customer. */}
-        <div className="print-area p-6 font-mono text-sm bg-black/20">
+        <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-3 receipt-block">
             <div className="text-lg font-bold tracking-widest">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Kitchen Order Ticket</div>
           </div>
-          <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs receipt-block">
+          <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
             <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
             <div className="flex justify-between"><span>KOT #</span><span className="font-bold">{kotNumber}</span></div>
             <div className="flex justify-between"><span>Time</span><span>{now.toLocaleString()}</span></div>
@@ -851,8 +851,8 @@ function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void
           </div>
         </div>
 
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2 no-print">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Close</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
             onClick={() => window.print()}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)]"
@@ -906,11 +906,11 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.75_0.22_25)]">
             <ShieldAlert className="w-4 h-4" /> Void Request
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
           <div className="text-sm">
@@ -922,7 +922,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             <input
               type="number" min={1} max={maxQty} value={qty}
               onChange={(e) => setQty(Math.max(1, Math.min(maxQty, +e.target.value)))}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
 
@@ -931,7 +931,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value as VoidReason)}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
             >
               <option value="">Select a reason...</option>
               {Object.entries(VOID_REASON_LABELS).map(([key, label]) => (
@@ -946,7 +946,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
               value={waiterName}
               onChange={(e) => setWaiterName(e.target.value)}
               placeholder="Waiter's name"
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
@@ -962,8 +962,8 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             </div>
           )}
         </div>
-        <div className="p-4 border-t border-white/10 flex flex-wrap justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+        <div className="p-4 border-t border-black/10 flex flex-wrap justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           {!isAdmin && (
             <button
               onClick={() => setAuthOpen(true)}
@@ -1028,11 +1028,11 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
   return createPortal(
     <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.5)] shadow-[0_0_40px_oklch(0.82_0.16_85/0.4)]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">
             <ShieldAlert className="w-4 h-4" /> Admin Authorization Required
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
           <p className="text-sm text-muted-foreground">{description}</p>
@@ -1041,7 +1041,7 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
             <input
               autoFocus value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
@@ -1049,13 +1049,13 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
             <input
               type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
             />
           </div>
           {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
         </div>
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
             onClick={submit}
             disabled={checking}
@@ -1099,12 +1099,12 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
-      <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
             <ArrowRightLeft className="w-4 h-4" /> Transfer {room.name}
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
           <p className="text-xs text-muted-foreground">
@@ -1114,7 +1114,7 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
           </p>
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Move to</label>
-            <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
+            <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
               {eligibleTargets.map((t) => (
                 <option key={t.id} value={t.id}>{t.name} {t.zone === "room" ? "(room)" : `(${t.status === "active" ? "active" : "available"} table)`}</option>
               ))}
@@ -1126,13 +1126,13 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
               <div className="mt-1 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setRateMode("single")}
-                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "single" ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "single" ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
                 >
                   Single {fmtMoney(target?.singleRate ?? 0)}/hr
                 </button>
                 <button
                   onClick={() => setRateMode("multi")}
-                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "multi" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "multi" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
                 >
                   Multi {fmtMoney(target?.multiRate ?? 0)}/hr
                 </button>
@@ -1141,8 +1141,8 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
           )}
           {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
         </div>
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
             onClick={submit}
             disabled={submitting || !targetId}
@@ -1229,17 +1229,17 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   if (splitReceipt) {
     return createPortal(
       <div className="print-root fixed inset-0 z-[210] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="w-full max-w-md glass-strong rounded-2xl border border-white/10 shadow-2xl">
-          <div className="flex items-center justify-between p-4 border-b border-white/10">
+        <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
+          <div className="flex items-center justify-between p-4 border-b border-black/10">
             <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.78_0.2_155)]">Split Receipt</div>
-            <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+            <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
           </div>
-          <div className="print-area p-6 font-mono text-sm bg-black/20">
+          <div className="print-area p-6 font-mono text-sm bg-white/50">
             <div className="text-center mb-4 receipt-block">
               <div className="text-xl font-bold tracking-widest">GLITCH</div>
               <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Split Payment Receipt</div>
             </div>
-            <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs receipt-block">
+            <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
               <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
               <div className="flex justify-between"><span>Time</span><span>{new Date(splitReceipt.endedAt).toLocaleString()}</span></div>
               <div className="flex justify-between"><span>Payment</span><span className="uppercase">{PAYMENT_LABELS[splitReceipt.paymentMethod]}</span></div>
@@ -1263,7 +1263,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             </div>
             {splitReceipt.discountAmount > 0 && (
               <>
-                <div className="flex justify-between border-t border-dashed border-white/30 mt-2 pt-1 text-xs">
+                <div className="flex justify-between border-t border-dashed border-black/20 mt-2 pt-1 text-xs">
                   <span>Subtotal</span><span>{fmtMoney(splitReceipt.ordersCost)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
@@ -1271,13 +1271,13 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 </div>
               </>
             )}
-            <div className="border-t border-double border-white/40 mt-3 pt-2 flex justify-between text-base font-bold receipt-block">
+            <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block">
               <span>SUB-BILL TOTAL</span><span>{fmtMoney(splitReceipt.total)}</span>
             </div>
             <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">Partial Payment — Table Remains Open</div>
           </div>
-          <div className="p-4 border-t border-white/10 flex justify-end gap-2 no-print">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Close</button>
+          <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
             <button
               onClick={() => window.print()}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-semibold shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)]"
@@ -1293,12 +1293,12 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
             <SplitSquareHorizontal className="w-4 h-4" /> Split Payment — {room.name}
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <p className="px-4 pt-3 text-xs text-muted-foreground">
           Takes an immediate partial payment against {room.name}'s live bill. {room.name} stays open with its remaining balance reduced accordingly — nothing new appears on the dashboard.
@@ -1307,13 +1307,13 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
         <div className="flex gap-2 px-4 pt-3">
           <button
             onClick={() => setMode("items")}
-            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "items" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "items" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
           >
             Split by Items
           </button>
           <button
             onClick={() => setMode("amount")}
-            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "amount" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "amount" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
           >
             Split by Amount
           </button>
@@ -1329,9 +1329,9 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                   const remaining = o.qty - moved;
                   if (remaining <= 0) return null;
                   return (
-                    <div key={o.menuItemId} className="flex items-center justify-between bg-black/30 rounded-lg p-2.5 border border-white/5 text-sm">
+                    <div key={o.menuItemId} className="flex items-center justify-between bg-white/60 rounded-lg p-2.5 border border-black/8 text-sm">
                       <span>{remaining}x {o.name}</span>
-                      <button onClick={() => move(o.menuItemId, o.qty, 1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move to sub-bill">
+                      <button onClick={() => move(o.menuItemId, o.qty, 1)} className="w-6 h-6 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8" title="Move to sub-bill">
                         <Plus className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1347,7 +1347,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 {room.orders.filter((o) => selected[o.menuItemId]).map((o) => (
                   <div key={o.menuItemId} className="flex items-center justify-between bg-[oklch(0.7_0.19_260/0.1)] rounded-lg p-2.5 border border-[oklch(0.7_0.19_260/0.4)] text-sm">
                     <span>{selected[o.menuItemId]}x {o.name}</span>
-                    <button onClick={() => move(o.menuItemId, o.qty, -1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move back">
+                    <button onClick={() => move(o.menuItemId, o.qty, -1)} className="w-6 h-6 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8" title="Move back">
                       <Minus className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -1362,7 +1362,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
               type="number" step="0.01" autoFocus value={amountInput}
               onChange={(e) => setAmountInput(e.target.value)}
               placeholder="0.00"
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-2xl font-mono font-bold"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-4 py-3 text-2xl font-mono font-bold"
             />
             <p className="text-xs text-muted-foreground mt-2">Not tied to specific items — reduces {room.name}'s remaining balance by this amount directly.</p>
           </div>
@@ -1408,7 +1408,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount</label>
                 <input
                   type="number" step="0.01" value={secondaryInput} onChange={(e) => setSecondaryInput(e.target.value)} placeholder="0.00"
-                  className={`mt-1 w-full bg-black/40 border rounded-lg px-3 py-2 text-sm font-mono ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-white/10"}`}
+                  className={`mt-1 w-full bg-white/70 border rounded-lg px-3 py-2 text-sm font-mono ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-black/10"}`}
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg bg-[oklch(0.78_0.2_155/0.1)] border border-[oklch(0.78_0.2_155/0.3)] px-3 py-2">
@@ -1426,8 +1426,8 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
 
         {err && <div className="px-4 pb-3 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
 
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
             onClick={submit}
             disabled={submitting}

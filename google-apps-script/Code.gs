@@ -167,7 +167,7 @@ function requireRole_(username, allowedRoles) {
 
 function sheetObjectHeaders_(name) {
   const map = {
-    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost"],
+    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost", "actualStock", "actualStockUpdatedAt", "actualStockUpdatedBy"],
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
@@ -332,7 +332,7 @@ const ACTION_RISK = {
   ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
   SESSION_TRANSFERRED: "yellow", SPLIT_INTERFACE_OPENED: "yellow", SESSION_SPLIT: "yellow",
   ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
-  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow", STOCK_RESTOCKED: "green",
+  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow", STOCK_RESTOCKED: "green", ACTUAL_STOCK_SET: "yellow",
   MENU_CATALOG_IMPORTED: "yellow", STAFF_ORDER_LOGGED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
 };
@@ -1145,6 +1145,7 @@ function computeStockView_(materials, batches) {
     const initialStock = matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0);
     const remaining = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
     const unitCost = Number(m.unitCost) || 0;
+    const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
     // "Current epoch" = the most recently added batch (i.e. since the last
     // restock/consolidation) — its own consumption resets to 0 every time
     // a restock folds the old remainder into a fresh batch.
@@ -1161,6 +1162,10 @@ function computeStockView_(materials, batches) {
       totalValue: Math.round(remaining * unitCost * 100) / 100,
       usedSinceRestock: newest ? Number(newest.qtyPurchased) - Number(newest.qtyRemaining) : 0,
       lastRestockAt: newest ? Number(newest.purchasedAt) : null,
+      actualStock: actualStock,
+      actualStockUpdatedAt: m.actualStockUpdatedAt || null,
+      actualStockUpdatedBy: m.actualStockUpdatedBy || null,
+      variance: actualStock === null ? null : Math.round((actualStock - remaining) * 100) / 100,
     };
   });
 }
@@ -1665,6 +1670,34 @@ function doPost(e) {
       case "getRestockLog":
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ items: readRestockLog_() });
+
+      case "setActualStock": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const materials = readObjects_("RawMaterials");
+        const material = materials.find((m) => m.id === body.materialId);
+        if (!material) return json_({ ok: false, error: "Material not found" });
+        const actual = Number(body.actualStock);
+        if (isNaN(actual) || actual < 0) return json_({ ok: false, error: "Enter a valid quantity" });
+
+        const batches = readObjects_("Batches");
+        const remaining = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
+        const variance = Math.round((actual - remaining) * 100) / 100;
+        const now = Date.now();
+
+        updateObjectById_("RawMaterials", body.materialId, {
+          actualStock: actual, actualStockUpdatedAt: now, actualStockUpdatedBy: body.username,
+        });
+
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ACTUAL_STOCK_SET",
+          description: material.name + ": Actual Stock set to " + actual + " " + material.unit +
+            " (system showed " + remaining + " " + material.unit + ") — " +
+            (variance < 0 ? "DEFICIT of " + Math.abs(variance) : variance > 0 ? "SURPLUS of " + variance : "no variance") + " " + material.unit,
+          before: { systemRemaining: remaining },
+          after: { actualStock: actual, variance: variance },
+        });
+        return json_({ ok: true, variance: variance, state: withStockView_(getState_()) });
+      }
 
       case "addRawMaterial": {
         requireRole_(body.username, ["admin"]);

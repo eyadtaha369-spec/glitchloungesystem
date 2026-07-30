@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useStore, fmtMoney, isToday } from "@/lib/glitch-store";
+import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Shift, Session } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin } from "lucide-react";
 
@@ -24,11 +24,24 @@ function startOfMonth(ts: number) {
 
 export function ReportsPage() {
   const { state } = useStore();
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const isViewingToday = useMemo(() => {
+    const d = new Date();
+    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return selectedDate === todayStr;
+  }, [selectedDate]);
 
-  const todaySessions = useMemo(() => state.sessions.filter((s) => isToday(s.endedAt)), [state.sessions]);
+  const dayStart = useMemo(() => new Date(selectedDate + "T00:00:00").getTime(), [selectedDate]);
+  const dayEnd = dayStart + 86400000;
+  const inSelectedDay = (ts: number) => ts >= dayStart && ts < dayEnd;
+
+  const todaySessions = useMemo(() => state.sessions.filter((s) => inSelectedDay(s.endedAt)), [state.sessions, dayStart]);
   const todayShifts = useMemo(
-    () => state.shifts.filter((sh) => isToday(sh.openedAt)).sort((a, b) => a.openedAt - b.openedAt),
-    [state.shifts],
+    () => state.shifts.filter((sh) => inSelectedDay(sh.openedAt)).sort((a, b) => a.openedAt - b.openedAt),
+    [state.shifts, dayStart],
   );
 
   // Exact aggregation: cashAmount + visaAmount + instapayAmount always sums
@@ -65,14 +78,32 @@ export function ReportsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Owner Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">All shifts · Today</p>
+          <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
+            All shifts · {isViewingToday ? "Today" : new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+          </p>
         </div>
-        <button
-          onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
-        >
-          <FileDown className="w-4 h-4" /> Generate Daily Report
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-muted-foreground block">End of Day — Select Date</label>
+            <input
+              type="date" value={selectedDate} max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="mt-0.5 bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <button
+            onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, selectedDate)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.72_0.14_85/0.4)] self-end"
+          >
+            <FileDown className="w-4 h-4" /> Generate Report
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
+        <span>{todaySessions.length} order{todaySessions.length === 1 ? "" : "s"} on this day</span>
+        <span>·</span>
+        <span>{todayShifts.length} shift{todayShifts.length === 1 ? "" : "s"}</span>
       </div>
 
       {/* Total Daily Revenue — the definitive benchmark, before any expenses */}
@@ -84,15 +115,15 @@ export function ReportsPage() {
         <p className="text-xs text-muted-foreground mb-4">Cash + Visa + InstaPay, combined across every pure and mixed-method sale — before expenses.</p>
         <div className="text-4xl font-mono font-bold mb-4">{fmtMoney(totalRevenue)}</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Cash</div>
             <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(cashRevenue)}</div>
           </div>
-          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Visa</div>
             <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.85_0.16_200)]">{fmtMoney(visaRevenue)}</div>
           </div>
-          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">InstaPay</div>
             <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.75_0.2_305)]">{fmtMoney(instapayRevenue)}</div>
           </div>
@@ -127,7 +158,7 @@ export function ReportsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {consumption.map((c) => (
-              <div key={c.name} className="bg-black/30 rounded-lg p-3 border border-white/5 flex justify-between items-center">
+              <div key={c.name} className="bg-white/60 rounded-lg p-3 border border-black/8 flex justify-between items-center">
                 <span className="text-sm">{c.name}</span>
                 <span className="font-mono text-sm text-[oklch(0.82_0.16_85)]">{c.qty}{c.unit}</span>
               </div>
@@ -200,20 +231,20 @@ function PnLLedgerPanel() {
           <h2 className="text-lg font-semibold">Executive Ledger &amp; P&amp;L</h2>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 bg-black/30 rounded-lg p-1 border border-white/5">
+          <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
             {(["today", "week", "month", "custom"] as const).map((r) => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
                 className={`px-3 py-1.5 rounded-md text-xs uppercase tracking-widest font-semibold transition ${
-                  range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-white" : "text-muted-foreground hover:text-white"
+                  range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-[#2b2416]" : "text-muted-foreground hover:text-[#2b2416]"
                 }`}
               >
                 {r}
               </button>
             ))}
           </div>
-          <button onClick={exportCsv} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+          <button onClick={exportCsv} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
             <FileDown className="w-3.5 h-3.5" /> Export CSV
           </button>
         </div>
@@ -221,22 +252,22 @@ function PnLLedgerPanel() {
 
       {range === "custom" && (
         <div className="flex items-center gap-2 mb-4 text-sm">
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="bg-black/40 border border-white/10 rounded px-2 py-1.5" />
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="bg-white/70 border border-black/10 rounded px-2 py-1.5" />
           <span className="text-muted-foreground">to</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="bg-black/40 border border-white/10 rounded px-2 py-1.5" />
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="bg-white/70 border border-black/10 rounded px-2 py-1.5" />
         </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue</div>
           <div className="text-xl font-mono font-bold mt-1">{fmtMoney(totalRevenue)}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">COGS</div>
           <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.82_0.16_85)]">{fmtMoney(totalCogs)}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Other Expenses</div>
           <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.75_0.22_25)]">{fmtMoney(totalExpenses)}</div>
         </div>
@@ -251,8 +282,8 @@ function PnLLedgerPanel() {
       ) : (
         <div className="overflow-x-auto max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-[#0d0d14]">
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+            <thead className="sticky top-0 bg-[#faf6ec]">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Time</th>
                 <th className="text-left py-2 px-2">Type</th>
                 <th className="text-left py-2 px-2">Description</th>
@@ -262,7 +293,7 @@ function PnLLedgerPanel() {
             </thead>
             <tbody>
               {ledgerInRange.slice().sort((a, b) => b.ts - a.ts).map((l) => (
-                <tr key={l.id} className="border-b border-white/5 hover:bg-white/5">
+                <tr key={l.id} className="border-b border-black/8 hover:bg-black/5">
                   <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(l.ts).toLocaleString()}</td>
                   <td className="py-2 px-2 text-xs uppercase tracking-widest text-muted-foreground">{l.category}</td>
                   <td className="py-2 px-2 text-xs">{l.description || "—"}</td>
@@ -287,13 +318,13 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
   const discrepancy = shift.discrepancy;
   const pendingVoids = state.voidRequests.filter((v) => v.shiftId === shift.id && v.status === "pending").length;
   return (
-    <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+    <div className="bg-white/60 rounded-lg p-4 border border-black/8">
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">{label} · {shift.cashierUsername}</div>
         {isOpen ? (
           <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border border-[oklch(0.78_0.2_155/0.5)]">Open</span>
         ) : (
-          <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground border border-white/10">
+          <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-black/5 text-muted-foreground border border-black/10">
             {shift.forced ? "Force Closed" : "Closed"}
           </span>
         )}
@@ -359,8 +390,8 @@ function AttendanceLog() {
       ) : (
         <div className="overflow-x-auto max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-[#0d0d14]">
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+            <thead className="sticky top-0 bg-[#faf6ec]">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Staff</th>
                 <th className="text-left py-2 px-2">Shift #</th>
                 <th className="text-left py-2 px-2">Start</th>
@@ -371,7 +402,7 @@ function AttendanceLog() {
             </thead>
             <tbody>
               {rows.map((sh) => (
-                <tr key={sh.id} className="border-b border-white/5 hover:bg-white/5">
+                <tr key={sh.id} className="border-b border-black/8 hover:bg-black/5">
                   <td className="py-2 px-2 font-semibold">{sh.cashierUsername}</td>
                   <td className="py-2 px-2 font-mono">{sh.shiftNumber}</td>
                   <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{microTs(sh.openedAt)}</td>
@@ -415,13 +446,13 @@ function HistoryLog() {
           <History className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
           <h2 className="text-lg font-semibold">Shift History Archive</h2>
         </div>
-        <div className="flex items-center gap-1 bg-black/30 rounded-lg p-1 border border-white/5">
+        <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
           {(["day", "week", "month"] as const).map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}
               className={`px-3 py-1.5 rounded-md text-xs uppercase tracking-widest font-semibold transition ${
-                range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-white" : "text-muted-foreground hover:text-white"
+                range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-[#2b2416]" : "text-muted-foreground hover:text-[#2b2416]"
               }`}
             >
               {r}
@@ -436,7 +467,7 @@ function HistoryLog() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Cashier</th>
                 <th className="text-left py-2 px-2">Opened</th>
                 <th className="text-left py-2 px-2">Closed</th>
@@ -449,7 +480,7 @@ function HistoryLog() {
               {filtered.map((sh) => {
                 const revenue = state.sessions.filter((s) => s.shiftId === sh.id).reduce((a, s) => a + s.total, 0);
                 return (
-                  <tr key={sh.id} className="border-b border-white/5 hover:bg-white/5">
+                  <tr key={sh.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{sh.cashierUsername}</td>
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(sh.openedAt).toLocaleString()}</td>
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{sh.closedAt ? new Date(sh.closedAt).toLocaleString() : "—"}</td>
@@ -479,10 +510,11 @@ function generateDailyReport(
   cashRevenue: number,
   visaRevenue: number,
   instapayRevenue: number,
+  selectedDate: string,
 ) {
   const win = window.open("", "_blank", "width=900,height=1200");
   if (!win) return;
-  const today = new Date().toLocaleDateString();
+  const today = new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   win.document.write(`
 <!DOCTYPE html><html><head><title>GLITCH Daily Report ${today}</title>
 <style>
@@ -497,12 +529,13 @@ function generateDailyReport(
   .grand { font-weight: bold; border-top: 2px solid #111; margin-top: 6px; padding-top: 8px !important; font-size: 15px; }
 </style></head><body>
 <h1>GLITCH LOUNGE</h1>
-<div class="sub">Daily Owner Report — ${today}</div>
+<div class="sub">End of Day Sales Log — ${today}</div>
 <div class="totals">
   <div class="grand"><span>TOTAL DAILY REVENUE</span><span>$${totalRevenue.toFixed(2)}</span></div>
   <div><span>&nbsp;&nbsp;Cash</span><span>$${cashRevenue.toFixed(2)}</span></div>
   <div><span>&nbsp;&nbsp;Visa</span><span>$${visaRevenue.toFixed(2)}</span></div>
   <div><span>&nbsp;&nbsp;InstaPay</span><span>$${instapayRevenue.toFixed(2)}</span></div>
+  <div><span>Order Count</span><span>${sessions.length}</span></div>
 </div>
 <h3 style="margin-top:24px">Shift Comparison</h3>
 <table>

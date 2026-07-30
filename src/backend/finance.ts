@@ -42,6 +42,15 @@ export const getRestockLogFn = createServerFn({ method: "GET" }).handler(async (
   return res.items;
 });
 
+// Manually counted physical stock — for discrepancy/variance tracking
+// against the system-calculated remaining figure.
+export const setActualStockFn = createServerFn({ method: "POST" })
+  .validator((d: { materialId: string; actualStock: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; variance?: number; state: AppState }>("setActualStock", { ...data, username: user.username });
+  });
+
 export const updateRawMaterialFn = createServerFn({ method: "POST" })
   .validator((d: { id: string; patch: Partial<RawMaterial> }) => d)
   .handler(async ({ data }) => {

@@ -59,7 +59,7 @@ export function ShiftBar() {
           Open a shift with your starting cash drawer amount before taking orders or starting rooms. This gives you a clean slate — none of the previous shift's numbers carry over.
         </p>
         {closedSummary && (
-          <div className="mb-4 p-3 rounded-lg bg-black/30 border border-white/5 text-xs font-mono">
+          <div className="mb-4 p-3 rounded-lg bg-white/60 border border-black/8 text-xs font-mono">
             <div className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1">Previous Shift Closed</div>
             <div className="flex justify-between"><span>Expected Cash</span><span>{fmtMoney(closedSummary.expected)}</span></div>
             <div className="flex justify-between"><span>Actual Cash</span><span>{fmtMoney(closedSummary.actual)}</span></div>
@@ -74,13 +74,13 @@ export function ShiftBar() {
             <input
               type="number" step="0.01" value={openingBalance}
               onChange={(e) => setOpeningBalance(e.target.value)}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 font-mono outline-none focus:border-[oklch(0.7_0.19_260)]"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 font-mono outline-none focus:border-[oklch(0.7_0.19_260)]"
             />
           </div>
           <button
             onClick={handleOpen}
             disabled={locating}
-            className="flex items-center gap-2 px-5 py-2.5 mt-5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-60"
+            className="flex items-center gap-2 px-5 py-2.5 mt-5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-60"
           >
             <Unlock className="w-4 h-4" /> {locating ? "Locating..." : "Open Shift"}
           </button>
@@ -111,15 +111,15 @@ export function ShiftBar() {
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Shift Revenue</div>
           <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(shiftRevenue)}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cash Sales</div>
           <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(cashSalesOnly)}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Orders Closed</div>
           <div className="mt-1 font-mono font-bold text-lg">{shiftSessions.length}</div>
         </div>
@@ -140,18 +140,18 @@ export function ShiftBar() {
               </div>
             )}
 
-            <div className="flex justify-between text-lg font-mono font-bold mb-4 p-4 rounded-xl bg-black/30 border border-white/10">
+            <div className="flex justify-between text-lg font-mono font-bold mb-4 p-4 rounded-xl bg-white/60 border border-black/10">
               <span className="text-muted-foreground text-sm uppercase tracking-widest self-center">Cash Sales So Far</span><span>{fmtMoney(cashSalesOnly)}</span>
             </div>
             <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">Actual Cash Counted</label>
             <input
               type="number" step="0.01" value={actualCash} autoFocus
               onChange={(e) => setActualCash(e.target.value)}
-              className="mt-2 w-full bg-black/50 border-2 border-white/15 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
+              className="mt-2 w-full bg-white/80 border-2 border-black/12 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
             />
             {err && <div className="mt-3 text-sm p-3 rounded-xl bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold">{err}</div>}
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setEndOpen(false)} className="flex-1 py-4 rounded-xl bg-white/5 border-2 border-white/10 text-base font-semibold hover:bg-white/10 transition">Cancel</button>
+              <button onClick={() => setEndOpen(false)} className="flex-1 py-4 rounded-xl bg-black/5 border-2 border-black/10 text-base font-semibold hover:bg-black/8 transition">Cancel</button>
               <button onClick={handleEnd} disabled={locating} className="flex-1 py-4 rounded-xl bg-[oklch(0.62_0.24_25/0.25)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-bold text-base uppercase tracking-wide disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
             </div>
           </div>

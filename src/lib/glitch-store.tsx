@@ -45,7 +45,7 @@ import {
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn,
-  restockMaterialFn, getRestockLogFn,
+  restockMaterialFn, getRestockLogFn, setActualStockFn,
   importMenuCatalogFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
@@ -138,6 +138,7 @@ interface StoreContextValue {
   addRawMaterial: (m: { name: string; unit: string; minStockAlert: number }) => Promise<void>;
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
+  setActualStock: (materialId: string, actualStock: number) => Promise<{ ok: boolean; error?: string; variance?: number }>;
   refreshRestockLog: () => Promise<void>;
   importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<void>;
@@ -531,6 +532,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const setActualStock: StoreContextValue["setActualStock"] = async (materialId, actualStock) => {
+    return withPending(`setActualStock:${materialId}`, async () => {
+      try {
+        const res = await setActualStockFn({ data: { materialId, actualStock } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error, variance: res.variance };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not save actual stock." };
+      }
+    });
+  };
   const importMenuCatalog: StoreContextValue["importMenuCatalog"] = async () => {
     return withPending("importMenuCatalog", async () => {
       const res = await importMenuCatalogFn();
@@ -804,7 +816,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
-    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, importMenuCatalog,
+    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,

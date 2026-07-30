@@ -97,7 +97,7 @@ export function Dashboard() {
                   <div className={`w-16 text-xs font-mono ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-muted-foreground"}`}>
                     {room.name}
                   </div>
-                  <div className="flex-1 h-3 bg-black/40 rounded-full overflow-hidden relative">
+                  <div className="flex-1 h-3 bg-white/70 rounded-full overflow-hidden relative">
                     <div
                       className={`h-full rounded-full transition-all ${
                         room.isVip
@@ -134,7 +134,7 @@ export function Dashboard() {
                 return <div className="text-sm text-muted-foreground font-mono">No activity yet.</div>;
               }
               return visibleActivity.slice(0, 30).map((a) => (
-                <div key={a.id} className="text-sm p-3 rounded-lg bg-black/30 border border-white/5 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
+                <div key={a.id} className="text-sm p-3 rounded-lg bg-white/60 border border-black/8 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
                   <div className="text-foreground">{a.message}</div>
                   <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-wider">
                     {new Date(a.ts).toLocaleTimeString()}

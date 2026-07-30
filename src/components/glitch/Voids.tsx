@@ -60,20 +60,20 @@ function FraudAlertPanel() {
   });
 
   return (
-    <div className={`glass rounded-2xl p-6 border ${flagged ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-white/10"}`}>
+    <div className={`glass rounded-2xl p-6 border ${flagged ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-black/10"}`}>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <div className="flex items-center gap-2">
           {flagged ? <AlertTriangle className="w-5 h-5 text-[oklch(0.75_0.22_25)] animate-pulse-glow" /> : <ShieldAlert className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />}
           <h2 className="text-lg font-semibold">{flagged ? "Staff Collusion & Fraud Alert" : "Fraud Risk — Normal"}</h2>
         </div>
-        <button onClick={() => setEditingThreshold((v) => !v)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+        <button onClick={() => setEditingThreshold((v) => !v)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
           <Settings className="w-3.5 h-3.5" /> Threshold: {state.fraudThresholdPercent}%
         </button>
       </div>
 
       {editingThreshold && (
         <div className="mb-4 flex items-center gap-2">
-          <input type="number" step="0.1" value={thresholdInput} onChange={(e) => setThresholdInput(e.target.value)} className="w-24 bg-black/40 border border-white/10 rounded px-2 py-1.5 text-sm font-mono" />
+          <input type="number" step="0.1" value={thresholdInput} onChange={(e) => setThresholdInput(e.target.value)} className="w-24 bg-white/70 border border-black/10 rounded px-2 py-1.5 text-sm font-mono" />
           <span className="text-sm text-muted-foreground">% of daily sales</span>
           <button
             onClick={async () => { await setFraudThreshold(parseFloat(thresholdInput) || 0); setEditingThreshold(false); }}
@@ -83,19 +83,19 @@ function FraudAlertPanel() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Today's Sales</div>
           <div className="text-lg font-mono font-bold mt-1">{fmtMoney(totalSales)}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Voided Value</div>
           <div className="text-lg font-mono font-bold mt-1 text-[oklch(0.82_0.16_85)]">{fmtMoney(totalVoidedValue)}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Waste %</div>
           <div className={`text-lg font-mono font-bold mt-1 ${flagged ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>{wastePercent.toFixed(2)}%</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-white/5">
+        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Active Shift</div>
           <div className="text-lg font-mono font-bold mt-1">{activeShift?.cashierUsername ?? "—"}</div>
         </div>
@@ -130,7 +130,7 @@ function PendingVoidsPanel({ requests }: { requests: VoidRequest[] }) {
       </div>
       <div className="space-y-3">
         {requests.map((v) => (
-          <div key={v.id} className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div key={v.id} className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <div className="font-semibold text-sm">{v.qty}x {v.itemName} — {v.roomName}</div>
@@ -148,7 +148,7 @@ function PendingVoidsPanel({ requests }: { requests: VoidRequest[] }) {
               <button onClick={() => approveVoid(v.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Approve
               </button>
-              <button onClick={() => denyVoid(v.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 border border-white/10 hover:bg-[oklch(0.62_0.24_25/0.15)]">
+              <button onClick={() => denyVoid(v.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)]">
                 <XCircle className="w-3.5 h-3.5" /> Deny
               </button>
             </div>
@@ -235,13 +235,13 @@ function FullLedgerPanel() {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 className="text-lg font-semibold">Full Void Ledger</h2>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => printSummary("Today", startOfDay(Date.now()))} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+          <button onClick={() => printSummary("Today", startOfDay(Date.now()))} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
             <Printer className="w-3.5 h-3.5" /> Print Today's Summary
           </button>
-          <button onClick={() => printSummary("This Week", startOfWeek(Date.now()))} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+          <button onClick={() => printSummary("This Week", startOfWeek(Date.now()))} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
             <Printer className="w-3.5 h-3.5" /> Print Week's Summary
           </button>
-          <button onClick={() => printSummary("This Month", startOfMonth(Date.now()))} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+          <button onClick={() => printSummary("This Month", startOfMonth(Date.now()))} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
             <Printer className="w-3.5 h-3.5" /> Print Month's Summary
           </button>
         </div>
@@ -252,8 +252,8 @@ function FullLedgerPanel() {
       ) : (
         <div className="overflow-x-auto max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-[#0d0d14]">
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+            <thead className="sticky top-0 bg-[#faf6ec]">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Timestamp</th>
                 <th className="text-left py-2 px-2">Item(s)</th>
                 <th className="text-left py-2 px-2">Reason</th>
@@ -265,7 +265,7 @@ function FullLedgerPanel() {
             </thead>
             <tbody>
               {all.slice().sort((a, b) => b.ts - a.ts).map((v) => (
-                <tr key={v.id} className="border-b border-white/5 hover:bg-white/5">
+                <tr key={v.id} className="border-b border-black/8 hover:bg-black/5">
                   <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{microTimestamp(v.ts)}</td>
                   <td className="py-2 px-2 text-xs">{v.qty}x {v.itemName} <span className="text-muted-foreground">({v.roomName})</span></td>
                   <td className="py-2 px-2 text-xs">{VOID_REASON_LABELS[v.reason as VoidReason] ?? v.reason}</td>

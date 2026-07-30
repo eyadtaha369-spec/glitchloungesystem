@@ -93,7 +93,7 @@ export function Gatekeeper() {
             </div>
             <button
               onClick={tryLocate}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm"
             >
               <RotateCcw className="w-4 h-4" /> Try Again
             </button>
@@ -112,7 +112,7 @@ export function Gatekeeper() {
               <input
                 type="number" step="0.01" autoFocus value={openingBalance}
                 onChange={(e) => setOpeningBalance(e.target.value)}
-                className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-3 text-lg font-mono outline-none focus:border-[oklch(0.7_0.19_260)] text-center"
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-lg font-mono outline-none focus:border-[oklch(0.7_0.19_260)] text-center"
               />
             </div>
             {err && <div className="text-sm text-[oklch(0.75_0.22_25)] text-center">{err}</div>}

@@ -61,18 +61,18 @@ export function InventoryPage() {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Expected</div>
             <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.85_0.16_200)]">{fmtMoney(expectedToday)}</div>
           </div>
-          <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Actual In Drawer</label>
             <input
               type="number"
               step="0.01"
               value={state.actualCashInput}
               onChange={(e) => setActualCash(parseFloat(e.target.value) || 0)}
-              className="mt-1 w-full bg-transparent text-2xl font-mono font-bold outline-none text-white"
+              className="mt-1 w-full bg-transparent text-2xl font-mono font-bold outline-none text-[#2b2416]"
             />
           </div>
           <div className={`rounded-lg p-4 border ${
@@ -124,7 +124,7 @@ export function InventoryPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {salesToday.map((s) => (
-              <div key={s.name} className="bg-black/30 rounded-lg p-4 border border-white/5">
+              <div key={s.name} className="bg-white/60 rounded-lg p-4 border border-black/8">
                 <div className="text-sm font-semibold">{s.name}</div>
                 <div className="flex justify-between text-xs font-mono mt-2 text-muted-foreground">
                   <span>Qty: {s.qty}</span>
@@ -149,13 +149,13 @@ export function InventoryPage() {
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+              className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
             >
               {months.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
             <button
               onClick={downloadReport}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_30px_oklch(0.7_0.19_260/0.6)] transition"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_30px_oklch(0.7_0.19_260/0.6)] transition"
             >
               <Download className="w-4 h-4" /> Download Report
             </button>
@@ -202,7 +202,7 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Force close the active shift?</span>
                   <button onClick={run} className="px-3 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">Confirm</button>
-                  <button onClick={() => setConfirmKey(null)} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">Cancel</button>
+                  <button onClick={() => setConfirmKey(null)} className="px-3 py-1.5 rounded-lg bg-black/5 border border-black/10">Cancel</button>
                 </div>
               ) : (
                 <button
@@ -226,7 +226,7 @@ function InventoryAuditReportButton() {
     <div className="flex justify-end">
       <button
         onClick={() => printInventoryAuditReport(state)}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
       >
         <FileBarChart className="w-4 h-4" /> Generate Inventory Audit Report
       </button>
@@ -312,10 +312,11 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
 }
 
 function StockTable() {
-  const { state, adjustStock, restockMaterial, updateRawMaterial } = useStore();
+  const { state, adjustStock, restockMaterial, updateRawMaterial, setActualStock } = useStore();
   const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [restockTarget, setRestockTarget] = useState<{ id: string; name: string; unit: string; unitCost: number } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
+  const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [costInput, setCostInput] = useState("");
 
@@ -342,13 +343,14 @@ function StockTable() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Item</th>
                 <th className="text-left py-2 px-2">Unit</th>
                 <th className="text-right py-2 px-2">Unit Cost</th>
                 <th className="text-right py-2 px-2">Remaining</th>
                 <th className="text-right py-2 px-2">Used Since Restock</th>
                 <th className="text-right py-2 px-2">Stock Value</th>
+                <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">المخزون الفعلي</span></th>
                 <th className="text-right py-2 px-2">Min</th>
                 <th className="py-2 px-2"></th>
               </tr>
@@ -357,7 +359,7 @@ function StockTable() {
               {state.stock.map((s) => {
                 const low = s.remaining < s.minStock || (s.initialStock > 0 && s.remaining < s.initialStock * 0.2);
                 return (
-                  <tr key={s.id} className="border-b border-white/5 hover:bg-white/5">
+                  <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{s.unit}</td>
                     <td className="py-2 px-2 text-right font-mono">
@@ -370,7 +372,7 @@ function StockTable() {
                               if (e.key === "Enter") { void updateRawMaterial(s.id, { unitCost: parseFloat(costInput) || 0 }); setEditingCostId(null); }
                               if (e.key === "Escape") setEditingCostId(null);
                             }}
-                            className="w-20 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-right"
+                            className="w-20 bg-white/70 border border-black/10 rounded px-2 py-1 text-xs text-right"
                           />
                           <button onClick={() => { void updateRawMaterial(s.id, { unitCost: parseFloat(costInput) || 0 }); setEditingCostId(null); }} className="text-[oklch(0.78_0.2_155)]"><Check className="w-3.5 h-3.5" /></button>
                         </div>
@@ -385,18 +387,31 @@ function StockTable() {
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.usedSinceRestock}</td>
                     <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.totalValue)}</td>
+                    <td className="py-2 px-2 text-right">
+                      <button
+                        onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
+                        className="font-mono hover:underline decoration-dotted"
+                      >
+                        {s.actualStock !== null ? `${s.actualStock} ${s.unit}` : <span className="text-muted-foreground">— set —</span>}
+                      </button>
+                      {s.variance !== null && s.variance !== 0 && (
+                        <div className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${s.variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                          {s.variance < 0 ? `${Math.abs(s.variance)} Deficit عجز` : `+${s.variance} Surplus`}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => setHistoryTarget({ id: s.id, name: s.name, unit: s.unit })}
-                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-muted-foreground hover:text-white mr-1.5"
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/8 text-muted-foreground hover:text-[#2b2416] mr-1.5"
                         title="History"
                       >
                         <History className="w-3.5 h-3.5 inline" />
                       </button>
                       <button
                         onClick={() => setAdjustTarget({ id: s.id, name: s.name, unit: s.unit })}
-                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-muted-foreground hover:text-white mr-1.5"
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/8 text-muted-foreground hover:text-[#2b2416] mr-1.5"
                         title="Waste / Correction / Opening Balance"
                       >
                         Adjust
@@ -423,6 +438,110 @@ function StockTable() {
         <RestockModal target={restockTarget} currentRemaining={state.stock.find((s) => s.id === restockTarget.id)?.remaining ?? 0} restockMaterial={restockMaterial} onClose={() => setRestockTarget(null)} />
       )}
       {historyTarget && <MaterialHistoryModal target={historyTarget} onClose={() => setHistoryTarget(null)} />}
+      {actualStockTarget && (
+        <ActualStockModal target={actualStockTarget} setActualStock={setActualStock} onClose={() => setActualStockTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+function ActualStockModal({ target, setActualStock, onClose }: {
+  target: { id: string; name: string; unit: string; systemRemaining: number; input: string };
+  setActualStock: ReturnType<typeof useStore>["setActualStock"];
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(target.input);
+  const [confirming, setConfirming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const num = parseFloat(value);
+  const valid = !isNaN(num) && num >= 0;
+  const variance = valid ? Math.round((num - target.systemRemaining) * 100) / 100 : 0;
+
+  const confirmAndSave = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await setActualStock(target.id, num);
+      if (!res.ok) { setErr(res.error ?? "Could not save"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/8">
+          <div className="font-mono uppercase tracking-widest text-xs text-muted-foreground">
+            {confirming ? "Confirm Variance" : `Actual Stock — ${target.name}`}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+
+        {!confirming ? (
+          <>
+            <div className="p-4 space-y-3">
+              <div className="text-xs text-muted-foreground">System-calculated remaining: <span className="font-mono font-bold">{target.systemRemaining} {target.unit}</span></div>
+              <div>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Physically Counted Quantity ({target.unit})
+                </label>
+                <input
+                  type="number" step="0.01" autoFocus value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-lg font-mono text-center"
+                />
+              </div>
+              {valid && variance !== 0 && (
+                <div className={`text-sm font-bold text-center ${variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                  {variance < 0 ? `${Math.abs(variance)} ${target.unit} Deficit (عجز)` : `+${variance} ${target.unit} Surplus`}
+                </div>
+              )}
+              {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+            </div>
+            <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+              <button
+                onClick={() => setConfirming(true)}
+                disabled={!valid}
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.72_0.14_85/0.25)] border border-[oklch(0.72_0.14_85/0.6)] font-semibold disabled:opacity-50"
+              >
+                Continue
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="p-4 space-y-3 text-center">
+              <p className="text-sm">
+                Are you sure you want to set Actual Stock for <strong>{target.name}</strong> to{" "}
+                <strong>{num} {target.unit}</strong>?
+              </p>
+              {variance !== 0 ? (
+                <p className={`text-sm font-bold ${variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                  This will record a {variance < 0 ? "deficit" : "surplus"} of {Math.abs(variance)} {target.unit}.
+                </p>
+              ) : (
+                <p className="text-sm text-[oklch(0.62_0.16_155)]">This matches the system figure exactly — no variance.</p>
+              )}
+              {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+            </div>
+            <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+              <button onClick={() => setConfirming(false)} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Back</button>
+              <button
+                onClick={confirmAndSave}
+                disabled={submitting}
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold disabled:opacity-60"
+              >
+                {submitting ? "Saving..." : "Confirm & Save"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -454,10 +573,10 @@ function AdjustStockModal({ target, adjustStock, onClose }: {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-sm glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Adjust {target.name}</div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
           <div>
@@ -468,12 +587,12 @@ function AdjustStockModal({ target, adjustStock, onClose }: {
               type="number" step="0.01" autoFocus value={delta}
               onChange={(e) => setDelta(e.target.value)}
               placeholder="e.g. -50 or 100"
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason</label>
-            <select value={reason} onChange={(e) => setReason(e.target.value as typeof reason)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
+            <select value={reason} onChange={(e) => setReason(e.target.value as typeof reason)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
               <option value="correction">Stock Count Correction</option>
               <option value="waste">Waste</option>
               <option value="opening_balance">Opening Balance</option>
@@ -481,15 +600,15 @@ function AdjustStockModal({ target, adjustStock, onClose }: {
           </div>
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm" />
+            <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
           </div>
           {reason === "waste" && (
             <p className="text-[11px] text-[oklch(0.82_0.16_85)]">Waste removals post their cost to the financial ledger under Operational Waste / Damaged Goods.</p>
           )}
           {err && <div className="text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
         </div>
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold disabled:opacity-60">
             {submitting ? "Saving..." : "Apply Adjustment"}
           </button>
@@ -529,9 +648,9 @@ function RestockModal({ target, currentRemaining, restockMaterial, onClose }: {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">Restock {target.name}</div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
           <div>
@@ -540,7 +659,7 @@ function RestockModal({ target, currentRemaining, restockMaterial, onClose }: {
               type="number" step="0.01" autoFocus value={qtyAdded}
               onChange={(e) => setQtyAdded(e.target.value)}
               placeholder="e.g. 5000"
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
           <div>
@@ -548,15 +667,15 @@ function RestockModal({ target, currentRemaining, restockMaterial, onClose }: {
             <input
               type="number" step="0.01" value={unitCost}
               onChange={(e) => setUnitCost(e.target.value)}
-              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
 
           {/* Live carryover math */}
-          <div className="rounded-lg bg-black/30 border border-white/5 p-3 text-xs font-mono space-y-1">
+          <div className="rounded-lg bg-white/60 border border-black/8 p-3 text-xs font-mono space-y-1">
             <div className="flex justify-between"><span className="text-muted-foreground">Remaining (carryover)</span><span>{currentRemaining} {target.unit}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">New Restock</span><span>+{addedNum} {target.unit}</span></div>
-            <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-[oklch(0.78_0.2_155)]">
+            <div className="flex justify-between border-t border-black/10 pt-1 mt-1 font-bold text-[oklch(0.78_0.2_155)]">
               <span>New Total Stock</span><span>{newTotal} {target.unit}</span>
             </div>
           </div>
@@ -565,8 +684,8 @@ function RestockModal({ target, currentRemaining, restockMaterial, onClose }: {
           </p>
           {err && <div className="text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
         </div>
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold disabled:opacity-60">
             {submitting ? "Saving..." : "Confirm Restock"}
           </button>
@@ -601,12 +720,12 @@ function MaterialHistoryModal({ target, onClose }: { target: { id: string; name:
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
             <History className="w-4 h-4" /> {target.name} — History
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-5 space-y-6">
           <div>
@@ -617,7 +736,7 @@ function MaterialHistoryModal({ target, onClose }: { target: { id: string; name:
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-[9px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+                    <tr className="text-[9px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                       <th className="text-left py-1.5 px-2">Time</th>
                       <th className="text-right py-1.5 px-2">Qty Added</th>
                       <th className="text-right py-1.5 px-2">Carryover</th>
@@ -628,7 +747,7 @@ function MaterialHistoryModal({ target, onClose }: { target: { id: string; name:
                   </thead>
                   <tbody>
                     {restocks.map((r) => (
-                      <tr key={r.id} className="border-b border-white/5">
+                      <tr key={r.id} className="border-b border-black/8">
                         <td className="py-1.5 px-2 font-mono text-muted-foreground">{new Date(r.ts).toLocaleString()}</td>
                         <td className="py-1.5 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{r.qtyAdded}</td>
                         <td className="py-1.5 px-2 text-right font-mono">{r.carryoverAdded}</td>
@@ -653,7 +772,7 @@ function MaterialHistoryModal({ target, onClose }: { target: { id: string; name:
             ) : (
               <div className="space-y-1.5">
                 {usage.map((u) => (
-                  <div key={u.name} className="flex items-center justify-between text-xs font-mono bg-black/30 rounded-lg px-3 py-2 border border-white/5">
+                  <div key={u.name} className="flex items-center justify-between text-xs font-mono bg-white/60 rounded-lg px-3 py-2 border border-black/8">
                     <span>{u.name}</span>
                     <span>{u.qty.toFixed(2)} {target.unit}</span>
                   </div>
@@ -709,18 +828,18 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Menu &amp; Recipes</h2>
-        <button onClick={() => setShowForm((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10">
+        <button onClick={() => setShowForm((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
           <Plus className="w-4 h-4" /> Add Menu Item
         </button>
       </div>
 
       {showForm && (
-        <div className="mb-4 p-4 rounded-lg bg-black/30 border border-white/5 space-y-3">
+        <div className="mb-4 p-4 rounded-lg bg-white/60 border border-black/8 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input placeholder="id (e.g. cappuccino)" value={id} onChange={(e) => setId(e.target.value)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10" />
-            <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10" />
-            <input type="number" step="0.5" placeholder="Price" value={price} onChange={(e) => setPrice(+e.target.value)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10" />
-            <select value={category} onChange={(e) => setCategory(e.target.value as MenuCategory)} className="bg-black/40 rounded px-3 py-2 text-sm border border-white/10">
+            <input placeholder="id (e.g. cappuccino)" value={id} onChange={(e) => setId(e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+            <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+            <input type="number" step="0.5" placeholder="Price" value={price} onChange={(e) => setPrice(+e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+            <select value={category} onChange={(e) => setCategory(e.target.value as MenuCategory)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10">
               {MENU_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
@@ -728,15 +847,15 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Ingredients</div>
             {ings.map((ing, idx) => (
               <div key={idx} className="grid grid-cols-3 gap-2">
-                <select value={ing.stockId} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10">
+                <select value={ing.stockId} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10">
                   <option value="">select stock...</option>
                   {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
                 </select>
-                <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10" />
+                <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
                 <button onClick={() => setIngs(ings.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
               </div>
             ))}
-            <button onClick={() => setIngs([...ings, { stockId: "", qty: 0 }])} className="text-xs px-3 py-1.5 rounded bg-white/5 border border-white/10">+ Ingredient</button>
+            <button onClick={() => setIngs([...ings, { stockId: "", qty: 0 }])} className="text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10">+ Ingredient</button>
           </div>
           <button onClick={save} className="py-2 px-4 rounded bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-sm">Save Menu Item</button>
         </div>
@@ -747,41 +866,41 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
           const isEditing = editingId === m.id;
           if (isEditing) {
             return (
-              <div key={m.id} className="bg-black/30 rounded-lg p-4 border border-[oklch(0.7_0.19_260/0.5)] space-y-2">
-                <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10 font-semibold" placeholder="Name" />
-                <input type="number" step="0.5" value={editPrice} onChange={(e) => setEditPrice(+e.target.value)} className="w-full bg-black/40 rounded px-2 py-1.5 text-sm border border-white/10 font-mono" placeholder="Price" />
-                <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as MenuCategory)} className="w-full bg-black/40 rounded px-2 py-1.5 text-xs border border-white/10">
+              <div key={m.id} className="bg-white/60 rounded-lg p-4 border border-[oklch(0.7_0.19_260/0.5)] space-y-2">
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10 font-semibold" placeholder="Name" />
+                <input type="number" step="0.5" value={editPrice} onChange={(e) => setEditPrice(+e.target.value)} className="w-full bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10 font-mono" placeholder="Price" />
+                <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as MenuCategory)} className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10">
                   {MENU_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>
                   {editIngs.map((ing, idx) => (
                     <div key={idx} className="grid grid-cols-3 gap-1.5">
-                      <select value={ing.stockId} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-black/40 rounded px-2 py-1 text-xs border border-white/10">
+                      <select value={ing.stockId} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10">
                         <option value="">select stock...</option>
                         {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
                       </select>
-                      <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-black/40 rounded px-2 py-1 text-xs border border-white/10" />
+                      <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10" />
                       <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
                     </div>
                   ))}
-                  <button onClick={() => setEditIngs([...editIngs, { stockId: "", qty: 0 }])} className="text-xs px-2 py-1 rounded bg-white/5 border border-white/10">+ Ingredient</button>
+                  <button onClick={() => setEditIngs([...editIngs, { stockId: "", qty: 0 }])} className="text-xs px-2 py-1 rounded bg-black/5 border border-black/10">+ Ingredient</button>
                 </div>
                 <div className="flex items-center gap-2 pt-1">
                   <button onClick={saveEdit} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"><Save className="w-3.5 h-3.5" /> Save</button>
-                  <button onClick={() => setEditingId(null)} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-white/5 border border-white/10"><X className="w-3.5 h-3.5" /> Cancel</button>
+                  <button onClick={() => setEditingId(null)} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-black/5 border border-black/10"><X className="w-3.5 h-3.5" /> Cancel</button>
                 </div>
               </div>
             );
           }
           return (
-            <div key={m.id} className="bg-black/30 rounded-lg p-4 border border-white/5">
+            <div key={m.id} className="bg-white/60 rounded-lg p-4 border border-black/8">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="font-semibold">{m.name}</div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="font-mono text-xs text-[oklch(0.85_0.16_200)]">{fmtMoney(m.price)}</span>
-                    <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/5 text-muted-foreground">{m.category ?? "Extras"}</span>
+                    <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-black/5 text-muted-foreground">{m.category ?? "Extras"}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

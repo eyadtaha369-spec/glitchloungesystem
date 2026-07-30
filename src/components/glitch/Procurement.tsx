@@ -114,8 +114,8 @@ function SubmitPurchaseForm() {
             onClick={() => setPurchaseType(t)}
             className={`text-xs py-2.5 px-3 rounded-lg border transition ${
               purchaseType === t
-                ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-white"
-                : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[#2b2416]"
+                : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
             }`}
           >
             {TYPE_LABEL[t]}
@@ -126,29 +126,29 @@ function SubmitPurchaseForm() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Material</label>
-          <select value={materialId} onChange={(e) => setMaterialId(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
+          <select value={materialId} onChange={(e) => setMaterialId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
             <option value="">Select material...</option>
             {state.materials.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
           </select>
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier (optional)</label>
-          <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm">
+          <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
             <option value="">None</option>
             {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity {material ? `(${material.unit})` : ""}</label>
-          <input type="number" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+          <input type="number" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost</label>
-          <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+          <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
         </div>
         <div className="md:col-span-2">
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Description (optional)</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm" />
+          <input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
         </div>
         {purchaseType === "stockedBatch" && (
           <label className="md:col-span-2 flex items-center gap-2 text-sm">
@@ -171,12 +171,12 @@ function SubmitPurchaseForm() {
         <div className="mt-2 flex items-center gap-4">
           <button
             onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-sm"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-sm"
           >
             <Camera className="w-4 h-4" /> {receiptFile ? "Change Photo" : "Attach Photo"}
           </button>
           <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
-          {receiptPreview && <img src={receiptPreview} alt="Receipt preview" className="h-16 w-16 object-cover rounded-lg border border-white/10" />}
+          {receiptPreview && <img src={receiptPreview} alt="Receipt preview" className="h-16 w-16 object-cover rounded-lg border border-black/10" />}
         </div>
       </div>
 
@@ -189,7 +189,7 @@ function SubmitPurchaseForm() {
       <button
         onClick={submit}
         disabled={submitting}
-        className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white font-semibold text-sm disabled:opacity-60"
+        className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
       >
         {submitting ? "Submitting..." : isAdmin ? "Submit & Approve" : "Submit for Approval"}
       </button>
@@ -221,10 +221,10 @@ function PendingApprovals() {
           {state.pendingApprovals.map((entry: LedgerEntry) => {
             const material = state.materials.find((m) => m.id === entry.materialId);
             return (
-              <div key={entry.id} className="bg-black/30 rounded-lg p-4 border border-[oklch(0.82_0.16_85/0.3)] flex flex-col md:flex-row gap-4">
+              <div key={entry.id} className="bg-white/60 rounded-lg p-4 border border-[oklch(0.82_0.16_85/0.3)] flex flex-col md:flex-row gap-4">
                 {entry.receiptUrl && (
                   <a href={entry.receiptUrl} target="_blank" rel="noreferrer" className="shrink-0">
-                    <img src={entry.receiptUrl} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-white/10" />
+                    <img src={entry.receiptUrl} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-black/10" />
                   </a>
                 )}
                 <div className="flex-1">
@@ -238,16 +238,16 @@ function PendingApprovals() {
                   {entry.description && <div className="text-xs text-muted-foreground mt-1">{entry.description}</div>}
                   {rejectingId === entry.id ? (
                     <div className="flex items-center gap-2 mt-3">
-                      <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs" />
+                      <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="flex-1 bg-white/70 border border-black/10 rounded px-2 py-1.5 text-xs" />
                       <button onClick={async () => { await rejectPurchase(entry.id, reason); setRejectingId(null); setReason(""); }} className="text-xs px-3 py-1.5 rounded bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">Confirm Reject</button>
-                      <button onClick={() => setRejectingId(null)} className="text-xs px-3 py-1.5 rounded bg-white/5 border border-white/10">Cancel</button>
+                      <button onClick={() => setRejectingId(null)} className="text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10">Cancel</button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mt-3">
                       <button onClick={() => approvePurchase(entry.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                       </button>
-                      <button onClick={() => setRejectingId(entry.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 border border-white/10 hover:bg-[oklch(0.62_0.24_25/0.15)]">
+                      <button onClick={() => setRejectingId(entry.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)]">
                         <XCircle className="w-3.5 h-3.5" /> Reject
                       </button>
                     </div>

@@ -39,47 +39,47 @@
 
 :root {
   --radius: 0.75rem;
-  --background: oklch(0.13 0.02 275);
-  --foreground: oklch(0.97 0.01 250);
-  --card: oklch(0.17 0.025 275 / 0.6);
-  --card-foreground: oklch(0.97 0.01 250);
-  --popover: oklch(0.16 0.025 275);
-  --popover-foreground: oklch(0.97 0.01 250);
-  --primary: oklch(0.7 0.19 260);
-  --primary-foreground: oklch(0.1 0.02 275);
-  --secondary: oklch(0.24 0.03 275);
-  --secondary-foreground: oklch(0.97 0.01 250);
-  --muted: oklch(0.22 0.02 275);
-  --muted-foreground: oklch(0.68 0.03 260);
-  --accent: oklch(0.28 0.05 285);
-  --accent-foreground: oklch(0.97 0.01 250);
-  --destructive: oklch(0.62 0.24 25);
+  --background: oklch(0.97 0.012 85);
+  --foreground: oklch(0.24 0.02 60);
+  --card: oklch(0.99 0.006 85 / 0.72);
+  --card-foreground: oklch(0.24 0.02 60);
+  --popover: oklch(0.99 0.006 85);
+  --popover-foreground: oklch(0.24 0.02 60);
+  --primary: oklch(0.72 0.14 85);
+  --primary-foreground: oklch(0.2 0.02 60);
+  --secondary: oklch(0.93 0.02 85);
+  --secondary-foreground: oklch(0.24 0.02 60);
+  --muted: oklch(0.94 0.014 80);
+  --muted-foreground: oklch(0.48 0.02 60);
+  --accent: oklch(0.9 0.05 85);
+  --accent-foreground: oklch(0.24 0.02 60);
+  --destructive: oklch(0.58 0.22 25);
   --destructive-foreground: oklch(0.98 0.005 250);
-  --border: oklch(1 0 0 / 0.08);
-  --input: oklch(1 0 0 / 0.1);
-  --ring: oklch(0.7 0.19 260);
+  --border: oklch(0 0 0 / 0.08);
+  --input: oklch(0 0 0 / 0.1);
+  --ring: oklch(0.72 0.14 85);
 
-  --neon-blue: oklch(0.7 0.19 260);
-  --neon-cyan: oklch(0.85 0.16 200);
-  --neon-purple: oklch(0.65 0.24 305);
-  --neon-gold: oklch(0.82 0.16 85);
-  --neon-red: oklch(0.68 0.25 25);
-  --neon-green: oklch(0.78 0.2 155);
+  --neon-blue: oklch(0.6 0.16 260);
+  --neon-cyan: oklch(0.65 0.13 200);
+  --neon-purple: oklch(0.58 0.19 305);
+  --neon-gold: oklch(0.72 0.14 85);
+  --neon-red: oklch(0.58 0.22 25);
+  --neon-green: oklch(0.62 0.16 155);
 }
 
 .dark {
-  --background: oklch(0.13 0.02 275);
-  --foreground: oklch(0.97 0.01 250);
+  --background: oklch(0.97 0.012 85);
+  --foreground: oklch(0.24 0.02 60);
 }
 
 @layer base {
   * { border-color: var(--color-border); }
-  html, body { background-color: #0a0a0f; color: var(--color-foreground); }
+  html, body { background-color: #faf6ec; color: var(--color-foreground); }
   body {
     background-image:
-      radial-gradient(circle at 15% 10%, oklch(0.7 0.19 260 / 0.15), transparent 50%),
-      radial-gradient(circle at 85% 90%, oklch(0.65 0.24 305 / 0.12), transparent 50%),
-      linear-gradient(180deg, #0a0a0f 0%, #12121a 100%);
+      radial-gradient(circle at 15% 10%, oklch(0.82 0.12 85 / 0.18), transparent 50%),
+      radial-gradient(circle at 85% 90%, oklch(0.88 0.09 90 / 0.16), transparent 50%),
+      linear-gradient(180deg, #faf6ec 0%, #f3ecdb 100%);
     background-attachment: fixed;
     min-height: 100vh;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -87,15 +87,15 @@
 }
 
 @utility glass {
-  background: color-mix(in oklab, oklch(0.17 0.025 275) 55%, transparent);
+  background: color-mix(in oklab, #ffffff 68%, transparent);
   backdrop-filter: blur(14px);
-  border: 1px solid oklch(1 0 0 / 0.08);
+  border: 1px solid oklch(0.5 0.05 85 / 0.15);
 }
 
 @utility glass-strong {
-  background: color-mix(in oklab, oklch(0.17 0.025 275) 78%, transparent);
+  background: color-mix(in oklab, #ffffff 85%, transparent);
   backdrop-filter: blur(18px);
-  border: 1px solid oklch(1 0 0 / 0.1);
+  border: 1px solid oklch(0.5 0.05 85 / 0.2);
 }
 
 @utility neon-blue {

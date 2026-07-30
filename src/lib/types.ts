@@ -25,6 +25,10 @@ export interface StockItem {
   totalValue: number; // remaining * unitCost
   usedSinceRestock: number; // consumed from the current (most recent) batch only
   lastRestockAt: number | null;
+  actualStock: number | null;
+  actualStockUpdatedAt: number | null;
+  actualStockUpdatedBy: string | null;
+  variance: number | null; // actualStock - remaining; negative = deficit, positive = surplus
 }
 
 export interface RecipeIngredient {
@@ -185,6 +189,11 @@ export interface RawMaterial {
   // valuation and as the default cost when restocking (can be overridden
   // at restock time to reflect a new purchase price).
   unitCost: number;
+  // Manually counted physical stock (kitchen/store), for discrepancy
+  // tracking against the system-calculated remaining figure.
+  actualStock: number | null;
+  actualStockUpdatedAt: number | null;
+  actualStockUpdatedBy: string | null;
 }
 
 export interface RestockLogEntry {
