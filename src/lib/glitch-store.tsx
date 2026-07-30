@@ -17,6 +17,7 @@ import type {
   VoidReason,
   AuditLogEntry,
   StaffOrder,
+  RestockLogEntry,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -44,6 +45,7 @@ import {
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn,
+  restockMaterialFn, getRestockLogFn,
   importMenuCatalogFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
@@ -60,7 +62,7 @@ import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder,
+  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry,
 } from "./types";
 export { VOID_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
@@ -76,6 +78,7 @@ interface State extends AppState {
   voidRequests: VoidRequest[];
   activityLogs: AuditLogEntry[];
   staffOrders: StaffOrder[];
+  restockLog: RestockLogEntry[];
 }
 
 const emptyAppState: AppState = {
@@ -134,6 +137,8 @@ interface StoreContextValue {
   // Raw materials / suppliers / recurring expense templates [admin CRUD]
   addRawMaterial: (m: { name: string; unit: string; minStockAlert: number }) => Promise<void>;
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
+  restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
+  refreshRestockLog: () => Promise<void>;
   importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<void>;
   deleteRawMaterial: (id: string) => Promise<void>;
@@ -202,6 +207,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [voidRequests, setVoidRequests] = useState<VoidRequest[]>([]);
   const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
   const [staffOrders, setStaffOrders] = useState<StaffOrder[]>([]);
+  const [restockLog, setRestockLog] = useState<RestockLogEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -240,13 +246,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // requests are admin-only.
   const refreshFinance = useCallback(async (user: CurrentUser | null) => {
     if (!user) {
-      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]);
+      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]);
       return;
     }
     try {
-      const [mats, sups] = await Promise.all([getRawMaterialsFn(), getSuppliersFn()]);
+      const [mats, sups, restocks] = await Promise.all([getRawMaterialsFn(), getSuppliersFn(), getRestockLogFn()]);
       setMaterials(mats);
       setSuppliers(sups);
+      setRestockLog(restocks);
     } catch { /* leave as-is */ }
     if (user.role === "admin") {
       try {
@@ -302,7 +309,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await logoutFn();
     setCurrentUser(null);
     setAccounts([]);
-    setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]);
+    setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]);
     setAppState(emptyAppState);
   };
 
@@ -505,6 +512,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const res = await adjustStockFn({ data: { materialId, deltaQty, reason, note } });
       if (res.ok) setAppState(res.state);
       return { ok: res.ok, error: res.error };
+    });
+  };
+  const refreshRestockLog: StoreContextValue["refreshRestockLog"] = async () => {
+    setRestockLog(await getRestockLogFn());
+  };
+  const restockMaterial: StoreContextValue["restockMaterial"] = async (materialId, qtyAdded, unitCost) => {
+    return withPending(`restockMaterial:${materialId}`, async () => {
+      try {
+        const res = await restockMaterialFn({ data: { materialId, qtyAdded, unitCost } });
+        if (res.ok) {
+          setAppState(res.state);
+          await refreshRestockLog();
+        }
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Restock failed unexpectedly." };
+      }
     });
   };
   const importMenuCatalog: StoreContextValue["importMenuCatalog"] = async () => {
@@ -772,7 +796,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.floor(raw - pausedSoFar));
   };
 
-  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders };
+  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, restockLog };
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
@@ -780,7 +804,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
-    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, importMenuCatalog,
+    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, importMenuCatalog,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,

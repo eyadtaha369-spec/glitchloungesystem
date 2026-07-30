@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState } from "@/lib/types";
+import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry } from "@/lib/types";
 
 // ---------- Raw materials ----------
 export const getRawMaterialsFn = createServerFn({ method: "GET" }).handler(async () => {
@@ -10,7 +10,7 @@ export const getRawMaterialsFn = createServerFn({ method: "GET" }).handler(async
   return res.items;
 });
 export const addRawMaterialFn = createServerFn({ method: "POST" })
-  .validator((d: { name: string; unit: string; minStockAlert: number }) => d)
+  .validator((d: { name: string; unit: string; minStockAlert: number; unitCost?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; item: RawMaterial }>("addRawMaterial", { ...data, username: user.username });
@@ -24,6 +24,24 @@ export const adjustStockFn = createServerFn({ method: "POST" })
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("adjustStock", { ...data, username: user.username });
   });
+
+// Adjust/Restock with automatic carryover: whatever's still remaining
+// folds into one fresh batch alongside the new quantity, and "consumed
+// since restock" resets to 0. unitCost is optional — omit to keep the
+// material's current cost price.
+export const restockMaterialFn = createServerFn({ method: "POST" })
+  .validator((d: { materialId: string; qtyAdded: number; unitCost?: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("restockMaterial", { ...data, username: user.username });
+  });
+
+export const getRestockLogFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const res = await callAppsScript<{ items: RestockLogEntry[] }>("getRestockLog", { username: user.username });
+  return res.items;
+});
+
 export const updateRawMaterialFn = createServerFn({ method: "POST" })
   .validator((d: { id: string; patch: Partial<RawMaterial> }) => d)
   .handler(async ({ data }) => {

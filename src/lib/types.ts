@@ -17,9 +17,14 @@ export interface StockItem {
   id: string;
   name: string;
   unit: string; // grams, ml, pcs
-  initialStock: number;
-  used: number;
+  initialStock: number; // lifetime ever purchased
+  used: number; // lifetime ever consumed
   minStock: number;
+  unitCost: number;
+  remaining: number; // current on-hand quantity
+  totalValue: number; // remaining * unitCost
+  usedSinceRestock: number; // consumed from the current (most recent) batch only
+  lastRestockAt: number | null;
 }
 
 export interface RecipeIngredient {
@@ -176,6 +181,22 @@ export interface RawMaterial {
   name: string;
   unit: string;
   minStockAlert: number;
+  // Admin-editable "current" cost price per unit — used for stock
+  // valuation and as the default cost when restocking (can be overridden
+  // at restock time to reflect a new purchase price).
+  unitCost: number;
+}
+
+export interface RestockLogEntry {
+  id: string;
+  ts: number;
+  materialId: string;
+  materialName: string;
+  qtyAdded: number;
+  carryoverAdded: number;
+  newTotal: number;
+  unitCost: number;
+  performedBy: string;
 }
 
 export interface Supplier {

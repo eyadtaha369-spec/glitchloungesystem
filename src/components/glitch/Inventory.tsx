@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, type MenuItem, type MenuCategory, type Session } from "@/lib/glitch-store";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon } from "lucide-react";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, PackagePlus, FileBarChart } from "lucide-react";
 
 export function InventoryPage() {
   const {
@@ -110,6 +110,7 @@ export function InventoryPage() {
       </div>
 
       {/* Stock inventory */}
+      <InventoryAuditReportButton />
       <StockTable />
 
       {/* Recipes / Menu */}
@@ -219,18 +220,119 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
   );
 }
 
+function InventoryAuditReportButton() {
+  const { state } = useStore();
+  return (
+    <div className="flex justify-end">
+      <button
+        onClick={() => printInventoryAuditReport(state)}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-white text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+      >
+        <FileBarChart className="w-4 h-4" /> Generate Inventory Audit Report
+      </button>
+    </div>
+  );
+}
+
+function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) {
+  const win = window.open("", "_blank", "width=900,height=1200");
+  if (!win) return;
+  const today = new Date().toLocaleString();
+
+  const rows = state.stock.map((s) => {
+    const totalRestocked = state.restockLog.filter((r) => r.materialId === s.id).reduce((a, r) => a + r.qtyAdded, 0);
+    // initialStock is the true lifetime total ever added (Procurement +
+    // Restock's new-quantity portions, carryover never double-counted).
+    // Starting Stock = whatever existed before any Restock-button events.
+    const startingStock = Math.max(0, s.initialStock - totalRestocked);
+    return {
+      name: s.name, unit: s.unit, startingStock,
+      totalRestocked, totalConsumed: s.used, remaining: s.remaining, unitCost: s.unitCost,
+      valueOnHand: s.totalValue, valueConsumed: Math.round(s.used * s.unitCost * 100) / 100,
+    };
+  });
+  const totalOnHand = rows.reduce((a, r) => a + r.valueOnHand, 0);
+  const totalConsumedValue = rows.reduce((a, r) => a + r.valueConsumed, 0);
+
+  const recentRestocks = state.restockLog.slice(0, 50);
+
+  win.document.write(`
+<!DOCTYPE html><html><head><title>Inventory Audit Report</title>
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; padding: 32px; color: #111; }
+  h1 { margin: 0 0 4px; letter-spacing: 4px; }
+  .sub { color: #666; text-transform: uppercase; letter-spacing: 3px; font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { border-bottom: 1px solid #ddd; padding: 7px; font-size: 12px; text-align: left; }
+  th { background: #f5f5f5; text-transform: uppercase; letter-spacing: 1px; font-size: 9px; }
+  .totals { margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px; }
+  .totals div { display: flex; justify-content: space-between; padding: 4px 0; font-family: ui-monospace, monospace; }
+  .grand { font-weight: bold; border-top: 2px solid #111; margin-top: 6px; padding-top: 8px !important; font-size: 14px; }
+</style></head><body>
+<h1>GLITCH LOUNGE</h1>
+<div class="sub">Inventory Valuation &amp; Audit Report — ${today}</div>
+<div class="totals">
+  <div><span>Total Value On Hand</span><span>$${totalOnHand.toFixed(2)}</span></div>
+  <div class="grand"><span>Lifetime Value Consumed</span><span>$${totalConsumedValue.toFixed(2)}</span></div>
+</div>
+<h3 style="margin-top:24px">Stock Valuation by Material</h3>
+<table>
+  <thead><tr><th>Material</th><th>Starting</th><th>Restocked</th><th>Consumed</th><th>Remaining</th><th>Unit Cost</th><th>Value On Hand</th><th>Value Consumed</th></tr></thead>
+  <tbody>
+    ${rows.map((r) => `<tr>
+      <td>${r.name}</td>
+      <td>${r.startingStock} ${r.unit}</td>
+      <td>${r.totalRestocked} ${r.unit}</td>
+      <td>${r.totalConsumed} ${r.unit}</td>
+      <td>${r.remaining} ${r.unit}</td>
+      <td>$${r.unitCost.toFixed(2)}</td>
+      <td>$${r.valueOnHand.toFixed(2)}</td>
+      <td>$${r.valueConsumed.toFixed(2)}</td>
+    </tr>`).join("")}
+  </tbody>
+</table>
+<h3 style="margin-top:24px">Recent Restock Activity (User Log)</h3>
+<table>
+  <thead><tr><th>Time</th><th>Material</th><th>Qty Added</th><th>Carryover</th><th>New Total</th><th>Unit Cost</th><th>Performed By</th></tr></thead>
+  <tbody>
+    ${recentRestocks.map((r) => `<tr>
+      <td>${new Date(r.ts).toLocaleString()}</td>
+      <td>${r.materialName}</td>
+      <td>+${r.qtyAdded}</td>
+      <td>${r.carryoverAdded}</td>
+      <td>${r.newTotal}</td>
+      <td>$${r.unitCost.toFixed(2)}</td>
+      <td>${r.performedBy}</td>
+    </tr>`).join("") || "<tr><td colspan=7>No restocks logged yet</td></tr>"}
+  </tbody>
+</table>
+<script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+</body></html>`);
+  win.document.close();
+}
+
 function StockTable() {
-  const { state, adjustStock } = useStore();
+  const { state, adjustStock, restockMaterial, updateRawMaterial } = useStore();
   const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
+  const [restockTarget, setRestockTarget] = useState<{ id: string; name: string; unit: string; unitCost: number } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
+  const [costInput, setCostInput] = useState("");
+
+  const totalInventoryValue = state.stock.reduce((a, s) => a + s.totalValue, 0);
 
   return (
     <div className="glass rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold">Stock Inventory</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Computed from purchased batches (FIFO). Add materials on Setup, log real purchases on Procurement.
           </p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Inventory Value</div>
+          <div className="text-xl font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(totalInventoryValue)}</div>
         </div>
       </div>
 
@@ -243,33 +345,67 @@ function StockTable() {
               <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
                 <th className="text-left py-2 px-2">Item</th>
                 <th className="text-left py-2 px-2">Unit</th>
-                <th className="text-right py-2 px-2">Purchased</th>
-                <th className="text-right py-2 px-2">Used</th>
+                <th className="text-right py-2 px-2">Unit Cost</th>
                 <th className="text-right py-2 px-2">Remaining</th>
+                <th className="text-right py-2 px-2">Used Since Restock</th>
+                <th className="text-right py-2 px-2">Stock Value</th>
                 <th className="text-right py-2 px-2">Min</th>
                 <th className="py-2 px-2"></th>
               </tr>
             </thead>
             <tbody>
               {state.stock.map((s) => {
-                const remaining = s.initialStock - s.used;
-                const low = remaining < s.minStock || remaining < s.initialStock * 0.2;
+                const low = s.remaining < s.minStock || (s.initialStock > 0 && s.remaining < s.initialStock * 0.2);
                 return (
                   <tr key={s.id} className="border-b border-white/5 hover:bg-white/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{s.unit}</td>
-                    <td className="py-2 px-2 text-right font-mono">{s.initialStock}</td>
-                    <td className="py-2 px-2 text-right font-mono">{s.used}</td>
-                    <td className={`py-2 px-2 text-right font-mono font-bold ${low ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                      {remaining} {low && "⚠"}
+                    <td className="py-2 px-2 text-right font-mono">
+                      {editingCostId === s.id ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <input
+                            autoFocus type="number" step="0.01" value={costInput}
+                            onChange={(e) => setCostInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { void updateRawMaterial(s.id, { unitCost: parseFloat(costInput) || 0 }); setEditingCostId(null); }
+                              if (e.key === "Escape") setEditingCostId(null);
+                            }}
+                            className="w-20 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-right"
+                          />
+                          <button onClick={() => { void updateRawMaterial(s.id, { unitCost: parseFloat(costInput) || 0 }); setEditingCostId(null); }} className="text-[oklch(0.78_0.2_155)]"><Check className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setEditingCostId(s.id); setCostInput(String(s.unitCost)); }} className="hover:underline decoration-dotted">
+                          {fmtMoney(s.unitCost)}
+                        </button>
+                      )}
                     </td>
+                    <td className={`py-2 px-2 text-right font-mono font-bold ${low ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                      {s.remaining} {low && "⚠"}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.usedSinceRestock}</td>
+                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.totalValue)}</td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
-                    <td className="py-2 px-2 text-right">
+                    <td className="py-2 px-2 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setHistoryTarget({ id: s.id, name: s.name, unit: s.unit })}
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-muted-foreground hover:text-white mr-1.5"
+                        title="History"
+                      >
+                        <History className="w-3.5 h-3.5 inline" />
+                      </button>
                       <button
                         onClick={() => setAdjustTarget({ id: s.id, name: s.name, unit: s.unit })}
-                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-muted-foreground hover:text-white"
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-muted-foreground hover:text-white mr-1.5"
+                        title="Waste / Correction / Opening Balance"
                       >
                         Adjust
+                      </button>
+                      <button
+                        onClick={() => setRestockTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost })}
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.85_0.16_200)] hover:bg-[oklch(0.7_0.19_260/0.25)]"
+                      >
+                        <PackagePlus className="w-3.5 h-3.5 inline mr-1" />Restock
                       </button>
                     </td>
                   </tr>
@@ -283,6 +419,10 @@ function StockTable() {
       {adjustTarget && (
         <AdjustStockModal target={adjustTarget} adjustStock={adjustStock} onClose={() => setAdjustTarget(null)} />
       )}
+      {restockTarget && (
+        <RestockModal target={restockTarget} currentRemaining={state.stock.find((s) => s.id === restockTarget.id)?.remaining ?? 0} restockMaterial={restockMaterial} onClose={() => setRestockTarget(null)} />
+      )}
+      {historyTarget && <MaterialHistoryModal target={historyTarget} onClose={() => setHistoryTarget(null)} />}
     </div>
   );
 }
@@ -353,6 +493,174 @@ function AdjustStockModal({ target, adjustStock, onClose }: {
           <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold disabled:opacity-60">
             {submitting ? "Saving..." : "Apply Adjustment"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RestockModal({ target, currentRemaining, restockMaterial, onClose }: {
+  target: { id: string; name: string; unit: string; unitCost: number };
+  currentRemaining: number;
+  restockMaterial: ReturnType<typeof useStore>["restockMaterial"];
+  onClose: () => void;
+}) {
+  const [qtyAdded, setQtyAdded] = useState("");
+  const [unitCost, setUnitCost] = useState(String(target.unitCost));
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const addedNum = parseFloat(qtyAdded) || 0;
+  const newTotal = currentRemaining + addedNum;
+
+  const submit = async () => {
+    if (addedNum <= 0) { setErr("Enter a quantity greater than zero."); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await restockMaterial(target.id, addedNum, parseFloat(unitCost) || 0);
+      if (!res.ok) { setErr(res.error ?? "Restock failed"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">Restock {target.name}</div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">New Quantity ({target.unit})</label>
+            <input
+              type="number" step="0.01" autoFocus value={qtyAdded}
+              onChange={(e) => setQtyAdded(e.target.value)}
+              placeholder="e.g. 5000"
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost ({target.unit})</label>
+            <input
+              type="number" step="0.01" value={unitCost}
+              onChange={(e) => setUnitCost(e.target.value)}
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+
+          {/* Live carryover math */}
+          <div className="rounded-lg bg-black/30 border border-white/5 p-3 text-xs font-mono space-y-1">
+            <div className="flex justify-between"><span className="text-muted-foreground">Remaining (carryover)</span><span>{currentRemaining} {target.unit}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">New Restock</span><span>+{addedNum} {target.unit}</span></div>
+            <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-[oklch(0.78_0.2_155)]">
+              <span>New Total Stock</span><span>{newTotal} {target.unit}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            The old remaining stock is folded into a single fresh batch — "used since restock" resets to 0 from this point.
+          </p>
+          {err && <div className="text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold disabled:opacity-60">
+            {submitting ? "Saving..." : "Confirm Restock"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaterialHistoryModal({ target, onClose }: { target: { id: string; name: string; unit: string }; onClose: () => void }) {
+  const { state } = useStore();
+  const restocks = state.restockLog.filter((r) => r.materialId === target.id).sort((a, b) => b.ts - a.ts);
+
+  // Usage summary: cross-reference every session's + staff order's items
+  // against this material's recipe usage, so "which products consumed it"
+  // is a real answer, not a guess.
+  const usage = useMemo(() => {
+    const map = new Map<string, number>();
+    const tally = (menuItemId: string, name: string, qty: number) => {
+      const item = state.menu.find((m) => m.id === menuItemId);
+      if (!item) return;
+      const ing = item.ingredients.find((i) => i.stockId === target.id);
+      if (!ing) return;
+      map.set(name, (map.get(name) ?? 0) + ing.qty * qty);
+    };
+    state.sessions.forEach((s) => s.orders.forEach((o) => tally(o.menuItemId, o.name, o.qty)));
+    state.staffOrders.forEach((so) => so.items.forEach((o) => tally(o.menuItemId, o.name, o.qty)));
+    return Array.from(map.entries()).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
+  }, [state.sessions, state.staffOrders, state.menu, target.id]);
+
+  const totalUsage = usage.reduce((a, u) => a + u.qty, 0);
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+            <History className="w-4 h-4" /> {target.name} — History
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Restock Log</h3>
+            {restocks.length === 0 ? (
+              <div className="text-xs text-muted-foreground font-mono">No restocks logged yet for this material.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[9px] uppercase tracking-widest text-muted-foreground border-b border-white/5">
+                      <th className="text-left py-1.5 px-2">Time</th>
+                      <th className="text-right py-1.5 px-2">Qty Added</th>
+                      <th className="text-right py-1.5 px-2">Carryover</th>
+                      <th className="text-right py-1.5 px-2">New Total</th>
+                      <th className="text-right py-1.5 px-2">Unit Cost</th>
+                      <th className="text-left py-1.5 px-2">By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {restocks.map((r) => (
+                      <tr key={r.id} className="border-b border-white/5">
+                        <td className="py-1.5 px-2 font-mono text-muted-foreground">{new Date(r.ts).toLocaleString()}</td>
+                        <td className="py-1.5 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{r.qtyAdded}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{r.carryoverAdded}</td>
+                        <td className="py-1.5 px-2 text-right font-mono font-bold">{r.newTotal}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{fmtMoney(r.unitCost)}</td>
+                        <td className="py-1.5 px-2">{r.performedBy}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">Usage Summary — by Product</h3>
+              <span className="text-xs font-mono text-muted-foreground">Total: {totalUsage} {target.unit}</span>
+            </div>
+            {usage.length === 0 ? (
+              <div className="text-xs text-muted-foreground font-mono">No consumption recorded yet.</div>
+            ) : (
+              <div className="space-y-1.5">
+                {usage.map((u) => (
+                  <div key={u.name} className="flex items-center justify-between text-xs font-mono bg-black/30 rounded-lg px-3 py-2 border border-white/5">
+                    <span>{u.name}</span>
+                    <span>{u.qty.toFixed(2)} {target.unit}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "RestockLog"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -167,7 +167,7 @@ function requireRole_(username, allowedRoles) {
 
 function sheetObjectHeaders_(name) {
   const map = {
-    RawMaterials: ["id", "name", "unit", "minStockAlert"],
+    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost"],
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
@@ -177,6 +177,7 @@ function sheetObjectHeaders_(name) {
     Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
+    RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
   };
   return map[name];
 }
@@ -331,7 +332,7 @@ const ACTION_RISK = {
   ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
   SESSION_TRANSFERRED: "yellow", SPLIT_INTERFACE_OPENED: "yellow", SESSION_SPLIT: "yellow",
   ACCOUNT_CREATED: "yellow", ACCOUNT_ROLE_CHANGED: "red", ACCOUNT_PASSWORD_CHANGED: "yellow", ACCOUNT_DELETED: "red",
-  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow",
+  RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow", STOCK_RESTOCKED: "green",
   MENU_CATALOG_IMPORTED: "yellow", STAFF_ORDER_LOGGED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
 };
@@ -1085,6 +1086,57 @@ function adjustStock_(materialId, deltaQty, reason, note, username) {
   return { ok: true, before: before, after: after, cost: cost };
 }
 
+// Adjust/Restock with carryover consolidation: whatever's still remaining
+// from prior batches gets folded into ONE fresh batch alongside the new
+// quantity, and old batches are retired (qtyRemaining zeroed, but their
+// qtyPurchased/history stays for lifetime audit purposes). This is what
+// makes "consumed since restock" reset to 0 on every restock instead of
+// growing forever across the material's whole lifetime.
+function bizRestockMaterial_(materialId, qtyAdded, unitCost, username) {
+  if (!qtyAdded || qtyAdded <= 0) return { ok: false, error: "Enter a quantity greater than zero" };
+  const materials = readObjects_("RawMaterials");
+  const material = materials.find((m) => m.id === materialId);
+  if (!material) return { ok: false, error: "Material not found" };
+
+  const batches = readObjects_("Batches");
+  const existing = batches.filter((b) => b.materialId === materialId && Number(b.qtyRemaining) > 0);
+  const carryover = existing.reduce((a, b) => a + Number(b.qtyRemaining), 0);
+
+  // Retire old batches by closing their books at exactly what was already
+  // consumed from them — NOT just zeroing qtyRemaining. If we left
+  // qtyPurchased untouched, the carryover portion would be double-counted
+  // forever (once in this old batch's history, again in the new
+  // consolidated batch), silently inflating every lifetime total.
+  existing.forEach((b) => {
+    const consumedFromThisBatch = Number(b.qtyPurchased) - Number(b.qtyRemaining);
+    updateObjectById_("Batches", b.id, { qtyPurchased: consumedFromThisBatch, qtyRemaining: 0 });
+  });
+
+  const newTotal = qtyAdded + carryover;
+  const finalUnitCost = typeof unitCost === "number" && unitCost >= 0 ? unitCost : (Number(material.unitCost) || 0);
+  const now = Date.now();
+  appendObject_("Batches", {
+    id: newId_("batch"), materialId: materialId, supplierId: null,
+    qtyPurchased: newTotal, qtyRemaining: newTotal, unitCost: finalUnitCost,
+    purchasedAt: now, source: "restock",
+  });
+
+  if (typeof unitCost === "number" && unitCost >= 0) {
+    updateObjectById_("RawMaterials", materialId, { unitCost: unitCost });
+  }
+
+  appendObject_("RestockLog", {
+    id: newId_("restock"), ts: now, materialId: materialId, materialName: material.name,
+    qtyAdded: qtyAdded, carryoverAdded: carryover, newTotal: newTotal, unitCost: finalUnitCost, performedBy: username,
+  });
+
+  return { ok: true, materialName: material.name, qtyAdded: qtyAdded, carryover: carryover, newTotal: newTotal, unitCost: finalUnitCost };
+}
+
+function readRestockLog_() {
+  return readObjects_("RestockLog").sort(function (a, b) { return b.ts - a.ts; });
+}
+
 // ---------- Derived "stock" view for backward-compat with the UI's low
 // -stock alerts (initialStock = ever purchased, used = ever consumed) ----
 function computeStockView_(materials, batches) {
@@ -1092,6 +1144,11 @@ function computeStockView_(materials, batches) {
     const matBatches = batches.filter((b) => b.materialId === m.id);
     const initialStock = matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0);
     const remaining = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
+    const unitCost = Number(m.unitCost) || 0;
+    // "Current epoch" = the most recently added batch (i.e. since the last
+    // restock/consolidation) — its own consumption resets to 0 every time
+    // a restock folds the old remainder into a fresh batch.
+    const newest = matBatches.reduce((a, b) => (!a || Number(b.purchasedAt) > Number(a.purchasedAt) ? b : a), null);
     return {
       id: m.id,
       name: m.name,
@@ -1099,6 +1156,11 @@ function computeStockView_(materials, batches) {
       initialStock: initialStock,
       used: initialStock - remaining,
       minStock: m.minStockAlert,
+      unitCost: unitCost,
+      remaining: remaining,
+      totalValue: Math.round(remaining * unitCost * 100) / 100,
+      usedSinceRestock: newest ? Number(newest.qtyPurchased) - Number(newest.qtyRemaining) : 0,
+      lastRestockAt: newest ? Number(newest.purchasedAt) : null,
     };
   });
 }
@@ -1586,9 +1648,27 @@ function doPost(e) {
         return json_({ ok: true, state: withStockView_(getState_()) });
       }
 
+      case "restockMaterial": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const result = bizRestockMaterial_(body.materialId, Number(body.qtyAdded), typeof body.unitCost === "number" ? body.unitCost : undefined, body.username);
+        if (!result.ok) return json_({ ok: false, error: result.error });
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STOCK_RESTOCKED",
+          description: "Restocked " + result.materialName + ": +" + result.qtyAdded +
+            (result.carryover > 0 ? " (carried over " + result.carryover + " remaining)" : "") +
+            " = " + result.newTotal + " total @ $" + result.unitCost + "/unit",
+          after: { qtyAdded: result.qtyAdded, carryover: result.carryover, newTotal: result.newTotal, unitCost: result.unitCost },
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
+      case "getRestockLog":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readRestockLog_() });
+
       case "addRawMaterial": {
         requireRole_(body.username, ["admin"]);
-        const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0 };
+        const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0 };
         appendObject_("RawMaterials", item);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
