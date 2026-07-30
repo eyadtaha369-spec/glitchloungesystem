@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore, captureGeolocation, type GeoResult } from "@/lib/glitch-store";
-import { MapPin, ShieldOff, Unlock, RotateCcw } from "lucide-react";
+import { MapPin, ShieldOff, Unlock, RotateCcw, Clock } from "lucide-react";
 import logo from "@/assets/glitch-logo.jpg";
 
 // Blocks the ENTIRE app (no Sidebar, no Rooms, nothing) for a cashier until
@@ -15,6 +15,12 @@ export function Gatekeeper() {
   const [openingBalance, setOpeningBalance] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const tryLocate = async () => {
     setChecking(true);
@@ -55,10 +61,14 @@ export function Gatekeeper() {
       <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)] p-8">
         <div className="flex flex-col items-center text-center mb-6">
           <img src={logo} alt="GLITCH" className="w-16 h-16 rounded-full mb-3" />
-          <h1 className="text-2xl font-bold tracking-tight">Shift Gatekeeper</h1>
-          <p className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-widest">
+          <h1 className="text-2xl font-bold tracking-tight">Open Shift Required</h1>
+          <p className="text-sm text-muted-foreground mt-1" dir="rtl">يجب بدء الشيفت للمتابعة</p>
+          <p className="text-xs text-muted-foreground mt-2 font-mono uppercase tracking-widest">
             {state.currentUser?.username}
           </p>
+          <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground font-mono">
+            <Clock className="w-3.5 h-3.5" /> {now.toLocaleString()}
+          </div>
         </div>
 
         {checking && (
@@ -96,7 +106,9 @@ export function Gatekeeper() {
               Enter your starting cash drawer amount to begin your shift. None of the previous shift's numbers will be visible to you.
             </p>
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted-foreground">Opening Balance</label>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                Opening Balance <span dir="rtl" className="normal-case">(الدرج البدائي / العهدة)</span>
+              </label>
               <input
                 type="number" step="0.01" autoFocus value={openingBalance}
                 onChange={(e) => setOpeningBalance(e.target.value)}
@@ -109,7 +121,7 @@ export function Gatekeeper() {
               disabled={submitting}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-lg bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-bold uppercase tracking-wider text-sm shadow-[0_0_25px_oklch(0.78_0.2_155/0.4)] disabled:opacity-60"
             >
-              <Unlock className="w-4 h-4" /> {submitting ? "Verifying Location..." : "Start Shift"}
+              <Unlock className="w-4 h-4" /> {submitting ? "Verifying Location..." : "Open Shift / بدء الشيفت"}
             </button>
           </div>
         )}
