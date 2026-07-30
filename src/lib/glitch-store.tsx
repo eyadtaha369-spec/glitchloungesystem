@@ -52,7 +52,7 @@ import {
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
-  requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn,
+  requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn, verifyAdminAuthFn,
 } from "@/backend/void";
 import { getActivityLogsFn } from "@/backend/audit";
 import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
@@ -163,7 +163,8 @@ interface StoreContextValue {
 
   // Void workflow — cashiers request, admins auto-execute; requests only
   // affect the room's live order + inventory once approved.
-  requestVoid: (v: { roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string }) => Promise<{ ok: boolean; error?: string }>;
+  requestVoid: (v: { roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string; approvingAdminUsername?: string; approvingAdminPassword?: string }) => Promise<{ ok: boolean; error?: string }>;
+  verifyAdminAuth: (adminUsername: string, adminPassword: string) => Promise<{ ok: boolean; adminUsername: string | null }>;
   approveVoid: (voidId: string) => Promise<{ ok: boolean; error?: string }>;
   denyVoid: (voidId: string) => Promise<void>;
 
@@ -644,6 +645,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const verifyAdminAuth: StoreContextValue["verifyAdminAuth"] = async (adminUsername, adminPassword) => {
+    return withPending("verifyAdminAuth", async () => {
+      try {
+        return await verifyAdminAuthFn({ data: { adminUsername, adminPassword } });
+      } catch {
+        return { ok: false, adminUsername: null };
+      }
+    });
+  };
   const approveVoid: StoreContextValue["approveVoid"] = async (voidId) => {
     return withPending(`approveVoid:${voidId}`, async () => {
       const res = await approveVoidFn({ data: { voidId } });
@@ -774,7 +784,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
-    requestVoid, approveVoid, denyVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
+    requestVoid, verifyAdminAuth, approveVoid, denyVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs,
   };
 

@@ -7,10 +7,27 @@ import type { AppState, VoidReason, VoidRequest } from "@/lib/types";
 // checks decide whether this auto-approves (admin) or lands `pending`
 // (cashier), regardless of what the client sends.
 export const requestVoidFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string }) => d)
+  .validator((d: {
+    roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string;
+    approvingAdminUsername?: string; approvingAdminPassword?: string;
+  }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; request?: VoidRequest; state: AppState }>("requestVoid", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+// Generic on-the-spot admin authorization (manager-key-style override) —
+// confirms these credentials belong to a real admin right now, without
+// creating a session. Used to let a cashier get instant approval for a
+// cancellation instead of waiting in the pending-approval queue.
+export const verifyAdminAuthFn = createServerFn({ method: "POST" })
+  .validator((d: { adminUsername: string; adminPassword: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; adminUsername: string | null }>("verifyAdminAuth", {
       ...data,
       username: user.username,
     });

@@ -882,18 +882,19 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
   const [waiterName, setWaiterName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
 
-  const submit = async () => {
+  const submit = async (approvingAdminUsername?: string, approvingAdminPassword?: string) => {
     if (!reason) { setResult({ kind: "err", text: "Select a reason." }); return; }
     if (!waiterName.trim()) { setResult({ kind: "err", text: "Waiter name is required for the audit log." }); return; }
     setSubmitting(true);
     try {
-      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim() });
+      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim(), approvingAdminUsername, approvingAdminPassword });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Void request failed" }); return; }
       setResult({
         kind: "ok",
-        text: isAdmin
-          ? "Voided immediately."
+        text: isAdmin || approvingAdminUsername
+          ? "Cancelled immediately" + (approvingAdminUsername ? ` — authorized by admin ${approvingAdminUsername}.` : ".")
           : "Sent for admin approval — this item stays on the bill and in Expected Cash until approved.",
       });
       setTimeout(onClose, 1400);
@@ -951,7 +952,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
 
           {!isAdmin && (
             <p className="text-xs text-[oklch(0.82_0.16_85)]">
-              This item stays on the live bill and counts toward Expected Cash until an admin approves it — you cannot void independently.
+              This item stays on the live bill and counts toward Expected Cash until an admin approves it — you cannot cancel independently. Have an admin here now? They can authorize it instantly instead.
             </p>
           )}
 
@@ -961,14 +962,106 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             </div>
           )}
         </div>
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+        <div className="p-4 border-t border-white/10 flex flex-wrap justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          {!isAdmin && (
+            <button
+              onClick={() => setAuthOpen(true)}
+              disabled={submitting}
+              className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold disabled:opacity-60"
+            >
+              Get Admin Approval Now
+            </button>
+          )}
           <button
-            onClick={submit}
+            onClick={() => submit()}
             disabled={submitting}
             className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold disabled:opacity-60"
           >
             {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
+          </button>
+        </div>
+      </div>
+
+      {authOpen && (
+        <AdminAuthModal
+          description={`Authorize cancelling ${qty}x ${itemName} on ${roomName}`}
+          onClose={() => setAuthOpen(false)}
+          onAuthorized={(adminUsername, adminPassword) => {
+            setAuthOpen(false);
+            void submit(adminUsername, adminPassword);
+          }}
+        />
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+// Generic Admin Authorization modal — a manager-key-style override. Any
+// cashier-initiated critical action that needs an admin to approve it on
+// the spot (rather than through an async approval queue) can reuse this.
+function AdminAuthModal({ description, onClose, onAuthorized }: {
+  description: string;
+  onClose: () => void;
+  onAuthorized: (adminUsername: string, adminPassword: string) => void;
+}) {
+  const { verifyAdminAuth } = useStore();
+  const [adminUsername, setAdminUsername] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    if (!adminUsername.trim() || !adminPassword) { setErr("Enter the admin's username and password."); return; }
+    setChecking(true);
+    try {
+      const res = await verifyAdminAuth(adminUsername.trim(), adminPassword);
+      if (!res.ok) { setErr("Authorization failed — check the username and password, and that the account is an admin."); return; }
+      onAuthorized(res.adminUsername ?? adminUsername.trim(), adminPassword);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.5)] shadow-[0_0_40px_oklch(0.82_0.16_85/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">
+            <ShieldAlert className="w-4 h-4" /> Admin Authorization Required
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">{description}</p>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Admin Username</label>
+            <input
+              autoFocus value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Admin Password / PIN</label>
+            <input
+              type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={checking}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold disabled:opacity-60"
+          >
+            {checking ? "Verifying..." : "Authorize"}
           </button>
         </div>
       </div>

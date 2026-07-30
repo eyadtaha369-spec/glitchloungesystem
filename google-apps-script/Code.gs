@@ -325,7 +325,7 @@ const ACTION_RISK = {
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
   ROOM_PAUSED: "green", ROOM_RESUMED: "green",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
-  VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow",
+  VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
   RECURRING_EXPENSE_PAID: "yellow",
   ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
@@ -1141,6 +1141,22 @@ function doPost(e) {
         return json_(result);
       }
 
+      // Generic on-the-spot admin authorization check (manager-key-style
+      // override) — does NOT create a session, just confirms these
+      // credentials belong to an admin right now. Any future "cashier
+      // needs an admin to approve this instantly" flow can reuse this.
+      case "verifyAdminAuth": {
+        const result = login_(body.adminUsername, body.adminPassword);
+        const ok = result.ok && result.role === "admin";
+        if (!ok) {
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "LOGIN_FAILED",
+            description: "Failed on-the-spot admin authorization attempt (target: '" + (body.adminUsername || "") + "')",
+          });
+        }
+        return json_({ ok: ok, adminUsername: ok ? result.username : null });
+      }
+
       case "getAccounts":
         requireRole_(body.username, ["admin"]);
         return json_({ accounts: getAccounts_() });
@@ -1733,20 +1749,35 @@ function doPost(e) {
         const line = room.orders.find((o) => o.menuItemId === body.menuItemId);
         if (!line || line.qty < body.qty || body.qty <= 0) return json_({ ok: false, error: "Invalid quantity to void" });
 
+        // A cashier can get INSTANT execution (skip the pending-approval
+        // queue) if an admin authorizes right here with their own
+        // credentials — same idea as a manager-key override at a
+        // register. Verified independently of the cashier's own session.
+        let approvingAdmin = null;
+        if (role !== "admin" && body.approvingAdminUsername && body.approvingAdminPassword) {
+          const authCheck = login_(body.approvingAdminUsername, body.approvingAdminPassword);
+          if (!authCheck.ok || authCheck.role !== "admin") {
+            return json_({ ok: false, error: "Admin authorization failed — check the username and password." });
+          }
+          approvingAdmin = authCheck.username;
+        }
+        const executesNow = role === "admin" || !!approvingAdmin;
+        const approverUsername = role === "admin" ? body.username : approvingAdmin;
+
         const req = {
           id: newId_("void"), ts: Date.now(), roomId: room.id, roomName: room.name,
           menuItemId: body.menuItemId, itemName: line.name, qty: body.qty, unitPrice: line.price,
           billValue: line.price * body.qty, reason: body.reason,
-          status: role === "admin" ? "approved" : "pending",
+          status: executesNow ? "approved" : "pending",
           cashierUsername: body.username, waiterName: body.waiterName || "",
-          shiftId: state.activeShiftId, approvedBy: role === "admin" ? body.username : null,
-          approvedAt: role === "admin" ? Date.now() : null, cogs: null, applied: false, applyError: null,
+          shiftId: state.activeShiftId, approvedBy: executesNow ? approverUsername : null,
+          approvedAt: executesNow ? Date.now() : null, cogs: null, applied: false, applyError: null,
         };
 
-        if (role === "admin") {
+        if (executesNow) {
           // Cashiers have no authority to void independently — but an
-          // admin-initiated void executes immediately, same auto-approve
-          // pattern as procurement.
+          // admin-initiated (or admin-authorized-on-the-spot) void
+          // executes immediately, same auto-approve pattern as procurement.
           const batches = readObjects_("Batches");
           const result = applyVoid_(state, batches, req);
           if (result.ok) {
@@ -1767,16 +1798,22 @@ function doPost(e) {
             req.applyError = result.error;
           }
         }
-        // Pending (cashier) requests intentionally do NOT touch the room or
-        // batches — the item stays fully on the live bill (and therefore in
-        // Expected Drawer Cash) until an admin approves it.
+        // Pending (cashier, no admin present) requests intentionally do NOT
+        // touch the room or batches — the item stays fully on the live
+        // bill (and therefore in Expected Drawer Cash) until approved.
         appendObject_("VoidRequests", req);
         const wasteClass = (body.reason === "spilled" || body.reason === "customerRejected") ? "Wasted" : "Non-Waste";
         logActivity_({
-          actorUsername: body.username, actorRole: role, actionType: "VOID_REQUESTED",
+          actorUsername: body.username, actorRole: role,
+          actionType: approvingAdmin ? "UNDO_ACTION" : "VOID_REQUESTED",
           location: room.name, shiftId: state.activeShiftId,
-          description: req.qty + "x " + req.itemName + " voided (" + VOID_REASONS[body.reason].label + ", " + wasteClass + ") — " + req.status,
-          before: { qty: line.qty }, after: { voided: req.qty, status: req.status, reason: body.reason, wasteClass: wasteClass },
+          description: req.qty + "x " + req.itemName + " voided (" + VOID_REASONS[body.reason].label + ", " + wasteClass + ") — " +
+            req.status + (approvingAdmin ? " — cancelled by " + body.username + ", authorized on the spot by admin " + approvingAdmin : ""),
+          before: { qty: line.qty },
+          after: {
+            voided: req.qty, status: req.status, reason: body.reason, wasteClass: wasteClass,
+            cashierUsername: body.username, approvingAdmin: approvingAdmin || null,
+          },
         });
         return json_({ ok: true, request: req, state: withStockView_(getState_()) });
       }
