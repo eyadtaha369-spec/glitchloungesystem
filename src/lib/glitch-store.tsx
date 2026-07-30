@@ -36,7 +36,7 @@ import {
   forceEndShiftFn,
   transferZoneFn,
   logSplitInterfaceOpenedFn,
-  splitOrderFn,
+  splitBillFn,
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn,
@@ -161,7 +161,15 @@ interface StoreContextValue {
   // Cross-zone transfer & interactive split
   transferZone: (sourceId: string, targetId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   openSplitInterface: (roomId: string) => Promise<void>;
-  splitOrder: (sourceId: string, items: { menuItemId: string; qty: number }[]) => Promise<{ ok: boolean; error?: string }>;
+  splitBill: (params: {
+    roomId: string;
+    mode: "items" | "amount";
+    items?: { menuItemId: string; qty: number }[];
+    customAmount?: number;
+    paymentMethod: PaymentMethod;
+    cashAmount?: number;
+    secondaryAmount?: number;
+  }) => Promise<{ ok: boolean; error?: string; session?: Session }>;
   refreshActivityLogs: () => Promise<void>;
 }
 
@@ -615,11 +623,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // pending-tracked since it has no loading state of its own to show.
     await logSplitInterfaceOpenedFn({ data: { roomId } });
   };
-  const splitOrder: StoreContextValue["splitOrder"] = async (sourceId, items) => {
-    return withPending(`split:${sourceId}`, async () => {
-      const res = await splitOrderFn({ data: { sourceId, items } });
-      if (res.ok) setAppState(res.state);
-      return { ok: res.ok, error: res.error };
+  const splitBill: StoreContextValue["splitBill"] = async (params) => {
+    return withPending(`splitBill:${params.roomId}`, async () => {
+      try {
+        const res = await splitBillFn({ data: params });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error, session: res.session };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Split payment failed unexpectedly. Please try again." };
+      }
     });
   };
   const refreshActivityLogs: StoreContextValue["refreshActivityLogs"] = async () => {
@@ -691,7 +703,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, approveVoid, denyVoid, setFraudThreshold, setGeofenceConfig,
-    transferZone, openSplitInterface, splitOrder, refreshActivityLogs,
+    transferZone, openSplitInterface, splitBill, refreshActivityLogs,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

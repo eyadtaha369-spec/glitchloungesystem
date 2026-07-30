@@ -665,50 +665,124 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   };
 }
 
-function nextSplitInvoiceNumber_(state) {
-  return "SPL-" + String(Date.now()).slice(-6);
-}
+// In-Place Bill Splitting: takes a partial payment against an active
+// room/table's CURRENT live bill — either specific {menuItemId, qty} lines,
+// or a raw custom EGP amount not tied to any item — and settles it as its
+// own completed Session (own receipt, own payment method, own COGS/ledger
+// entry) immediately. Nothing new appears on the dashboard: the source
+// keeps its same id, same timer (if a room), same zone. Only its live
+// order list shrinks by whatever was just paid for.
+function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymentMethod, cashAmountInput, secondaryAmountInput) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Table/Room not found", state: state };
+  if (room.status !== "active") return { ok: false, error: "Table/Room is not active", state: state };
 
-// The Interactive Split Protocol: extracts specific {menuItemId, qty} lines
-// off an active room/table's current order into a brand-new, independent
-// invoice with its own number — the source keeps whatever wasn't extracted
-// and its timer (if a room) keeps running untouched.
-function bizSplitOrder_(state, sourceId, items) {
-  const source = state.rooms.find((r) => r.id === sourceId);
-  if (!source) return { ok: false, error: "Source not found", state: state };
-  if (source.status !== "active") return { ok: false, error: "Source is not active", state: state };
+  const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
+  let splitOrders = [];
+  let splitTotal = 0;
+  let cogs = 0;
+  const touchedBatchIds = [];
 
-  const extracted = [];
-  for (const req of items) {
-    const line = source.orders.find((o) => o.menuItemId === req.menuItemId);
-    if (!line || line.qty < req.qty || req.qty <= 0) {
-      return { ok: false, error: "Invalid item/qty to split: " + req.menuItemId, state: state };
+  if (mode === "items") {
+    if (!items || items.length === 0) return { ok: false, error: "No items selected to split", state: state };
+    for (const req of items) {
+      const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
+      if (!line || line.qty < req.qty || req.qty <= 0) {
+        return { ok: false, error: "Invalid item/qty to split", state: state };
+      }
     }
-    extracted.push(Object.assign({}, line, { qty: req.qty }));
+    items.forEach((req) => {
+      const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
+      splitOrders.push(Object.assign({}, line, { qty: req.qty }));
+      splitTotal += req.qty * line.price;
+      const menuItem = state.menu.find((m) => m.id === req.menuItemId);
+      if (menuItem) {
+        menuItem.ingredients.forEach((ing) => {
+          const res = consumeFifo_(batches, ing.stockId, ing.qty * req.qty);
+          cogs += res.cost;
+          touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+        });
+      }
+    });
+    // Deduct the paid quantities from the table's live order — this alone
+    // is what lowers its remaining balance, no separate field needed.
+    state.rooms = state.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      const orders = r.orders.map((o) => {
+        const ex = items.find((i) => i.menuItemId === o.menuItemId);
+        if (!ex) return o;
+        const newQty = o.qty - ex.qty;
+        return newQty <= 0 ? null : Object.assign({}, o, { qty: newQty });
+      }).filter((o) => o !== null);
+      return Object.assign({}, r, { orders: orders });
+    });
+  } else if (mode === "amount") {
+    const amt = Number(customAmount) || 0;
+    if (amt <= 0) return { ok: false, error: "Enter a valid split amount", state: state };
+    const durationSec = room.startedAt ? Math.max(1, Math.floor((Date.now() - room.startedAt) / 1000)) : 0;
+    const timeCostNow = room.hourlyRate ? (durationSec / 3600) * room.hourlyRate : 0;
+    const ordersCostNow = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+    const currentTotal = timeCostNow + ordersCostNow;
+    if (amt > currentTotal + 0.01) {
+      return { ok: false, error: "Split amount ($" + amt.toFixed(2) + ") exceeds the remaining balance ($" + currentTotal.toFixed(2) + ")", state: state };
+    }
+    splitTotal = amt;
+    splitOrders = [{ menuItemId: "partial-payment", name: "Partial Payment", qty: 1, price: amt }];
+    // A negative synthetic credit line is what actually lowers the table's
+    // displayed/eventual total for an amount not tied to specific items —
+    // the exact same pattern already used for the frozen room-transfer
+    // charge, just negative.
+    state.rooms = state.rooms.map((r) =>
+      r.id === roomId
+        ? Object.assign({}, r, { orders: r.orders.concat([{ menuItemId: "split-credit-" + Date.now(), name: "Partial Payment Applied", qty: 1, price: -amt }]) })
+        : r
+    );
+  } else {
+    return { ok: false, error: "Invalid split mode", state: state };
   }
-  if (extracted.length === 0) return { ok: false, error: "No items selected to split", state: state };
 
-  const invoiceNumber = nextSplitInvoiceNumber_(state);
+  let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
+  if (method === "cash") {
+    cashAmount = splitTotal;
+  } else if (method === "visa") {
+    visaAmount = splitTotal;
+  } else {
+    const c = Number(cashAmountInput) || 0;
+    const s = Number(secondaryAmountInput) || 0;
+    if (Math.abs(c + s - splitTotal) > 0.01) {
+      return {
+        ok: false,
+        error: "Cash + " + (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " must equal the split total ($" + splitTotal.toFixed(2) + ").",
+        state: state,
+      };
+    }
+    cashAmount = c;
+    if (method === "mixed_cash_visa") visaAmount = s; else instapayAmount = s;
+  }
+
   const now = Date.now();
-  const newTable = {
-    id: newId_("split"), name: "Split Invoice " + invoiceNumber, isVip: false, hourlyRate: 0,
-    status: "active", startedAt: now, orders: extracted, zone: "split",
-    splitInvoiceNumber: invoiceNumber, transferredFrom: source.name,
+  const splitSession = {
+    id: "split-" + now,
+    roomId: room.id,
+    roomName: room.name + " (Split)",
+    startedAt: now,
+    endedAt: now,
+    durationSec: 0,
+    timeCost: 0,
+    orders: splitOrders,
+    ordersCost: splitTotal,
+    total: splitTotal,
+    cogs: cogs,
+    splitBill: true,
+    paymentMethod: method,
+    cashAmount: cashAmount,
+    visaAmount: visaAmount,
+    instapayAmount: instapayAmount,
+    shiftId: state.activeShiftId || null,
   };
 
-  state.rooms = state.rooms.map((r) => {
-    if (r.id !== sourceId) return r;
-    const orders = r.orders.map((o) => {
-      const ex = items.find((i) => i.menuItemId === o.menuItemId);
-      if (!ex) return o;
-      const newQty = o.qty - ex.qty;
-      return newQty <= 0 ? null : Object.assign({}, o, { qty: newQty });
-    }).filter((o) => o !== null);
-    return Object.assign({}, r, { orders: orders });
-  }).concat([newTable]);
-
-  pushActivity_(state, "Split " + extracted.length + " item(s) off " + source.name + " into " + newTable.name);
-  return { ok: true, state: state, invoiceNumber: invoiceNumber, sourceName: source.name, extracted: extracted, newTableId: newTable.id };
+  pushActivity_(state, "Split payment of $" + splitTotal.toFixed(2) + " taken on " + room.name + " (" + method + ")");
+  return { ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), splitSession: splitSession };
 }
 
 // ---------- Void workflow ----------
@@ -1132,20 +1206,30 @@ function doPost(e) {
         return json_({ ok: true });
       }
 
-      case "splitOrder": {
+      case "splitBill": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizSplitOrder_(getState_(), body.sourceId, body.items);
-        if (result.ok) {
-          setState_(result.state);
-          logActivity_({
-            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_SPLIT",
-            location: result.sourceName, shiftId: result.state.activeShiftId,
-            description: result.extracted.length + " item(s) split from " + result.sourceName + " into invoice " + result.invoiceNumber,
-            before: { source: result.sourceName },
-            after: { invoiceNumber: result.invoiceNumber, extracted: result.extracted },
-          });
+        const batches = readObjects_("Batches");
+        const result = bizSplitBill_(getState_(), batches, body.roomId, body.mode, body.items, body.customAmount, body.paymentMethod, body.cashAmount, body.secondaryAmount);
+        if (!result.ok) {
+          return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
         }
-        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+        setState_(result.state);
+        writeBatchesBack_(batches, result.touchedBatchIds);
+        appendSessionRow_(result.splitSession);
+        appendObject_("Ledger", {
+          id: newId_("ledg"), ts: result.splitSession.endedAt, amount: result.splitSession.total, direction: "inflow",
+          type: "sale", category: "Split Payment", description: result.splitSession.roomName + " split payment",
+          supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+          paidFromDrawer: result.splitSession.cashAmount > 0, shiftId: result.splitSession.shiftId,
+          materialId: null, qty: null, unitCost: null,
+        });
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_SPLIT",
+          location: result.splitSession.roomName, shiftId: result.splitSession.shiftId,
+          description: "Split payment of $" + result.splitSession.total.toFixed(2) + " (" + body.mode + ", " + body.paymentMethod + ")",
+          after: { total: result.splitSession.total, mode: body.mode, paymentMethod: body.paymentMethod },
+        });
+        return json_({ ok: true, session: result.splitSession, state: withStockView_(result.state) });
       }
 
       case "addMenuItem": {

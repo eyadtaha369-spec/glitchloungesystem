@@ -130,11 +130,19 @@ export const logSplitInterfaceOpenedFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean }>("logSplitInterfaceOpened", { ...data, username: user.username });
   });
 
-export const splitOrderFn = createServerFn({ method: "POST" })
-  .validator((d: { sourceId: string; items: { menuItemId: string; qty: number }[] }) => d)
+export const splitBillFn = createServerFn({ method: "POST" })
+  .validator((d: {
+    roomId: string;
+    mode: "items" | "amount";
+    items?: { menuItemId: string; qty: number }[];
+    customAmount?: number;
+    paymentMethod: PaymentMethod;
+    cashAmount?: number;
+    secondaryAmount?: number;
+  }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("splitOrder", {
+    return callAppsScript<{ ok: boolean; error?: string; session?: Session; state: AppState }>("splitBill", {
       ...data,
       username: user.username,
     });

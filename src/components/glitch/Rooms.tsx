@@ -26,7 +26,6 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 
   const roomZone = state.rooms.filter((r) => r.zone === "room");
   const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
-  const splitZone = state.rooms.filter((r) => r.zone === "split");
   // Any room or lounge table is a valid transfer target regardless of which
   // view you're on — transfer is explicitly cross-zone.
   const transferTargets = [...roomZone, ...loungeZone];
@@ -59,19 +58,6 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
           ))}
         </div>
       </div>
-
-      {/* Split invoices are shown on both Rooms and Lounge views so whoever
-          created one can always find and check it out. */}
-      {splitZone.length > 0 && (
-        <div>
-          <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">Split Invoices</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {splitZone.map((r) => (
-              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
-            ))}
-          </div>
-        </div>
-      )}
 
       {receipt && <ReceiptModal session={receipt} onClose={() => setReceipt(null)} />}
     </div>
@@ -981,12 +967,17 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
 }
 
 function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
-  const { splitOrder, openSplitInterface } = useStore();
-  // Right-panel selection: menuItemId -> qty being extracted into the new split invoice.
+  const { splitBill, openSplitInterface } = useStore();
+  const [mode, setMode] = useState<"items" | "amount">("items");
+  // Items mode: menuItemId -> qty being split off onto the sub-bill.
   const [selected, setSelected] = useState<Record<string, number>>({});
+  const [amountInput, setAmountInput] = useState("");
+  const [paymentOption, setPaymentOption] = useState<PaymentMethod>("cash");
+  const [cashInput, setCashInput] = useState("");
+  const [secondaryInput, setSecondaryInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [splitReceipt, setSplitReceipt] = useState<Session | null>(null);
 
   useEffect(() => {
     openSplitInterface(room.id);
@@ -1005,80 +996,234 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
 
   const items = Object.entries(selected).map(([menuItemId, qty]) => ({ menuItemId, qty }));
   const selectedTotal = room.orders.reduce((a, o) => a + (selected[o.menuItemId] ?? 0) * o.price, 0);
+  const splitTotal = mode === "items" ? selectedTotal : parseFloat(amountInput) || 0;
+
+  const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
+  const mixedSum = (parseFloat(cashInput) || 0) + (parseFloat(secondaryInput) || 0);
+  const mixedValid = Math.abs(mixedSum - splitTotal) < 0.01;
 
   const submit = async () => {
-    if (items.length === 0) return;
-    setSubmitting(true);
     setErr(null);
+    if (mode === "items" && items.length === 0) { setErr("Select at least one item to split."); return; }
+    if (mode === "amount" && splitTotal <= 0) { setErr("Enter a valid split amount."); return; }
+    if (isMixed && !mixedValid) {
+      setErr(`Cash + ${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} must equal ${fmtMoney(splitTotal)} exactly.`);
+      return;
+    }
+    setSubmitting(true);
     try {
-      const res = await splitOrder(room.id, items);
-      if (!res.ok) { setErr(res.error ?? "Split failed"); return; }
-      setResult("Split invoice created — check the Split Invoices section to check it out independently.");
-      setTimeout(onClose, 1600);
+      const res = await splitBill({
+        roomId: room.id,
+        mode,
+        items: mode === "items" ? items : undefined,
+        customAmount: mode === "amount" ? splitTotal : undefined,
+        paymentMethod: paymentOption,
+        cashAmount: isMixed ? parseFloat(cashInput) || 0 : undefined,
+        secondaryAmount: isMixed ? parseFloat(secondaryInput) || 0 : undefined,
+      });
+      if (!res.ok) { setErr(res.error ?? "Split payment failed"); return; }
+      if (res.session) setSplitReceipt(res.session);
     } finally {
       setSubmitting(false);
     }
   };
 
+  // After a successful split, show the printable split receipt right here
+  // instead of closing — the cashier prints it immediately, then closes.
+  if (splitReceipt) {
+    return createPortal(
+      <div className="print-root fixed inset-0 z-[210] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="w-full max-w-md glass-strong rounded-2xl border border-white/10 shadow-2xl">
+          <div className="flex items-center justify-between p-4 border-b border-white/10">
+            <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.78_0.2_155)]">Split Receipt</div>
+            <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="print-area p-6 font-mono text-sm bg-black/20">
+            <div className="text-center mb-4 receipt-block">
+              <div className="text-xl font-bold tracking-widest">GLITCH</div>
+              <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Split Payment Receipt</div>
+            </div>
+            <div className="border-t border-b border-dashed border-white/30 py-2 my-2 text-xs receipt-block">
+              <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
+              <div className="flex justify-between"><span>Time</span><span>{new Date(splitReceipt.endedAt).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>Payment</span><span className="uppercase">{PAYMENT_LABELS[splitReceipt.paymentMethod]}</span></div>
+              {(splitReceipt.paymentMethod === "mixed_cash_visa" || splitReceipt.paymentMethod === "mixed_cash_instapay") && (
+                <>
+                  <div className="flex justify-between text-[10px] opacity-80"><span>&nbsp;&nbsp;Cash</span><span>{fmtMoney(splitReceipt.cashAmount)}</span></div>
+                  <div className="flex justify-between text-[10px] opacity-80">
+                    <span>&nbsp;&nbsp;{splitReceipt.paymentMethod === "mixed_cash_visa" ? "Visa" : "InstaPay"}</span>
+                    <span>{fmtMoney(splitReceipt.paymentMethod === "mixed_cash_visa" ? splitReceipt.visaAmount : splitReceipt.instapayAmount)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mt-2 space-y-1">
+              {splitReceipt.orders.map((o) => (
+                <div key={o.menuItemId} className="flex justify-between receipt-line">
+                  <span>{o.qty}× {o.name}</span>
+                  <span>{fmtMoney(o.qty * o.price)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-double border-white/40 mt-3 pt-2 flex justify-between text-base font-bold receipt-block">
+              <span>SUB-BILL TOTAL</span><span>{fmtMoney(splitReceipt.total)}</span>
+            </div>
+            <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">Partial Payment — Table Remains Open</div>
+          </div>
+          <div className="p-4 border-t border-white/10 flex justify-end gap-2 no-print">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Close</button>
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-semibold shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)]"
+            >
+              <Printer className="w-4 h-4" /> Print
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
-      <div className="w-full max-w-2xl glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
-            <SplitSquareHorizontal className="w-4 h-4" /> Split {room.name}
+            <SplitSquareHorizontal className="w-4 h-4" /> Split Payment — {room.name}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-white"><X className="w-4 h-4" /></button>
         </div>
         <p className="px-4 pt-3 text-xs text-muted-foreground">
-          Move items to the right to extract them into a brand-new, independent invoice. {room.name} keeps everything you don't move (and its timer, if any, keeps running).
+          Takes an immediate partial payment against {room.name}'s live bill. {room.name} stays open with its remaining balance reduced accordingly — nothing new appears on the dashboard.
         </p>
-        <div className="grid grid-cols-2 gap-4 p-4">
-          <div>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Staying on {room.name}</div>
-            <div className="space-y-2">
-              {room.orders.map((o) => {
-                const moved = selected[o.menuItemId] ?? 0;
-                const remaining = o.qty - moved;
-                if (remaining <= 0) return null;
-                return (
-                  <div key={o.menuItemId} className="flex items-center justify-between bg-black/30 rounded-lg p-2.5 border border-white/5 text-sm">
-                    <span>{remaining}x {o.name}</span>
-                    <button onClick={() => move(o.menuItemId, o.qty, 1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move one to split">
-                      <Plus className="w-3.5 h-3.5" />
+
+        <div className="flex gap-2 px-4 pt-3">
+          <button
+            onClick={() => setMode("items")}
+            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "items" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+          >
+            Split by Items
+          </button>
+          <button
+            onClick={() => setMode("amount")}
+            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "amount" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-white/5 border-white/10 text-muted-foreground"}`}
+          >
+            Split by Amount
+          </button>
+        </div>
+
+        {mode === "items" ? (
+          <div className="grid grid-cols-2 gap-4 p-4">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Remaining on {room.name}</div>
+              <div className="space-y-2">
+                {room.orders.map((o) => {
+                  const moved = selected[o.menuItemId] ?? 0;
+                  const remaining = o.qty - moved;
+                  if (remaining <= 0) return null;
+                  return (
+                    <div key={o.menuItemId} className="flex items-center justify-between bg-black/30 rounded-lg p-2.5 border border-white/5 text-sm">
+                      <span>{remaining}x {o.name}</span>
+                      <button onClick={() => move(o.menuItemId, o.qty, 1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move to sub-bill">
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {room.orders.length === 0 && <div className="text-xs text-muted-foreground italic">No items on this bill</div>}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-[oklch(0.85_0.16_200)] mb-2">Sub-Bill (pay now)</div>
+              <div className="space-y-2 min-h-[60px]">
+                {items.length === 0 && <div className="text-xs text-muted-foreground italic p-2.5">Nothing selected yet</div>}
+                {room.orders.filter((o) => selected[o.menuItemId]).map((o) => (
+                  <div key={o.menuItemId} className="flex items-center justify-between bg-[oklch(0.7_0.19_260/0.1)] rounded-lg p-2.5 border border-[oklch(0.7_0.19_260/0.4)] text-sm">
+                    <span>{selected[o.menuItemId]}x {o.name}</span>
+                    <button onClick={() => move(o.menuItemId, o.qty, -1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move back">
+                      <Minus className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
           </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-widest text-[oklch(0.85_0.16_200)] mb-2">New Split Invoice</div>
-            <div className="space-y-2 min-h-[60px]">
-              {items.length === 0 && <div className="text-xs text-muted-foreground italic p-2.5">Nothing selected yet</div>}
-              {room.orders.filter((o) => selected[o.menuItemId]).map((o) => (
-                <div key={o.menuItemId} className="flex items-center justify-between bg-[oklch(0.7_0.19_260/0.1)] rounded-lg p-2.5 border border-[oklch(0.7_0.19_260/0.4)] text-sm">
-                  <span>{selected[o.menuItemId]}x {o.name}</span>
-                  <button onClick={() => move(o.menuItemId, o.qty, -1)} className="w-6 h-6 flex items-center justify-center rounded bg-white/5 border border-white/10 hover:bg-white/10" title="Move back">
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            {items.length > 0 && (
-              <div className="mt-2 text-xs font-mono text-muted-foreground">Split total: {fmtMoney(selectedTotal)}</div>
-            )}
+        ) : (
+          <div className="p-4">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Custom Split Amount</label>
+            <input
+              type="number" step="0.01" autoFocus value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              placeholder="0.00"
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-2xl font-mono font-bold"
+            />
+            <p className="text-xs text-muted-foreground mt-2">Not tied to specific items — reduces {room.name}'s remaining balance by this amount directly.</p>
           </div>
+        )}
+
+        <div className="px-4 pb-2 flex justify-between text-sm font-mono">
+          <span className="text-muted-foreground">Sub-Bill Total</span>
+          <span className="font-bold text-lg">{fmtMoney(splitTotal)}</span>
         </div>
-        {err && <div className="px-4 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
-        {result && <div className="px-4 text-sm text-[oklch(0.78_0.2_155)]">{result}</div>}
+
+        <div className="px-4 pb-4">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground pt-2 pb-2">Payment Method</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setPaymentOption("cash")}
+              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] border-[oklch(0.78_0.2_155/0.6)]" : "bg-[oklch(0.78_0.2_155/0.08)] border-[oklch(0.78_0.2_155/0.3)]"} text-[oklch(0.78_0.2_155)]`}
+            >
+              <Banknote className="w-4 h-4" /> <span className="text-[11px] font-semibold uppercase">Cash</span>
+            </button>
+            <button
+              onClick={() => setPaymentOption("visa")}
+              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.25)] border-[oklch(0.7_0.19_260/0.6)]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)]"} text-[oklch(0.85_0.16_200)]`}
+            >
+              <CreditCard className="w-4 h-4" /> <span className="text-[11px] font-semibold uppercase">Visa</span>
+            </button>
+            <button
+              onClick={() => setPaymentOption("mixed_cash_visa")}
+              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "mixed_cash_visa" ? "bg-[oklch(0.82_0.16_85/0.25)] border-[oklch(0.82_0.16_85/0.6)]" : "bg-[oklch(0.82_0.16_85/0.08)] border-[oklch(0.82_0.16_85/0.3)]"} text-[oklch(0.82_0.16_85)]`}
+            >
+              <SplitSquareHorizontal className="w-4 h-4" /> <span className="text-[10px] font-semibold uppercase">Cash + Visa</span>
+            </button>
+            <button
+              onClick={() => setPaymentOption("mixed_cash_instapay")}
+              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "mixed_cash_instapay" ? "bg-[oklch(0.65_0.24_305/0.25)] border-[oklch(0.65_0.24_305/0.6)]" : "bg-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.65_0.24_305/0.3)]"} text-[oklch(0.75_0.2_305)]`}
+            >
+              <SplitSquareHorizontal className="w-4 h-4" /> <span className="text-[10px] font-semibold uppercase">Cash + InstaPay</span>
+            </button>
+          </div>
+
+          {isMixed && (
+            <div className="space-y-2 mt-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter Cash Amount</label>
+                <input type="number" step="0.01" value={cashInput} onChange={(e) => setCashInput(e.target.value)} placeholder="0.00" className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount</label>
+                <input type="number" step="0.01" value={secondaryInput} onChange={(e) => setSecondaryInput(e.target.value)} placeholder="0.00" className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              </div>
+              <div className={`flex justify-between text-xs font-mono px-1 ${mixedValid ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+                <span>Entered: {fmtMoney(mixedSum)}</span>
+                <span>{mixedValid ? "✓ matches sub-bill" : `Needs ${fmtMoney(splitTotal)}`}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {err && <div className="px-4 pb-3 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+
         <div className="p-4 border-t border-white/10 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10">Cancel</button>
           <button
             onClick={submit}
-            disabled={submitting || items.length === 0}
-            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-semibold disabled:opacity-60"
+            disabled={submitting}
+            className="px-5 py-2.5 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-semibold disabled:opacity-60"
           >
-            {submitting ? "Splitting..." : "Create Split Invoice"}
+            {submitting ? "Processing..." : "Confirm & Print Split Receipt"}
           </button>
         </div>
       </div>
