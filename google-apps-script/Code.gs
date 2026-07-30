@@ -105,14 +105,14 @@ function defaultAppState_() {
   ];
   const rooms = [];
   for (let i = 1; i <= 8; i++) {
-    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 0, singleRate: 5, multiRate: 8, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
+    rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 0, singleRate: 5, multiRate: 8, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   }
-  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 0, singleRate: 10, multiRate: 15, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
+  rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 0, singleRate: 10, multiRate: 15, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   for (let i = 1; i <= 4; i++) {
-    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
+    rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   }
   for (let i = 1; i <= 6; i++) {
-    rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true });
+    rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   }
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
@@ -323,6 +323,7 @@ const ACTION_RISK = {
   START_SHIFT: "green", END_SHIFT: "green", FORCE_END_SHIFT: "yellow",
   GEOFENCE_DENIED: "red",
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
+  ROOM_PAUSED: "green", ROOM_RESUMED: "green",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow",
   EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
@@ -531,11 +532,52 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
 
-function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput) {
+// Effective elapsed seconds since the room started, EXCLUDING all paused
+// time (past pauses already accumulated in pausedDurationSec, plus the
+// currently-in-progress pause if it's paused right now). This is the ONE
+// place duration is computed from, so pausing genuinely stops billing
+// everywhere: checkout, transfers, and split payments alike.
+function effectiveDurationSec_(room, atTime) {
+  if (!room.startedAt) return 0;
+  const raw = (atTime - room.startedAt) / 1000;
+  const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (atTime - room.pausedAt) / 1000 : 0);
+  return Math.max(0, raw - pausedSoFar);
+}
+
+function bizPauseRoom_(state, roomId) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state: state };
+  if (room.status !== "active") return { ok: false, error: "Room is not active", state: state };
+  if (room.isPaused) return { ok: true, state: state };
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { isPaused: true, pausedAt: Date.now() }) : r));
+  pushActivity_(state, room.name + " session paused");
+  return { ok: true, state: state };
+}
+
+function bizResumeRoom_(state, roomId) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state: state };
+  if (!room.isPaused) return { ok: true, state: state };
+  const now = Date.now();
+  const addedPause = room.pausedAt ? (now - room.pausedAt) / 1000 : 0;
+  state.rooms = state.rooms.map((r) =>
+    r.id === roomId ? Object.assign({}, r, { isPaused: false, pausedAt: null, pausedDurationSec: (r.pausedDurationSec || 0) + addedPause }) : r
+  );
+  pushActivity_(state, room.name + " session resumed");
+  return { ok: true, state: state };
+}
+
+function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state, touchedBatchIds: [], error: null };
-  const endedAt = Date.now();
-  const durationSec = Math.max(1, Math.floor((endedAt - room.startedAt) / 1000));
+  // If the client froze the moment "End Order" was clicked, honor that
+  // instead of Date.now() — otherwise the customer would keep accruing
+  // time charges for however long the cashier takes to fill in payment
+  // details. Clamp to a sane range (can't be before the room started or
+  // in the future) so a bad/stale value can't be exploited either way.
+  const now = Date.now();
+  const endedAt = (typeof frozenAt === "number" && frozenAt >= room.startedAt && frozenAt <= now) ? frozenAt : now;
+  const durationSec = Math.max(1, Math.floor(effectiveDurationSec_(room, endedAt)));
   const timeCost = (durationSec / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const preDiscountTotal = timeCost + ordersCost;
@@ -556,6 +598,12 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     // split MUST sum to exactly the ticket total, or checkout is refused.
     const c = Number(cashAmountInput) || 0;
     const s = Number(secondaryAmountInput) || 0;
+    if (s > total + 0.01) {
+      return {
+        session: null, state: state, touchedBatchIds: [],
+        error: (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " amount ($" + s.toFixed(2) + ") can't exceed the ticket total ($" + total.toFixed(2) + ").",
+      };
+    }
     if (Math.abs(c + s - total) > 0.01) {
       return {
         session: null, state: state, touchedBatchIds: [],
@@ -652,7 +700,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   let durationSec = 0;
   let roomCharge = 0;
   if (source.zone === "room" && source.startedAt) {
-    durationSec = Math.max(1, Math.floor((now - source.startedAt) / 1000));
+    durationSec = Math.max(1, Math.floor(effectiveDurationSec_(source, now)));
     roomCharge = (durationSec / 3600) * source.hourlyRate;
   }
 
@@ -756,7 +804,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   } else if (mode === "amount") {
     const amt = Number(customAmount) || 0;
     if (amt <= 0) return { ok: false, error: "Enter a valid split amount", state: state };
-    const durationSec = room.startedAt ? Math.max(1, Math.floor((Date.now() - room.startedAt) / 1000)) : 0;
+    const durationSec = room.startedAt ? Math.max(1, Math.floor(effectiveDurationSec_(room, Date.now()))) : 0;
     const timeCostNow = room.hourlyRate ? (durationSec / 3600) * room.hourlyRate : 0;
     const ordersCostNow = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
     const currentTotal = timeCostNow + ordersCostNow;
@@ -793,6 +841,13 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   } else {
     const c = Number(cashAmountInput) || 0;
     const s = Number(secondaryAmountInput) || 0;
+    if (s > splitTotal + 0.01) {
+      return {
+        ok: false,
+        error: (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " amount ($" + s.toFixed(2) + ") can't exceed the sub-bill total ($" + splitTotal.toFixed(2) + ").",
+        state: state,
+      };
+    }
     if (Math.abs(c + s - splitTotal) > 0.01) {
       return {
         ok: false,
@@ -1190,10 +1245,38 @@ function doPost(e) {
         }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
+      case "pauseRoom": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const state0 = getState_();
+        const before = state0.rooms.find((r) => r.id === body.roomId);
+        const result = bizPauseRoom_(state0, body.roomId);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+        setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_PAUSED",
+          location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
+          description: (before ? before.name : body.roomId) + " session paused",
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+      case "resumeRoom": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const state0 = getState_();
+        const before = state0.rooms.find((r) => r.id === body.roomId);
+        const result = bizResumeRoom_(state0, body.roomId);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+        setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_RESUMED",
+          location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
+          description: (before ? before.name : body.roomId) + " session resumed",
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
       case "endRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount);
+        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt);
         if (result.error) {
           return json_({ session: null, error: result.error, state: withStockView_(result.state) });
         }
@@ -2156,25 +2239,28 @@ function getState_() {
           parsed.rooms = parsed.rooms.map(function (r) {
             const withZone = r.zone ? r : Object.assign({}, r, { zone: "room", splitInvoiceNumber: null, transferredFrom: null });
             const withOwnerFlag = typeof withZone.isOwnerTable === "boolean" ? withZone : Object.assign({}, withZone, { isOwnerTable: false });
-            if (typeof withOwnerFlag.singleRate === "number") return withOwnerFlag;
-            const legacyRate = typeof withOwnerFlag.hourlyRate === "number" ? withOwnerFlag.hourlyRate : 0;
-            return Object.assign({}, withOwnerFlag, {
-              singleRate: withOwnerFlag.zone === "room" ? (legacyRate || 5) : 0,
-              multiRate: withOwnerFlag.zone === "room" ? (legacyRate ? legacyRate * 1.6 : 8) : 0,
-              rateMode: withOwnerFlag.status === "active" && withOwnerFlag.zone === "room" ? "single" : null,
-              hourlyRate: withOwnerFlag.status === "active" ? legacyRate : 0,
+            const withPauseFields = typeof withOwnerFlag.isPaused === "boolean"
+              ? withOwnerFlag
+              : Object.assign({}, withOwnerFlag, { isPaused: false, pausedAt: null, pausedDurationSec: 0 });
+            if (typeof withPauseFields.singleRate === "number") return withPauseFields;
+            const legacyRate = typeof withPauseFields.hourlyRate === "number" ? withPauseFields.hourlyRate : 0;
+            return Object.assign({}, withPauseFields, {
+              singleRate: withPauseFields.zone === "room" ? (legacyRate || 5) : 0,
+              multiRate: withPauseFields.zone === "room" ? (legacyRate ? legacyRate * 1.6 : 8) : 0,
+              rateMode: withPauseFields.status === "active" && withPauseFields.zone === "room" ? "single" : null,
+              hourlyRate: withPauseFields.status === "active" ? legacyRate : 0,
             });
           });
           const hasLounge = parsed.rooms.some(function (r) { return r.zone === "lounge" && !r.isOwnerTable; });
           if (!hasLounge) {
             for (let i = 1; i <= 4; i++) {
-              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false });
+              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
             }
           }
           const hasOwnerTables = parsed.rooms.some(function (r) { return r.isOwnerTable; });
           if (!hasOwnerTables) {
             for (let i = 1; i <= 6; i++) {
-              parsed.rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true });
+              parsed.rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
             }
           }
         }

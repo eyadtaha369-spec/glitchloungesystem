@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
-import { Play, Square, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
+import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
+
+// Mirrors the server's effectiveDurationSec_: elapsed seconds at an
+// arbitrary point in time, excluding all paused time. Used to freeze the
+// checkout bill to the exact moment "End" was clicked.
+function effectiveElapsedAt(room: Room, atMs: number): number {
+  if (!room.startedAt) return 0;
+  const raw = (atMs - room.startedAt) / 1000;
+  const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (atMs - room.pausedAt) / 1000 : 0);
+  return Math.max(0, raw - pausedSoFar);
+}
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   cash: "Cash",
@@ -78,11 +88,12 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 }
 
 function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
-  const { state, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [frozenAt, setFrozenAt] = useState<number | null>(null);
   const [ticketOpen, setTicketOpen] = useState(false);
   const [warn, setWarn] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
@@ -137,31 +148,49 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
   };
 
   const [paymentOption, setPaymentOption] = useState<PaymentMethod>("cash");
-  const [cashInput, setCashInput] = useState("");
   const [secondaryInput, setSecondaryInput] = useState("");
   const [checkoutErr, setCheckoutErr] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
 
-  const mixedSum = (parseFloat(cashInput) || 0) + (parseFloat(secondaryInput) || 0);
-  const mixedValid = Math.abs(mixedSum - total) < 0.01;
+  // Once "End" is clicked, frozenAt locks the bill to that exact instant —
+  // the customer isn't charged extra time for however long the payment
+  // step takes. checkoutTotal (not the live, still-ticking `total`) is
+  // what the modal displays and what's actually charged.
+  const checkoutElapsed = frozenAt !== null ? Math.floor(effectiveElapsedAt(room, frozenAt)) : elapsed;
+  const checkoutTimeCost = (checkoutElapsed / 3600) * room.hourlyRate;
+  const checkoutPreDiscountTotal = checkoutTimeCost + ordersCost;
+  const checkoutDiscountAmount = room.isOwnerTable ? Math.round(checkoutPreDiscountTotal * 0.25 * 100) / 100 : 0;
+  const checkoutTotal = checkoutPreDiscountTotal - checkoutDiscountAmount;
+
   const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
+  const secondaryAmount = parseFloat(secondaryInput) || 0;
+  // Cashier enters only the Visa/InstaPay amount — Cash is always
+  // whatever's left of the total, computed automatically.
+  const cashAmount = Math.max(0, checkoutTotal - secondaryAmount);
+  const secondaryExceedsTotal = secondaryAmount > checkoutTotal + 0.005;
 
   const handleCheckout = async () => {
     setCheckoutErr(null);
-    if (isMixed && !mixedValid) {
-      setCheckoutErr(`Cash + ${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} must equal ${fmtMoney(total)} exactly.`);
+    if (isMixed && (secondaryAmount <= 0 || secondaryExceedsTotal)) {
+      setCheckoutErr(
+        secondaryExceedsTotal
+          ? `${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount can't exceed the total (${fmtMoney(checkoutTotal)}).`
+          : `Enter the ${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount.`,
+      );
       return;
     }
     setCheckingOut(true);
     try {
       const res = await endRoom(
         room.id, split, paymentOption,
-        isMixed ? parseFloat(cashInput) || 0 : undefined,
-        isMixed ? parseFloat(secondaryInput) || 0 : undefined,
+        isMixed ? cashAmount : undefined,
+        isMixed ? secondaryAmount : undefined,
+        frozenAt ?? undefined,
       );
       if (res.error) { setCheckoutErr(res.error); return; }
       setCheckoutOpen(false);
-      setCashInput(""); setSecondaryInput(""); setPaymentOption("cash");
+      setFrozenAt(null);
+      setSecondaryInput(""); setPaymentOption("cash");
       if (res.session) onCheckout(res.session);
     } finally {
       setCheckingOut(false);
@@ -218,13 +247,21 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
           )}
         </div>
         <div className={`shrink-0 text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
-          room.status === "active"
+          room.isPaused
+            ? "bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border-[oklch(0.82_0.16_85/0.5)]"
+            : room.status === "active"
             ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
             : "bg-white/5 text-muted-foreground border-white/10"
         }`}>
-          {room.status === "active" ? "● Active" : "○ Available"}
+          {room.isPaused ? "⏸ Paused" : room.status === "active" ? "● Active" : "○ Available"}
         </div>
       </div>
+
+      {room.isPaused && (
+        <div className="mt-2 text-[10px] uppercase tracking-widest text-[oklch(0.82_0.16_85)] font-mono" dir="rtl">
+          موقوف مؤقتاً — الوقت متوقف
+        </div>
+      )}
 
       {/* Rate */}
       {room.zone === "room" && (
@@ -270,8 +307,8 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
       {/* Timer + cost */}
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="bg-black/40 rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed</div>
-          <div className={`mt-1 font-mono text-2xl font-bold ${room.status === "active" ? "text-[oklch(0.85_0.16_200)]" : "text-muted-foreground"}`}>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
+          <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.85_0.16_200)]" : "text-muted-foreground"}`}>
             {fmtDuration(elapsed)}
           </div>
         </div>
@@ -453,8 +490,25 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               </button>
               {menuOpen && <MenuPickerModal room={room} onClose={() => setMenuOpen(false)} onOrder={handleOrder} canFulfill={canFulfill} state={state} />}
             </div>
+            {room.zone === "room" && (
+              room.isPaused ? (
+                <button
+                  onClick={() => void resumeRoom(room.id)}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.78_0.2_155/0.25)] transition"
+                >
+                  <Play className="w-4 h-4" /> Resume
+                </button>
+              ) : (
+                <button
+                  onClick={() => void pauseRoom(room.id)}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.82_0.16_85/0.25)] transition"
+                >
+                  <Pause className="w-4 h-4" /> Pause
+                </button>
+              )
+            )}
             <button
-              onClick={() => setCheckoutOpen(true)}
+              onClick={() => { setFrozenAt(Date.now()); setCheckoutOpen(true); }}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
             >
               <Square className="w-4 h-4" /> End
@@ -464,16 +518,21 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
       </div>
 
       {checkoutOpen && createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => setCheckoutOpen(false)}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
               <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.75_0.22_25)]">{room.name} · Checkout</div>
-              <button onClick={() => setCheckoutOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-white transition"><X className="w-6 h-6" /></button>
+              <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-white transition"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-6 space-y-5">
+              {room.zone === "room" && (
+                <div className="text-center text-[10px] uppercase tracking-widest text-[oklch(0.82_0.16_85)] font-mono">
+                  Timer frozen at {fmtDuration(checkoutElapsed)} — no extra time is being charged while you complete this payment
+                </div>
+              )}
               <div className="text-center py-2">
                 <div className="text-xs uppercase tracking-widest text-muted-foreground">Total Due</div>
-                <div className="text-6xl font-mono font-black mt-2">{fmtMoney(total)}</div>
+                <div className="text-6xl font-mono font-black mt-2">{fmtMoney(checkoutTotal)}</div>
               </div>
               <div className="text-sm uppercase tracking-widest font-bold text-muted-foreground pt-2">Payment Method</div>
               <div className="grid grid-cols-2 gap-3">
@@ -506,29 +565,26 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               {isMixed && (
                 <div className="space-y-4 pt-2 p-4 rounded-2xl bg-black/30 border border-white/10">
                   <div>
-                    <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">Enter Cash Amount</label>
-                    <input
-                      type="number" step="0.01" autoFocus value={cashInput}
-                      onChange={(e) => setCashInput(e.target.value)}
-                      placeholder="0.00"
-                      className="mt-2 w-full bg-black/50 border-2 border-white/15 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
-                    />
-                  </div>
-                  <div>
                     <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">
                       Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount
                     </label>
                     <input
-                      type="number" step="0.01" value={secondaryInput}
+                      type="number" step="0.01" autoFocus value={secondaryInput}
                       onChange={(e) => setSecondaryInput(e.target.value)}
                       placeholder="0.00"
-                      className="mt-2 w-full bg-black/50 border-2 border-white/15 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
+                      max={total}
+                      className={`mt-2 w-full bg-black/50 border-2 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)] ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-white/15"}`}
                     />
                   </div>
-                  <div className={`flex justify-between text-sm font-mono font-bold px-1 ${mixedValid ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
-                    <span>Entered: {fmtMoney(mixedSum)}</span>
-                    <span>{mixedValid ? "✓ Matches Total" : `Needs ${fmtMoney(total)}`}</span>
+                  <div className="flex items-center justify-between rounded-xl bg-[oklch(0.78_0.2_155/0.1)] border border-[oklch(0.78_0.2_155/0.3)] px-4 py-4">
+                    <span className="text-sm uppercase tracking-widest font-bold text-[oklch(0.78_0.2_155)]">Cash (Auto-Calculated)</span>
+                    <span className="text-2xl font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(cashAmount)}</span>
                   </div>
+                  {secondaryExceedsTotal && (
+                    <div className="text-sm font-mono font-bold text-[oklch(0.75_0.22_25)] px-1">
+                      {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount can't exceed the total ({fmtMoney(total)}).
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1015,7 +1071,6 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [amountInput, setAmountInput] = useState("");
   const [paymentOption, setPaymentOption] = useState<PaymentMethod>("cash");
-  const [cashInput, setCashInput] = useState("");
   const [secondaryInput, setSecondaryInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1041,15 +1096,21 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const splitTotal = mode === "items" ? selectedTotal : parseFloat(amountInput) || 0;
 
   const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
-  const mixedSum = (parseFloat(cashInput) || 0) + (parseFloat(secondaryInput) || 0);
-  const mixedValid = Math.abs(mixedSum - splitTotal) < 0.01;
+  // Cashier enters only the Visa/InstaPay amount — Cash is auto-calculated.
+  const secondaryAmount = parseFloat(secondaryInput) || 0;
+  const cashAmount = Math.max(0, splitTotal - secondaryAmount);
+  const secondaryExceedsTotal = secondaryAmount > splitTotal + 0.005;
 
   const submit = async () => {
     setErr(null);
     if (mode === "items" && items.length === 0) { setErr("Select at least one item to split."); return; }
     if (mode === "amount" && splitTotal <= 0) { setErr("Enter a valid split amount."); return; }
-    if (isMixed && !mixedValid) {
-      setErr(`Cash + ${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} must equal ${fmtMoney(splitTotal)} exactly.`);
+    if (isMixed && (secondaryAmount <= 0 || secondaryExceedsTotal)) {
+      setErr(
+        secondaryExceedsTotal
+          ? `${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount can't exceed the sub-bill total (${fmtMoney(splitTotal)}).`
+          : `Enter the ${paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount.`,
+      );
       return;
     }
     setSubmitting(true);
@@ -1060,8 +1121,8 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
         items: mode === "items" ? items : undefined,
         customAmount: mode === "amount" ? splitTotal : undefined,
         paymentMethod: paymentOption,
-        cashAmount: isMixed ? parseFloat(cashInput) || 0 : undefined,
-        secondaryAmount: isMixed ? parseFloat(secondaryInput) || 0 : undefined,
+        cashAmount: isMixed ? cashAmount : undefined,
+        secondaryAmount: isMixed ? secondaryAmount : undefined,
       });
       if (!res.ok) { setErr(res.error ?? "Split payment failed"); return; }
       if (res.session) setSplitReceipt(res.session);
@@ -1251,17 +1312,21 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           {isMixed && (
             <div className="space-y-2 mt-3">
               <div>
-                <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter Cash Amount</label>
-                <input type="number" step="0.01" value={cashInput} onChange={(e) => setCashInput(e.target.value)} placeholder="0.00" className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
-              </div>
-              <div>
                 <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Enter {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} Amount</label>
-                <input type="number" step="0.01" value={secondaryInput} onChange={(e) => setSecondaryInput(e.target.value)} placeholder="0.00" className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                <input
+                  type="number" step="0.01" value={secondaryInput} onChange={(e) => setSecondaryInput(e.target.value)} placeholder="0.00"
+                  className={`mt-1 w-full bg-black/40 border rounded-lg px-3 py-2 text-sm font-mono ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-white/10"}`}
+                />
               </div>
-              <div className={`flex justify-between text-xs font-mono px-1 ${mixedValid ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
-                <span>Entered: {fmtMoney(mixedSum)}</span>
-                <span>{mixedValid ? "✓ matches sub-bill" : `Needs ${fmtMoney(splitTotal)}`}</span>
+              <div className="flex items-center justify-between rounded-lg bg-[oklch(0.78_0.2_155/0.1)] border border-[oklch(0.78_0.2_155/0.3)] px-3 py-2">
+                <span className="text-[10px] uppercase tracking-widest text-[oklch(0.78_0.2_155)]">Cash (Auto)</span>
+                <span className="text-sm font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(cashAmount)}</span>
               </div>
+              {secondaryExceedsTotal && (
+                <div className="text-xs font-mono text-[oklch(0.75_0.22_25)] px-1">
+                  Can't exceed the sub-bill total ({fmtMoney(splitTotal)}).
+                </div>
+              )}
             </div>
           )}
         </div>

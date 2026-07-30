@@ -24,6 +24,8 @@ import {
   getStateFn,
   startRoomFn,
   endRoomFn,
+  pauseRoomFn,
+  resumeRoomFn,
   addOrderFn,
   setOrderLineQtyFn,
   setOrderLineNoteFn,
@@ -108,7 +110,9 @@ interface StoreContextValue {
   setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
   renameRoom: (roomId: string, name: string) => Promise<{ ok: boolean; error?: string }>;
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
-  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number) => Promise<{ session: Session | null; error?: string }>;
+  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number) => Promise<{ session: Session | null; error?: string }>;
+  pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineNote: (roomId: string, menuItemId: string, notes: string) => Promise<{ ok: boolean; error?: string }>;
@@ -366,13 +370,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
-  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod, cashAmount, secondaryAmount) => {
+  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt) => {
     return withPending(`endRoom:${roomId}`, async () => {
       // No optimistic clear here — a mixed-payment split that doesn't sum
       // to the ticket total is rejected server-side, and the room must
       // stay exactly as it was so the cashier can correct the amounts.
       try {
-        const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount } });
+        const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt } });
         setAppState(res.state);
         return { session: res.session, error: res.error };
       } catch (err) {
@@ -380,6 +384,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // against a stale Apps Script deployment) would otherwise vanish
         // as a silent unhandled rejection — always surface something.
         return { session: null, error: err instanceof Error ? err.message : "Checkout failed unexpectedly. Please try again." };
+      }
+    });
+  };
+  const pauseRoom: StoreContextValue["pauseRoom"] = async (roomId) => {
+    return withPending(`pauseRoom:${roomId}`, async () => {
+      try {
+        const res = await pauseRoomFn({ data: { roomId } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not pause session." };
+      }
+    });
+  };
+  const resumeRoom: StoreContextValue["resumeRoom"] = async (roomId) => {
+    return withPending(`resumeRoom:${roomId}`, async () => {
+      try {
+        const res = await resumeRoomFn({ data: { roomId } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not resume session." };
       }
     });
   };
@@ -730,7 +756,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const computeElapsed = (room: Room) => {
     if (!room.startedAt || room.status !== "active") return 0;
-    return Math.max(0, Math.floor((Date.now() - room.startedAt) / 1000));
+    const now = Date.now();
+    const raw = (now - room.startedAt) / 1000;
+    const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (now - room.pausedAt) / 1000 : 0);
+    return Math.max(0, Math.floor(raw - pausedSoFar));
   };
 
   const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders };
@@ -738,7 +767,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, importMenuCatalog,

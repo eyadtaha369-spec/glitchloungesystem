@@ -23,13 +23,27 @@ export const startRoomFn = createServerFn({ method: "POST" })
   });
 
 export const endRoomFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; splitBill: boolean; paymentMethod: PaymentMethod; cashAmount?: number; secondaryAmount?: number }) => d)
+  .validator((d: { roomId: string; splitBill: boolean; paymentMethod: PaymentMethod; cashAmount?: number; secondaryAmount?: number; frozenAt?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ session: Session | null; error?: string; state: AppState }>("endRoom", {
       ...data,
       username: user.username,
     });
+  });
+
+export const pauseRoomFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("pauseRoom", { ...data, username: user.username });
+  });
+
+export const resumeRoomFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("resumeRoom", { ...data, username: user.username });
   });
 
 export const addOrderFn = createServerFn({ method: "POST" })

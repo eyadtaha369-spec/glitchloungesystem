@@ -67,6 +67,12 @@ export interface Room {
   status: "available" | "active";
   startedAt: number | null;
   orders: OrderLine[];
+  // Pause/Resume: while paused, elapsed time (and therefore billing) stops
+  // accumulating entirely — pausedDurationSec is the cumulative total of
+  // all past pauses, subtracted from the raw elapsed time at billing.
+  isPaused: boolean;
+  pausedAt: number | null;
+  pausedDurationSec: number;
   // "room" = the original timed bays/VIP suite. "lounge" = a no-time-charge
   // table customers can be transferred to. "split" = an ephemeral
   // independent invoice created by extracting items off another active
