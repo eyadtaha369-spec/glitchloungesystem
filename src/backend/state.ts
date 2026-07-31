@@ -22,6 +22,13 @@ export const startRoomFn = createServerFn({ method: "POST" })
     });
   });
 
+export const logWasteMarketingFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("logWasteMarketing", { ...data, username: user.username });
+  });
+
 export const endRoomFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; splitBill: boolean; paymentMethod: PaymentMethod; cashAmount?: number; secondaryAmount?: number; frozenAt?: number }) => d)
   .handler(async ({ data }) => {

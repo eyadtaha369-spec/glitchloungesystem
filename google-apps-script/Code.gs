@@ -114,6 +114,10 @@ function defaultAppState_() {
   for (let i = 1; i <= 6; i++) {
     rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   }
+  // Wasted / Marketing virtual table — always "active" (no start/end
+  // step), a permanent fixture. Items added here deduct real inventory
+  // but settle instantly as a Marketing/Waste expense, never revenue.
+  rooms.push({ id: "waste-marketing", name: "Wasted / Marketing / هدر وماركتينج", isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "active", startedAt: Date.now(), orders: [], zone: "waste", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
     actualCashInput: 0, shifts: [], activeShiftId: null, businessDayId: null, fraudThresholdPercent: 2,
@@ -328,7 +332,7 @@ const ACTION_RISK = {
   START_SHIFT: "green", END_SHIFT: "green", FORCE_END_SHIFT: "yellow",
   GEOFENCE_DENIED: "red",
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
-  ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red",
+  ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red", WASTE_MARKETING_LOGGED: "yellow",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
@@ -406,8 +410,14 @@ function bizStartRoom_(state, roomId, rateMode) {
     mode = rateMode;
   }
   const now = Date.now();
+  // Default Water Bottle: every new table session starts with 1x Water
+  // already on the check — cashier can freely adjust or remove it (see
+  // the setOrderLineQty bypass for this specific item, no approval
+  // needed) if the customer doesn't want it.
+  const waterItem = state.menu.find((m) => m.id === "item-water");
+  const initialOrders = waterItem ? [{ menuItemId: waterItem.id, name: waterItem.name, qty: 1, price: waterItem.price }] : [];
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: [], hourlyRate: hourlyRate, rateMode: mode }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate: hourlyRate, rateMode: mode }) : r
   );
   pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ $" + hourlyRate + "/hr)" : ""));
   return { ok: true, state: state };
@@ -570,6 +580,40 @@ function bizResumeRoom_(state, roomId) {
   );
   pushActivity_(state, room.name + " session resumed");
   return { ok: true, state: state };
+}
+
+// Settles everything currently sitting on the Wasted/Marketing virtual
+// table: deducts real inventory (so stock counts stay accurate) but posts
+// the cost as a Marketing/Waste Expense — NEVER as revenue, NEVER creates
+// a Session, NEVER touches Expected Drawer Cash. Used for remakes,
+// complaints, and complimentary hospitality items.
+function bizLogWasteMarketing_(state, batches, roomId) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room || room.zone !== "waste") return { ok: false, error: "This is only for the Wasted/Marketing table", state: state };
+  if (room.orders.length === 0) return { ok: false, error: "Nothing on the Wasted/Marketing table to log", state: state };
+
+  let cogs = 0;
+  let retailValue = 0;
+  const touchedBatchIds = [];
+  const loggedItems = room.orders.slice();
+  loggedItems.forEach((line) => {
+    retailValue += line.qty * line.price;
+    const menuItem = state.menu.find((m) => m.id === line.menuItemId);
+    if (menuItem) {
+      menuItem.ingredients.forEach((ing) => {
+        const res = consumeFifo_(batches, ing.stockId, ing.qty * line.qty);
+        cogs += res.cost;
+        touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+      });
+    }
+  });
+
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [] }) : r));
+  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing — $" + cogs.toFixed(2) + " ingredient cost");
+  return {
+    ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)),
+    cogs: cogs, retailValue: retailValue, items: loggedItems,
+  };
 }
 
 function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt) {
@@ -1485,6 +1529,32 @@ function doPost(e) {
         });
         return json_({ ok: true, state: withStockView_(result.state) });
       }
+      case "logWasteMarketing": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const batches = readObjects_("Batches");
+        const result = bizLogWasteMarketing_(getState_(), batches, body.roomId);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+        setState_(result.state);
+        writeBatchesBack_(batches, result.touchedBatchIds);
+        if (result.cogs > 0) {
+          appendObject_("Ledger", {
+            id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
+            category: "Marketing / Waste Expense",
+            description: result.items.map((i) => i.qty + "x " + i.name).join(", "),
+            supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+            paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
+          });
+        }
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "WASTE_MARKETING_LOGGED",
+          location: "Wasted / Marketing", shiftId: result.state.activeShiftId,
+          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — $" + result.cogs.toFixed(2) +
+            " ingredient cost (retail value $" + result.retailValue.toFixed(2) + ", not counted as revenue)",
+          after: { items: result.items, cogs: result.cogs, retailValue: result.retailValue },
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
       case "endRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
@@ -2693,6 +2763,10 @@ function getState_() {
               parsed.rooms.push({ id: id, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
               idSet[id] = true;
             }
+          }
+          if (!idSet["waste-marketing"]) {
+            parsed.rooms.push({ id: "waste-marketing", name: "Wasted / Marketing / هدر وماركتينج", isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "active", startedAt: Date.now(), orders: [], zone: "waste", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
+            idSet["waste-marketing"] = true;
           }
         }
         // ---- Migrate away from embedding sessions in this blob ----

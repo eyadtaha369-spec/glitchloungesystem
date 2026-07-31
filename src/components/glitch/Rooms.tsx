@@ -38,6 +38,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
   const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
   const standardTables = loungeZone.filter((r) => !r.isOwnerTable);
   const ownerTables = loungeZone.filter((r) => r.isOwnerTable);
+  const wasteTable = state.rooms.find((r) => r.zone === "waste");
   // Any room or lounge table is a valid transfer target regardless of which
   // view you're on — transfer is explicitly cross-zone.
   const transferTargets = [...roomZone, ...loungeZone];
@@ -82,13 +83,22 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         </div>
       )}
 
+      {scope === "lounge" && wasteTable && (
+        <div>
+          <h2 className="text-sm uppercase tracking-widest text-[oklch(0.58_0.22_25)] font-mono mb-3">Wasted / Marketing — Remakes, Complaints &amp; Complimentary</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            <RoomCard room={wasteTable} elapsed={0} onCheckout={setReceipt} transferTargets={[]} />
+          </div>
+        </div>
+      )}
+
       {receipt && <ReceiptModal session={receipt} onClose={() => setReceipt(null)} />}
     </div>
   );
 }
 
 function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
-  const { state, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -304,20 +314,35 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         </div>
       )}
 
-      {/* Timer + cost */}
+      {/* Timer + cost (waste table shows item count + retail value instead — it has no timer) */}
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="bg-white/70 rounded-lg p-3 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-          <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.85_0.16_200)]" : "text-muted-foreground"}`}>
-            {fmtDuration(elapsed)}
-          </div>
-        </div>
-        <div className="bg-white/70 rounded-lg p-3 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Running Cost</div>
-          <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-            {fmtMoney(total)}
-          </div>
-        </div>
+        {room.zone === "waste" ? (
+          <>
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items Logged</div>
+              <div className="mt-1 font-mono text-2xl font-bold text-[oklch(0.82_0.16_85)]">{room.orders.reduce((a, o) => a + o.qty, 0)}</div>
+            </div>
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Retail Value</div>
+              <div className="mt-1 font-mono text-2xl font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(total)}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.85_0.16_200)]" : "text-muted-foreground"}`}>
+                {fmtDuration(elapsed)}
+              </div>
+            </div>
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Running Cost</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                {fmtMoney(total)}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Split bill breakdown */}
@@ -342,13 +367,23 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate">{o.name}</span>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
-                    className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
-                    title="Void this item"
-                  >
-                    <ShieldAlert className="w-3 h-3" />
-                  </button>
+                  {o.menuItemId === "item-water" ? (
+                    <button
+                      onClick={() => void setOrderLineQty(room.id, o.menuItemId, o.qty - 1)}
+                      className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8 hover:text-[#2b2416]"
+                      title="Remove — no approval needed for the default water bottle"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
+                      className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
+                      title="Void this item"
+                    >
+                      <ShieldAlert className="w-3 h-3" />
+                    </button>
+                  )}
                   <span className="w-4 text-center text-[#2b2416]">{o.qty}</span>
                   <button
                     onClick={() => increaseQty(o.menuItemId, o.qty)}
@@ -507,12 +542,22 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                 </button>
               )
             )}
-            <button
-              onClick={() => { setFrozenAt(Date.now()); setCheckoutOpen(true); }}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
-            >
-              <Square className="w-4 h-4" /> End
-            </button>
+            {room.zone === "waste" ? (
+              <button
+                onClick={() => void logWasteMarketing(room.id)}
+                disabled={room.orders.length === 0}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.82_0.16_85/0.25)] transition disabled:opacity-40"
+              >
+                <ShieldAlert className="w-4 h-4" /> Log as Waste/Marketing
+              </button>
+            ) : (
+              <button
+                onClick={() => { setFrozenAt(Date.now()); setCheckoutOpen(true); }}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
+              >
+                <Square className="w-4 h-4" /> End
+              </button>
+            )}
           </>
         )}
       </div>

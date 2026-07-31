@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
-import type { Shift, Session } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle } from "lucide-react";
+import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
+import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
 
 function startOfDay(ts: number) {
   const d = new Date(ts);
@@ -39,6 +39,10 @@ export function ReportsPage() {
   const inSelectedDay = (ts: number) => ts >= dayStart && ts < dayEnd;
 
   const todaySessions = useMemo(() => state.sessions.filter((s) => inSelectedDay(s.endedAt)), [state.sessions, dayStart]);
+  const wasteEntries = useMemo(
+    () => state.ledger.filter((l) => l.category === "Marketing / Waste Expense" && inSelectedDay(l.ts)),
+    [state.ledger, dayStart],
+  );
   const todayShifts = useMemo(
     () => state.shifts.filter((sh) => inSelectedDay(sh.openedAt)).sort((a, b) => a.openedAt - b.openedAt),
     [state.shifts, dayStart],
@@ -92,7 +96,7 @@ export function ReportsPage() {
             />
           </div>
           <button
-            onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, selectedDate)}
+            onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, selectedDate, wasteEntries.reduce((a, e) => a + e.amount, 0))}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.72_0.14_85/0.4)] self-end"
           >
             <FileDown className="w-4 h-4" /> Generate Report
@@ -107,6 +111,8 @@ export function ReportsPage() {
       </div>
 
       <BusinessDayPanel />
+
+      <WasteMarketingPanel entries={wasteEntries} />
 
       {/* Total Daily Revenue — the definitive benchmark, before any expenses */}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
@@ -177,6 +183,35 @@ export function ReportsPage() {
 }
 
 type RangeKey = "today" | "week" | "month" | "custom";
+
+function WasteMarketingPanel({ entries }: { entries: LedgerEntry[] }) {
+  const total = entries.reduce((a, e) => a + e.amount, 0);
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.58_0.22_25/0.4)]">
+      <div className="flex items-center gap-2 mb-1">
+        <Trash2 className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
+        <h2 className="text-lg font-semibold">Wasted / Marketing Expense — Audit Summary</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Remade orders, complaints, and complimentary hospitality — ingredient cost only, already excluded from revenue
+        and Expected Drawer Cash above.
+      </p>
+      <div className="text-3xl font-mono font-bold text-[oklch(0.58_0.22_25)] mb-4">{fmtMoney(total)}</div>
+      {entries.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">Nothing logged on this day.</div>
+      ) : (
+        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+          {entries.map((e) => (
+            <div key={e.id} className="flex items-center justify-between text-xs font-mono bg-white/60 rounded-lg px-3 py-2 border border-black/8">
+              <span className="truncate">{e.description || "Wasted/Marketing item(s)"} · {new Date(e.ts).toLocaleTimeString()} · {e.staffUsername}</span>
+              <span className="text-[oklch(0.58_0.22_25)] font-bold shrink-0 ml-2">{fmtMoney(e.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function BusinessDayPanel() {
   const { state, closeBusinessDay } = useStore();
@@ -657,6 +692,7 @@ function generateDailyReport(
   visaRevenue: number,
   instapayRevenue: number,
   selectedDate: string,
+  wasteExpense: number,
 ) {
   const win = window.open("", "_blank", "width=900,height=1200");
   if (!win) return;
@@ -682,6 +718,7 @@ function generateDailyReport(
   <div><span>&nbsp;&nbsp;Visa</span><span>$${visaRevenue.toFixed(2)}</span></div>
   <div><span>&nbsp;&nbsp;InstaPay</span><span>$${instapayRevenue.toFixed(2)}</span></div>
   <div><span>Order Count</span><span>${sessions.length}</span></div>
+  <div><span>Wasted / Marketing Expense (excluded above)</span><span>$${wasteExpense.toFixed(2)}</span></div>
 </div>
 <h3 style="margin-top:24px">Shift Comparison</h3>
 <table>

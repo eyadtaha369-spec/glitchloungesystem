@@ -86,7 +86,7 @@ export interface Room {
   // table customers can be transferred to. "split" = an ephemeral
   // independent invoice created by extracting items off another active
   // room/table — checked out on its own, separately from the source.
-  zone: "room" | "lounge" | "split";
+  zone: "room" | "lounge" | "split" | "waste";
   splitInvoiceNumber: string | null;
   transferredFrom: string | null;
   // Owners Tables: lounge tables flagged for an automatic 25% discount on

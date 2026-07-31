@@ -367,10 +367,10 @@ function PurchaseHistory() {
                 <th className="text-left py-2 px-2">Date</th>
                 <th className="text-left py-2 px-2">Material</th>
                 <th className="text-right py-2 px-2">Qty</th>
-                <th className="text-right py-2 px-2">Unit Cost</th>
+                <th className="text-right py-2 px-2">Unit Price</th>
                 <th className="text-left py-2 px-2">Payment Source</th>
                 <th className="text-left py-2 px-2">By</th>
-                <th className="text-right py-2 px-2">Total</th>
+                <th className="text-right py-2 px-2">Total Price</th>
               </tr>
             </thead>
             <tbody>
@@ -469,7 +469,7 @@ function ReportModal({ entries, materials, onClose }: {
   <div><span>Line Items</span><span>${filtered.length}</span></div>
 </div>
 <table>
-  <thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>Unit Cost</th><th>Payment Source</th><th>Staff</th><th>Total</th></tr></thead>
+  <thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>Unit Price</th><th>Payment Source</th><th>Staff</th><th>Total Price</th></tr></thead>
   <tbody>
     ${filtered.map((e) => {
       const m = materials.find((mm) => mm.id === e.materialId);
@@ -491,7 +491,7 @@ function ReportModal({ entries, materials, onClose }: {
   };
 
   const exportCsv = () => {
-    const header = ["Date", "Material", "Qty", "Unit Cost", "Payment Source", "Staff", "Total"];
+    const header = ["Date", "Material", "Qty", "Unit Price", "Payment Source", "Staff", "Total Price"];
     const rows = filtered.map((e) => {
       const m = materials.find((mm) => mm.id === e.materialId);
       return [

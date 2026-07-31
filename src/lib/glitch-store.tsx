@@ -27,6 +27,7 @@ import {
   getStateFn,
   startRoomFn,
   endRoomFn,
+  logWasteMarketingFn,
   pauseRoomFn,
   resumeRoomFn,
   addOrderFn,
@@ -122,6 +123,7 @@ interface StoreContextValue {
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  logWasteMarketing: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -413,6 +415,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not pause session." };
+      }
+    });
+  };
+  const logWasteMarketing: StoreContextValue["logWasteMarketing"] = async (roomId) => {
+    return withPending(`logWasteMarketing:${roomId}`, async () => {
+      try {
+        const res = await logWasteMarketingFn({ data: { roomId } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not log waste/marketing." };
       }
     });
   };
@@ -861,7 +874,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
