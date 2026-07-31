@@ -2058,6 +2058,15 @@ function menuCatalogMaterials_() {
   // the business's own recipe/costing spreadsheet (RESPI - GLITCH.xlsx),
   // not an estimate.
   return [
+    // ESTIMATED cost (not in the original price sheet — matched to
+    // similar toppings/syrups at 160-170/unit; correct via Inventory if
+    // the real purchase price differs):
+    ["Mix Berry Topping", "kg", 2, 160],
+    ["Peach Topping", "kg", 2, 160],
+    ["Coconut Topping", "kg", 2, 160],
+    ["Pineapple Compote", "kg", 2, 160],
+    ["Sweet and Sour Syrup", "L", 1, 170],
+    ["Kinder Sauce", "kg", 1, 165],
     ["Espresso Grounds", "kg", 2, 700],
     ["Herbal Tea Bag", "pcs", 10, 2],
     ["Frozen Avocado", "kg", 2, 250],
@@ -2127,6 +2136,12 @@ function menuCatalogRecipes_() {
   // Exact gram/kg/liter/piece quantities per item, translated from the
   // business's own Arabic recipe book — not estimated.
   return {
+    "Mix Berry Smoothie": [["Mix Berry Topping", 0.03], ["Ice", 1]],
+    "Peach Smoothie": [["Peach Topping", 0.03], ["Ice", 1]],
+    "Pina Colada": [["Coconut Topping", 0.01], ["Pineapple Compote", 0.05], ["Blue Curacao Syrup", 0.005]],
+    "Classic Mojito": [["Mojito Syrup", 0.01], ["Sweet and Sour Syrup", 0.01], ["Soda Can", 1], ["Lemon Slice", 1], ["Fresh Mint", 0.5]],
+    "Peach Mojito": [["Peach Topping", 0.02], ["Mojito Syrup", 0.01], ["Soda Can", 1], ["Lemon Slice", 1], ["Fresh Mint", 0.5]],
+    "Kinder Shake": [["Ice Cream", 0.21], ["Kinder Sauce", 0.03], ["Milk", 0.15]],
     "Espresso": [["Espresso Grounds", 0.007]],
     "Espresso Double": [["Espresso Grounds", 0.014]],
     "Macchiato": [["Espresso Grounds", 0.007], ["Milk", 0.02]],
@@ -2212,11 +2227,9 @@ function menuCatalogRecipes_() {
   };
 }
 
-// [name, price, category]. A handful of items still have no verified
-// recipe (Kinder Shake, Mix Berry Smoothie, Peach Smoothie, Pina Colada,
-// Classic Mojito, Peach Mojito) plus Shisha/Soft Drinks/Extras — these get
-// an empty ingredient list and won't deduct stock or track COGS until
-// real recipes are supplied for them.
+// [name, price, category]. All items now have verified recipes except
+// Shisha/Soft Drinks/Extras — these get an empty ingredient list and won't
+// deduct stock or track COGS until real recipes are supplied for them.
 function menuCatalogItems_() {
   return [
     ["Espresso", 35, "Coffee"], ["Espresso Double", 45, "Coffee"], ["Macchiato", 35, "Coffee"], ["Macchiato Double", 50, "Coffee"], ["Cappuccino", 60, "Coffee"], ["Latte", 60, "Coffee"], ["Spanish Latte", 65, "Coffee"], ["Mocha", 60, "Coffee"], ["Cortado", 50, "Coffee"], ["Nescafe", 60, "Coffee"], ["Hazelnut Coffee", 60, "Coffee"], ["Nutella Coffee", 65, "Coffee"], ["French Coffee", 45, "Coffee"], ["Turkish Coffee", 30, "Coffee"], ["Turkish Coffee Double", 35, "Coffee"], ["Classic Frappe", 70, "Coffee Frappe"], ["Nutella Frappe", 75, "Coffee Frappe"], ["Lotus Frappe", 75, "Coffee Frappe"], ["Caramel Frappe", 80, "Coffee Frappe"], ["Hazelnut Frappe", 90, "Coffee Frappe"], ["Iced Latte", 70, "Ice Coffee"], ["Iced Spanish Latte", 75, "Ice Coffee"], ["Iced Mocha", 75, "Ice Coffee"], ["Iced Cappuccino", 70, "Ice Coffee"], ["Vanilla Shake", 60, "Milkshake"], ["Chocolate Shake", 65, "Milkshake"], ["Mango Shake", 70, "Milkshake"], ["Strawberry Shake", 65, "Milkshake"], ["Mix Berry Shake", 65, "Milkshake"], ["Passion Fruit Shake", 65, "Milkshake"], ["Oreo Shake", 70, "Milkshake"], ["Nutella Shake", 75, "Milkshake"], ["Lotus Shake", 75, "Milkshake"], ["Pistachio Shake", 80, "Milkshake"], ["Caramel Shake", 75, "Milkshake"], ["Kinder Shake", 75, "Milkshake"], ["Mango", 65, "Fresh Juice"], ["Strawberry", 60, "Fresh Juice"], ["Guava", 60, "Fresh Juice"], ["Banana", 60, "Fresh Juice"], ["Kiwi", 70, "Fresh Juice"], ["Watermelon", 65, "Fresh Juice"], ["Pomegranate", 60, "Fresh Juice"], ["Lemon", 45, "Fresh Juice"], ["Lemon Mint", 55, "Fresh Juice"], ["Date", 70, "Fresh Juice"], ["Avocado", 80, "Fresh Juice"], ["Classic Yogurt", 60, "Fresh Juice"], ["Watermelon Mint", 70, "Frozen Fresh"], ["Passion Fruit Smoothie", 65, "Frozen Fresh"], ["Mango Smoothie", 70, "Frozen Fresh"], ["Strawberry Smoothie", 70, "Frozen Fresh"], ["Lemon Mint Smoothie", 60, "Frozen Fresh"], ["Mix Berry Smoothie", 65, "Frozen Fresh"], ["Peach Smoothie", 65, "Frozen Fresh"], ["Pina Colada", 75, "Frozen Fresh"], ["Classic Mojito", 60, "Mojito"], ["Mix Berry Mojito", 65, "Mojito"], ["Strawberry Mojito", 65, "Mojito"], ["Passion Fruit Mojito", 70, "Mojito"], ["Blue Sky Mojito", 75, "Mojito"], ["Mango Mojito", 70, "Mojito"], ["Cherry Mojito", 70, "Mojito"], ["Peach Mojito", 65, "Mojito"], ["Red Bull Mojito", 90, "Mojito"], ["Molten Cake", 70, "Desserts"], ["Cheesecake", 70, "Desserts"], ["Brownies", 65, "Desserts"], ["Waffle Nutella", 75, "Desserts"], ["Waffle Four Seasons", 85, "Desserts"], ["Berry Bomb", 75, "Cocktails"], ["Classic Cocktail", 70, "Cocktails"], ["Mix Power", 80, "Cocktails"], ["Mango Dream", 75, "Cocktails"], ["Zabadooo", 75, "Cocktails"], ["Glitch Cocktail", 85, "Cocktails"], ["Twist", 80, "Cocktails"], ["Classic Tea", 25, "Hot Drinks"], ["Golden Tea", 30, "Hot Drinks"], ["Flavored Tea", 30, "Hot Drinks"], ["Milk Tea", 35, "Hot Drinks"], ["Flavored Milk Tea", 40, "Hot Drinks"], ["Hot Cider", 50, "Hot Drinks"], ["Herbal Tea", 30, "Hot Drinks"], ["Hot Chocolate", 60, "Hot Drinks"], ["Hot Chocolate Nutella", 70, "Hot Drinks"], ["Herbal Cocktail", 50, "Hot Drinks"], ["Sahlab", 50, "Hot Drinks"]
