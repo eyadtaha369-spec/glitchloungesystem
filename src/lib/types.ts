@@ -307,7 +307,13 @@ export type VoidReason = "wrongInput" | "spilled" | "customerRejected" | "compli
 // column. "denied" is a pragmatic addition so admins can actually clear out
 // a mistaken request instead of it sitting pending forever — it's excluded
 // from both the Approved and Pending Approval buckets in reporting.
-export type VoidStatus = "pending" | "approved" | "denied";
+// "unapproved" is DIFFERENT from "pending": a pending void keeps the item
+// on the live bill until reviewed (anti-collusion — nobody can remove a
+// paid item without eventual admin sign-off). An "unapproved" void is the
+// offline/no-admin-available route — the item is removed and inventory
+// deducted IMMEDIATELY so checkout isn't blocked, and reconciliation
+// happens after the fact via "discrepancy" if something looks wrong.
+export type VoidStatus = "pending" | "approved" | "denied" | "unapproved" | "discrepancy";
 
 export interface VoidRequest {
   id: string;

@@ -10,6 +10,9 @@ export const requestVoidFn = createServerFn({ method: "POST" })
   .validator((d: {
     roomId: string; menuItemId: string; qty: number; reason: VoidReason; waiterName: string;
     approvingAdminUsername?: string; approvingAdminPassword?: string;
+    // Offline/Unapproved Void Routing: no admin available at all, remove
+    // the item immediately and route it for mandatory post-hoc review.
+    routeUnapproved?: boolean;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
@@ -17,6 +20,13 @@ export const requestVoidFn = createServerFn({ method: "POST" })
       ...data,
       username: user.username,
     });
+  });
+
+export const reconcileUnapprovedVoidFn = createServerFn({ method: "POST" })
+  .validator((d: { voidId: string; action: "approve" | "flag_discrepancy"; note?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string }>("reconcileUnapprovedVoid", { ...data, username: user.username });
   });
 
 // Generic on-the-spot admin authorization (manager-key-style override) —

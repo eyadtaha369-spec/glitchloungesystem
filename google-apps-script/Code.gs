@@ -335,6 +335,7 @@ const ACTION_RISK = {
   ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red", WASTE_MARKETING_LOGGED: "yellow",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
+  UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
   EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
   RECURRING_EXPENSE_PAID: "yellow",
   ROOM_RATE_CHANGED: "red", MENU_PRICE_CHANGED: "red",
@@ -2103,23 +2104,36 @@ function doPost(e) {
           }
           approvingAdmin = authCheck.username;
         }
-        const executesNow = role === "admin" || !!approvingAdmin;
+        // Offline/Unapproved Void Routing: no admin is available at all
+        // (not even remotely, via the on-the-spot flow above) — the
+        // cashier can still remove the item and keep checkout moving.
+        // Unlike a normal pending request (which deliberately stays ON
+        // the bill until reviewed, precisely to prevent a colluding
+        // cashier from quietly deleting a paid item), this route removes
+        // it and deducts inventory IMMEDIATELY, trading that protection
+        // for speed — accountability instead comes from a mandatory,
+        // permanent post-hoc admin reconciliation queue.
+        const routeUnapproved = role !== "admin" && !approvingAdmin && !!body.routeUnapproved;
+        const executesNow = role === "admin" || !!approvingAdmin || routeUnapproved;
         const approverUsername = role === "admin" ? body.username : approvingAdmin;
 
         const req = {
           id: newId_("void"), ts: Date.now(), roomId: room.id, roomName: room.name,
           menuItemId: body.menuItemId, itemName: line.name, qty: body.qty, unitPrice: line.price,
           billValue: line.price * body.qty, reason: body.reason,
-          status: executesNow ? "approved" : "pending",
+          status: executesNow ? (routeUnapproved ? "unapproved" : "approved") : "pending",
           cashierUsername: body.username, waiterName: body.waiterName || "",
-          shiftId: state.activeShiftId, approvedBy: executesNow ? approverUsername : null,
-          approvedAt: executesNow ? Date.now() : null, cogs: null, applied: false, applyError: null,
+          shiftId: state.activeShiftId,
+          approvedBy: executesNow && !routeUnapproved ? approverUsername : null,
+          approvedAt: executesNow && !routeUnapproved ? Date.now() : null,
+          cogs: null, applied: false, applyError: null,
         };
 
         if (executesNow) {
           // Cashiers have no authority to void independently — but an
-          // admin-initiated (or admin-authorized-on-the-spot) void
-          // executes immediately, same auto-approve pattern as procurement.
+          // admin-initiated (or admin-authorized, or offline-routed)
+          // void executes immediately, same auto-approve pattern as
+          // procurement.
           const batches = readObjects_("Batches");
           const result = applyVoid_(state, batches, req);
           if (result.ok) {
@@ -2128,33 +2142,47 @@ function doPost(e) {
             setState_(result.state);
             writeBatchesBack_(batches, result.touchedBatchIds);
             const reasonCfg = VOID_REASONS[body.reason];
-            if (reasonCfg.deductsInventory && result.cogs > 0) {
+            if (routeUnapproved) {
+              // Always posted, even for reasons that wouldn't normally
+              // touch inventory (e.g. wrongInput) — an unapproved
+              // removal needs a paper trail regardless of COGS, since
+              // its whole point is post-hoc reconciliation.
+              appendObject_("Ledger", {
+                id: newId_("ledg"), ts: req.ts, amount: result.cogs, direction: "outflow", type: "manualAdjustment",
+                category: "Unapproved Void — Pending Reconciliation",
+                description: req.qty + "x " + req.itemName + " — " + room.name + " (bill value $" + req.billValue.toFixed(2) + ")",
+                supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+                paidFromDrawer: false, shiftId: state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
+              });
+            } else if (reasonCfg.deductsInventory && result.cogs > 0) {
               appendObject_("Ledger", {
                 id: newId_("ledg"), ts: req.ts, amount: result.cogs, direction: "outflow", type: "manualAdjustment",
                 category: reasonCfg.ledgerCategory, description: req.qty + "x " + req.itemName + " — " + room.name,
                 supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-                paidFromDrawer: false, shiftId: state.activeShiftId, materialId: null, qty: null, unitCost: null,
+                paidFromDrawer: false, shiftId: state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
               });
             }
           } else {
             req.applyError = result.error;
           }
         }
-        // Pending (cashier, no admin present) requests intentionally do NOT
-        // touch the room or batches — the item stays fully on the live
-        // bill (and therefore in Expected Drawer Cash) until approved.
+        // Pending (cashier, no admin present, not routed) requests
+        // intentionally do NOT touch the room or batches — the item
+        // stays fully on the live bill (and therefore in Expected
+        // Drawer Cash) until approved.
         appendObject_("VoidRequests", req);
         const wasteClass = (body.reason === "spilled" || body.reason === "customerRejected") ? "Wasted" : "Non-Waste";
         logActivity_({
           actorUsername: body.username, actorRole: role,
-          actionType: approvingAdmin ? "UNDO_ACTION" : "VOID_REQUESTED",
+          actionType: routeUnapproved ? "UNAPPROVED_VOID_ROUTED" : (approvingAdmin ? "UNDO_ACTION" : "VOID_REQUESTED"),
           location: room.name, shiftId: state.activeShiftId,
           description: req.qty + "x " + req.itemName + " voided (" + VOID_REASONS[body.reason].label + ", " + wasteClass + ") — " +
-            req.status + (approvingAdmin ? " — cancelled by " + body.username + ", authorized on the spot by admin " + approvingAdmin : ""),
+            req.status + (approvingAdmin ? " — cancelled by " + body.username + ", authorized on the spot by admin " + approvingAdmin : "") +
+            (routeUnapproved ? " — NO ADMIN AVAILABLE, routed for post-hoc reconciliation" : ""),
           before: { qty: line.qty },
           after: {
             voided: req.qty, status: req.status, reason: body.reason, wasteClass: wasteClass,
-            cashierUsername: body.username, approvingAdmin: approvingAdmin || null,
+            cashierUsername: body.username, approvingAdmin: approvingAdmin || null, billValue: req.billValue,
           },
         });
         return json_({ ok: true, request: req, state: withStockView_(getState_()) });
@@ -2211,6 +2239,33 @@ function doPost(e) {
           location: before ? before.roomName : "", shiftId: before ? before.shiftId : null,
           description: "Denied void request" + (before ? " for " + before.qty + "x " + before.itemName + " (requested by " + before.cashierUsername + ")" : ""),
           before: { status: "pending" }, after: { status: "denied" },
+        });
+        return json_({ ok: true });
+      }
+
+      // Offline/Unapproved Void Routing — the item was already removed
+      // from the bill and inventory already deducted at request time (see
+      // requestVoid's routeUnapproved path); this is purely a post-hoc
+      // administrative sign-off, not a business-logic action. "Approve"
+      // confirms it was legitimate. "Flag as Discrepancy" leaves a
+      // permanent red flag on the record for follow-up — nothing is
+      // reversed automatically since the item is already gone and the
+      // stock already moved; this is about accountability, not undo.
+      case "reconcileUnapprovedVoid": {
+        requireRole_(body.username, ["admin"]);
+        const before = readObjects_("VoidRequests").find((r) => r.id === body.voidId);
+        if (!before) return json_({ ok: false, error: "Void request not found" });
+        if (before.status !== "unapproved") return json_({ ok: false, error: "This request has already been reconciled" });
+        const newStatus = body.action === "flag_discrepancy" ? "discrepancy" : "approved";
+        updateObjectById_("VoidRequests", body.voidId, { status: newStatus, approvedBy: body.username, approvedAt: Date.now() });
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin",
+          actionType: body.action === "flag_discrepancy" ? "UNAPPROVED_VOID_FLAGGED" : "UNAPPROVED_VOID_RECONCILED",
+          location: before.roomName, shiftId: before.shiftId,
+          description: (body.action === "flag_discrepancy" ? "Flagged as DISCREPANCY: " : "Reconciled: ") +
+            before.qty + "x " + before.itemName + " (originally routed by " + before.cashierUsername + ", $" + before.billValue.toFixed(2) + " bill value)" +
+            (body.note ? " — Note: " + body.note : ""),
+          before: { status: "unapproved" }, after: { status: newStatus, note: body.note || null },
         });
         return json_({ ok: true });
       }

@@ -20,6 +20,7 @@ function microTimestamp(ts: number) {
 export function VoidsPage() {
   const { state } = useStore();
   const pending = state.voidRequests.filter((v) => v.status === "pending");
+  const unapproved = state.voidRequests.filter((v) => v.status === "unapproved");
 
   return (
     <div className="space-y-6">
@@ -29,6 +30,8 @@ export function VoidsPage() {
       </div>
 
       <FraudAlertPanel />
+
+      {unapproved.length > 0 && <UnapprovedVoidsPanel requests={unapproved} />}
 
       {pending.length > 0 && <PendingVoidsPanel requests={pending} />}
 
@@ -114,6 +117,98 @@ function FraudAlertPanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function UnapprovedVoidsPanel({ requests }: { requests: VoidRequest[] }) {
+  const { reconcileUnapprovedVoid } = useStore();
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const totalValue = requests.reduce((a, v) => a + v.billValue, 0);
+
+  const act = async (voidId: string, action: "approve" | "flag_discrepancy") => {
+    setBusy(voidId);
+    try {
+      await reconcileUnapprovedVoid(voidId, action, action === "flag_discrepancy" ? note || undefined : undefined);
+      setNoteFor(null);
+      setNote("");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border-2 border-[oklch(0.62_0.24_25/0.6)] shadow-[0_0_24px_oklch(0.62_0.24_25/0.25)]">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-[oklch(0.62_0.24_25)] animate-pulse-glow" />
+          <h2 className="text-lg font-semibold">Unapproved Voids / Reconcile</h2>
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[oklch(0.62_0.24_25/0.2)] text-[oklch(0.62_0.24_25)] border border-[oklch(0.62_0.24_25/0.5)]">{requests.length}</span>
+        </div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(totalValue)} total</div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        These items were already removed from their bill and inventory already deducted — no admin was available at the
+        time. Review each one and either Approve (confirms it was legitimate) or Flag as Discrepancy (permanent record
+        for follow-up).
+      </p>
+      <div className="space-y-3">
+        {requests.map((v) => (
+          <div key={v.id} className="bg-white/60 rounded-lg p-4 border border-[oklch(0.62_0.24_25/0.3)]">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="font-semibold text-sm">{v.qty}x {v.itemName} — {v.roomName}</div>
+                <div className="text-xs text-muted-foreground font-mono">{microTimestamp(v.ts)}</div>
+              </div>
+              <div className="font-mono font-bold">{fmtMoney(v.billValue)}</div>
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div><span className="uppercase tracking-widest text-[10px]">Reason</span><div className="text-foreground">{VOID_REASON_LABELS[v.reason as VoidReason]}</div></div>
+              <div><span className="uppercase tracking-widest text-[10px]">Cashier</span><div className="text-foreground">{v.cashierUsername}</div></div>
+              <div><span className="uppercase tracking-widest text-[10px]">Waiter</span><div className="text-foreground">{v.waiterName || "—"}</div></div>
+              <div><span className="uppercase tracking-widest text-[10px]">Table / Order</span><div className="text-foreground">{v.roomName}</div></div>
+            </div>
+
+            {noteFor === v.id && (
+              <input
+                autoFocus value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Discrepancy note (optional)"
+                className="w-full mt-3 bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-xs"
+              />
+            )}
+
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={() => act(v.id, "approve")}
+                disabled={busy === v.id}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] disabled:opacity-60"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Approve Void
+              </button>
+              {noteFor === v.id ? (
+                <button
+                  onClick={() => act(v.id, "flag_discrepancy")}
+                  disabled={busy === v.id}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] font-bold disabled:opacity-60"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" /> Confirm Flag
+                </button>
+              ) : (
+                <button
+                  onClick={() => setNoteFor(v.id)}
+                  disabled={busy === v.id}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] disabled:opacity-60"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" /> Flag as Discrepancy
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -220,7 +315,7 @@ function FullLedgerPanel() {
       <td>${VOID_REASON_LABELS[v.reason as VoidReason] ?? v.reason}</td>
       <td>${v.cashierUsername}</td>
       <td>${v.waiterName || "—"}</td>
-      <td>${v.status === "approved" ? "Approved" : v.status === "pending" ? "Pending Approval" : "Denied"}</td>
+      <td>${v.status === "approved" ? "Approved" : v.status === "pending" ? "Pending Approval" : v.status === "unapproved" ? "Unapproved (Reconciliation Needed)" : v.status === "discrepancy" ? "FLAGGED — Discrepancy" : "Denied"}</td>
       <td>${v.billValue.toFixed(2)}</td>
     </tr>`).join("")}
   </tbody>
@@ -277,6 +372,10 @@ function FullLedgerPanel() {
                       <span className="text-[oklch(0.78_0.2_155)]">Approved</span>
                     ) : v.status === "pending" ? (
                       <span className="text-[oklch(0.82_0.16_85)]">Pending Approval</span>
+                    ) : v.status === "unapproved" ? (
+                      <span className="text-[oklch(0.62_0.24_25)] font-bold">Unapproved</span>
+                    ) : v.status === "discrepancy" ? (
+                      <span className="text-[oklch(0.62_0.24_25)] font-bold">⚠ Discrepancy</span>
                     ) : (
                       <span className="text-muted-foreground">Denied</span>
                     )}

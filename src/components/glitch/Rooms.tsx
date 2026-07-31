@@ -928,19 +928,22 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [confirmingUnapproved, setConfirmingUnapproved] = useState(false);
 
-  const submit = async (approvingAdminUsername?: string, approvingAdminPassword?: string) => {
+  const submit = async (approvingAdminUsername?: string, approvingAdminPassword?: string, routeUnapproved?: boolean) => {
     if (!reason) { setResult({ kind: "err", text: "Select a reason." }); return; }
     if (!waiterName.trim()) { setResult({ kind: "err", text: "Waiter name is required for the audit log." }); return; }
     setSubmitting(true);
     try {
-      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim(), approvingAdminUsername, approvingAdminPassword });
+      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim(), approvingAdminUsername, approvingAdminPassword, routeUnapproved });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Void request failed" }); return; }
       setResult({
         kind: "ok",
-        text: isAdmin || approvingAdminUsername
-          ? "Cancelled immediately" + (approvingAdminUsername ? ` — authorized by admin ${approvingAdminUsername}.` : ".")
-          : "Sent for admin approval — this item stays on the bill and in Expected Cash until approved.",
+        text: routeUnapproved
+          ? "Removed from the bill immediately — routed to the Unapproved Voids queue for mandatory admin review."
+          : isAdmin || approvingAdminUsername
+            ? "Cancelled immediately" + (approvingAdminUsername ? ` — authorized by admin ${approvingAdminUsername}.` : ".")
+            : "Sent for admin approval — this item stays on the bill and in Expected Cash until approved.",
       });
       setTimeout(onClose, 1400);
     } finally {
@@ -1001,6 +1004,13 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             </p>
           )}
 
+          {confirmingUnapproved && (
+            <div className="text-xs p-3 rounded-lg border bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)] space-y-2">
+              <p className="font-semibold">No admin available — remove this item now?</p>
+              <p>It will come off the bill and inventory will be deducted immediately, before any review. This goes into the Unapproved Voids queue and must be reconciled by an admin later — it's permanently on record with your name attached.</p>
+            </div>
+          )}
+
           {result && (
             <div className={`text-sm p-2.5 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)]"}`}>
               {result.text}
@@ -1009,22 +1019,44 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
         </div>
         <div className="p-4 border-t border-black/10 flex flex-wrap justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
-          {!isAdmin && (
+          {!isAdmin && !confirmingUnapproved && (
+            <>
+              <button
+                onClick={() => setConfirmingUnapproved(true)}
+                disabled={submitting}
+                className="px-4 py-2 rounded-lg text-sm bg-black/5 border border-black/10 text-muted-foreground hover:bg-[oklch(0.62_0.24_25/0.1)] hover:text-[oklch(0.75_0.22_25)] disabled:opacity-60"
+              >
+                No Admin Available
+              </button>
+              <button
+                onClick={() => setAuthOpen(true)}
+                disabled={submitting}
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold disabled:opacity-60"
+              >
+                Get Admin Approval Now
+              </button>
+            </>
+          )}
+          {confirmingUnapproved ? (
+            <>
+              <button onClick={() => setConfirmingUnapproved(false)} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Back</button>
+              <button
+                onClick={() => submit(undefined, undefined, true)}
+                disabled={submitting}
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-bold disabled:opacity-60"
+              >
+                {submitting ? "Removing..." : "Confirm — Remove Now, Review Later"}
+              </button>
+            </>
+          ) : (
             <button
-              onClick={() => setAuthOpen(true)}
+              onClick={() => submit()}
               disabled={submitting}
-              className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold disabled:opacity-60"
+              className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold disabled:opacity-60"
             >
-              Get Admin Approval Now
+              {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
             </button>
           )}
-          <button
-            onClick={() => submit()}
-            disabled={submitting}
-            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold disabled:opacity-60"
-          >
-            {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
-          </button>
         </div>
       </div>
 
