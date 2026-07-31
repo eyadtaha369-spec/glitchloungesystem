@@ -9,8 +9,9 @@ export function Dashboard() {
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
   const isAdmin = state.currentUser?.role === "admin";
-  const activeRooms = state.rooms.filter((r) => r.status === "active");
-  const available = state.rooms.length - activeRooms.length;
+  const roomsOnly = state.rooms.filter((r) => r.zone === "room");
+  const activeRooms = roomsOnly.filter((r) => r.status === "active");
+  const available = roomsOnly.length - activeRooms.length;
 
   // Cashiers only ever see numbers for their OWN active shift — the previous
   // shift's sales and stats are fully hidden the moment it's closed. Admins
@@ -53,7 +54,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard
           label="Active Rooms"
-          value={`${activeRooms.length} / ${state.rooms.length}`}
+          value={`${activeRooms.length} / ${roomsOnly.length}`}
           icon={Gamepad2}
           accent="cyan"
         />

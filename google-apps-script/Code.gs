@@ -108,7 +108,7 @@ function defaultAppState_() {
     rooms.push({ id: "room-" + i, name: "Room " + i, isVip: false, hourlyRate: 0, singleRate: 5, multiRate: 8, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   }
   rooms.push({ id: "room-vip", name: "VIP", isVip: true, hourlyRate: 0, singleRate: 10, multiRate: 15, rateMode: null, status: "available", startedAt: null, orders: [], zone: "room", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 6; i++) {
     rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   }
   for (let i = 1; i <= 6; i++) {
@@ -2649,16 +2649,44 @@ function getState_() {
               hourlyRate: withPauseFields.status === "active" ? legacyRate : 0,
             });
           });
-          const hasLounge = parsed.rooms.some(function (r) { return r.zone === "lounge" && !r.isOwnerTable; });
-          if (!hasLounge) {
-            for (let i = 1; i <= 4; i++) {
-              parsed.rooms.push({ id: "lounge-" + i, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
+
+          // Hard safety net: collapse any accidental duplicate room ids
+          // down to one (keeps the first — an ACTIVE duplicate is kept
+          // over an available one of the same id, so a live session is
+          // never silently dropped). This alone fixes any pre-existing
+          // duplication from an older, less careful version of the
+          // top-up logic below, regardless of how it happened.
+          const byId = {};
+          const deduped = [];
+          parsed.rooms.forEach(function (r) {
+            const existing = byId[r.id];
+            if (!existing) {
+              byId[r.id] = r;
+              deduped.push(r);
+            } else if (existing.status !== "active" && r.status === "active") {
+              const idx = deduped.indexOf(existing);
+              deduped[idx] = r;
+              byId[r.id] = r;
+            }
+          });
+          parsed.rooms = deduped;
+
+          // Top up by EXACT id, not "does any exist" — safe to run on
+          // every single read/request with zero risk of duplicating.
+          const idSet = {};
+          parsed.rooms.forEach(function (r) { idSet[r.id] = true; });
+          for (let i = 1; i <= 6; i++) {
+            const id = "lounge-" + i;
+            if (!idSet[id]) {
+              parsed.rooms.push({ id: id, name: "Lounge Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
+              idSet[id] = true;
             }
           }
-          const hasOwnerTables = parsed.rooms.some(function (r) { return r.isOwnerTable; });
-          if (!hasOwnerTables) {
-            for (let i = 1; i <= 6; i++) {
-              parsed.rooms.push({ id: "owner-" + i, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
+          for (let i = 1; i <= 6; i++) {
+            const id = "owner-" + i;
+            if (!idSet[id]) {
+              parsed.rooms.push({ id: id, name: "Owner Table " + i, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
+              idSet[id] = true;
             }
           }
         }
