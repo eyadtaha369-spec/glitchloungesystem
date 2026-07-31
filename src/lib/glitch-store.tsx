@@ -18,6 +18,7 @@ import type {
   AuditLogEntry,
   StaffOrder,
   RestockLogEntry,
+  BusinessDay,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -39,6 +40,9 @@ import {
   openShiftFn,
   endShiftFn,
   forceEndShiftFn,
+  closeBusinessDayFn,
+  resetForProductionFn,
+  getBusinessDaysFn,
   transferZoneFn,
   logSplitInterfaceOpenedFn,
   splitBillFn,
@@ -62,7 +66,7 @@ import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry,
+  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay,
 } from "./types";
 export { VOID_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
@@ -91,6 +95,8 @@ const emptyAppState: AppState = {
   actualCashInput: 0,
   shifts: [],
   activeShiftId: null,
+  businessDayId: null,
+  businessDays: [],
   fraudThresholdPercent: 2,
   geofenceEnabled: false,
   cafeLat: 0,
@@ -131,6 +137,8 @@ interface StoreContextValue {
   openShift: (openingBalance: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string }>;
   endShift: (actualCash: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; closedShift?: Shift }>;
   forceEndShift: (actualCash?: number) => Promise<void>;
+  closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
+  resetForProduction: (password: string) => Promise<{ ok: boolean; error?: string }>;
   setFraudThreshold: (percent: number) => Promise<void>;
   setGeofenceConfig: (cfg: { enabled: boolean; lat: number; lng: number; radiusMeters: number }) => Promise<void>;
 
@@ -800,6 +808,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAppState(await forceEndShiftFn({ data: { actualCash } }));
     });
   };
+  const closeBusinessDay: StoreContextValue["closeBusinessDay"] = async () => {
+    return withPending("closeBusinessDay", async () => {
+      try {
+        const res = await closeBusinessDayFn();
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not close business day." };
+      }
+    });
+  };
+  const resetForProduction: StoreContextValue["resetForProduction"] = async (password) => {
+    return withPending("resetForProduction", async () => {
+      try {
+        const res = await resetForProductionFn({ data: { password } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Reset failed unexpectedly." };
+      }
+    });
+  };
   const setGeofenceConfig: StoreContextValue["setGeofenceConfig"] = async (cfg) => {
     return withPending("setGeofenceConfig", async () => {
       setAppState(await setGeofenceConfigFn({ data: cfg }));
@@ -832,7 +862,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift,
+    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,

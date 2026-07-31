@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -17,6 +17,106 @@ export function SetupPage() {
       <MaterialsPanel />
       <SuppliersPanel />
       <RecurringExpensesPanel />
+      <ProductionResetPanel />
+    </div>
+  );
+}
+
+function ProductionResetPanel() {
+  const { resetForProduction } = useStore();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const REQUIRED_PHRASE = "RESET FOR PRODUCTION";
+  const canSubmit = confirmText.trim().toUpperCase() === REQUIRED_PHRASE && password.length > 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setRunning(true);
+    setErr(null);
+    try {
+      const res = await resetForProduction(password);
+      if (!res.ok) { setErr(res.error ?? "Reset failed"); return; }
+      setDone(true);
+      setTimeout(() => window.location.reload(), 1800);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.58_0.22_25/0.5)] bg-[oklch(0.58_0.22_25/0.06)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">Danger Zone — Go-Live Data Wipe</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
+        Permanently deletes every order, receipt, shift, void, expense, staff order, restock log, and activity log entry —
+        resetting all financial totals and order counters to zero. Your menu, categories, prices, room names/rates, raw
+        material definitions, suppliers, and employee accounts are preserved. <strong>This cannot be undone.</strong>{" "}
+        Only run this once, right before going live for real.
+      </p>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border-2 border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.58_0.22_25/0.25)]"
+      >
+        Reset System for Live Production
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.58_0.22_25/0.6)]" onClick={(e) => e.stopPropagation()}>
+            {done ? (
+              <div className="p-6 text-center space-y-2">
+                <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">System Reset Complete</div>
+                <p className="text-sm text-muted-foreground">Reloading with a clean slate...</p>
+              </div>
+            ) : (
+              <>
+                <div className="p-5 space-y-4">
+                  <h3 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">This is permanent.</h3>
+                  <p className="text-sm text-muted-foreground">
+                    All test orders, receipts, shifts, void requests, expenses, staff orders, and activity history will be
+                    deleted forever. Menu, rooms, materials, and accounts stay.
+                  </p>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Type <span className="font-bold text-[oklch(0.58_0.22_25)]">{REQUIRED_PHRASE}</span> to confirm
+                    </label>
+                    <input
+                      value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      placeholder={REQUIRED_PHRASE}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Re-enter Your Admin Password</label>
+                    <input
+                      type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+                </div>
+                <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+                  <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+                  <button
+                    onClick={submit}
+                    disabled={!canSubmit || running}
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25)] text-white font-bold disabled:opacity-40"
+                  >
+                    {running ? "Wiping Data..." : "Permanently Reset"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

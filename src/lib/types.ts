@@ -150,6 +150,28 @@ export interface Shift {
   openedLng: number | null;
   closedLat: number | null;
   closedLng: number | null;
+  // 24/7 Business Day lifecycle — links this shift to the continuous
+  // business period it belongs to, independent of calendar midnight.
+  businessDayId: string | null;
+}
+
+// A "Business Day" spans however many shifts happen between one explicit
+// Close Business Day action and the next — NOT a calendar-midnight
+// boundary. A cafe running Shift 1/2/3 across midnight stays on the SAME
+// business day until the owner/head cashier explicitly closes it.
+export interface BusinessDay {
+  id: string;
+  label: string; // human-readable, set from the date it opened
+  openedAt: number;
+  closedAt: number | null;
+  totalRevenue: number;
+  totalCash: number;
+  totalVisa: number;
+  totalInstapay: number;
+  totalExpenses: number;
+  netProfit: number;
+  shiftCount: number;
+  closedBy: string | null;
 }
 
 // The authoritative, server-owned business state (everything except accounts/session).
@@ -163,6 +185,12 @@ export interface AppState {
   actualCashInput: number;
   shifts: Shift[];
   activeShiftId: string | null;
+  // 24/7 Business Day lifecycle — the currently OPEN business period, if
+  // any. Auto-created the moment a shift opens with none currently open;
+  // stays open across any number of shifts (including past midnight)
+  // until explicitly closed via Close Business Day.
+  businessDayId: string | null;
+  businessDays: BusinessDay[]; // computed, read fresh — same pattern as sessions/shifts
   fraudThresholdPercent: number;
   // Geofence config for the Shift Gatekeeper — cashiers (and admins) must be
   // physically at these coordinates, within the radius, to open/close a shift.

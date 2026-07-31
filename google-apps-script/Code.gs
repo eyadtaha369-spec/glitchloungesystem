@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "RestockLog"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "RestockLog", "BusinessDays"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -116,7 +116,7 @@ function defaultAppState_() {
   }
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
-    actualCashInput: 0, shifts: [], activeShiftId: null, fraudThresholdPercent: 2,
+    actualCashInput: 0, shifts: [], activeShiftId: null, businessDayId: null, fraudThresholdPercent: 2,
     geofenceEnabled: false, cafeLat: 0, cafeLng: 0, geofenceRadiusMeters: 50,
   };
 }
@@ -175,9 +175,10 @@ function sheetObjectHeaders_(name) {
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
-    Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng"],
+    Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
+    BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy"],
   };
   return map[name];
 }
@@ -229,6 +230,9 @@ function rowToStaffOrder_(r) {
 }
 function readStaffOrders_() {
   return readObjects_("StaffOrders").map(rowToStaffOrder_).sort(function (a, b) { return b.ts - a.ts; });
+}
+function readBusinessDays_() {
+  return readObjects_("BusinessDays").sort(function (a, b) { return b.openedAt - a.openedAt; });
 }
 
 // Each void reason carries its own inventory/ledger consequence, per spec.
@@ -324,7 +328,7 @@ const ACTION_RISK = {
   START_SHIFT: "green", END_SHIFT: "green", FORCE_END_SHIFT: "yellow",
   GEOFENCE_DENIED: "red",
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
-  ROOM_PAUSED: "green", ROOM_RESUMED: "green",
+  ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   EXPENSE_LOGGED: "yellow", EXPENSE_APPROVED: "yellow", EXPENSE_REJECTED: "yellow",
@@ -944,11 +948,26 @@ function pendingVoidCountForShift_(shiftId) {
 
 function bizOpenShift_(state, username, openingBalance, lat, lng) {
   if (state.activeShiftId) return { ok: false, error: "A shift is already open", state: state };
-  const id = "shift-" + Date.now();
+  const now = Date.now();
+  // 24/7 Business Day: auto-open one the moment the first shift of a fresh
+  // period starts, if none is currently open. Stays open across any number
+  // of shifts — including straight through midnight — until someone
+  // explicitly closes it via Close Business Day.
+  if (!state.businessDayId) {
+    const bdId = "bday-" + now;
+    appendObject_("BusinessDays", {
+      id: bdId, label: formatDateLabel_(now), openedAt: now, closedAt: null,
+      totalRevenue: 0, totalCash: 0, totalVisa: 0, totalInstapay: 0, totalExpenses: 0, netProfit: 0,
+      shiftCount: 0, closedBy: null,
+    });
+    state.businessDayId = bdId;
+    pushActivity_(state, "New business day opened (" + formatDateLabel_(now) + ")");
+  }
+  const id = "shift-" + now;
   const shift = {
     id: id,
     cashierUsername: username,
-    openedAt: Date.now(),
+    openedAt: now,
     closedAt: null,
     openingBalance: openingBalance || 0,
     closingActualCash: null,
@@ -959,6 +978,7 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
     openedLng: typeof lng === "number" ? lng : null,
     closedLat: null,
     closedLng: null,
+    businessDayId: state.businessDayId,
   };
   appendObject_("Shifts", shift);
   state.activeShiftId = id;
@@ -967,10 +987,119 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
   return { ok: true, state: state };
 }
 
+function formatDateLabel_(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 // Expected Cash = Opening Balance + Cash Sales - Approved drawer-paid
 // expenses logged against this shift. `forced` = true means this came
 // from the admin emergency-reset path rather than a cashier's normal End
 // Shift.
+// Global End of Day: freezes and aggregates every shift, sale, and
+// expense belonging to the currently open business day (which may span
+// several shifts across midnight), commits the totals into BusinessDays,
+// then clears businessDayId so the NEXT shift auto-opens a fresh one.
+// Clears every DATA row from a sheet (keeps the header row intact) — used
+// only by the Production Reset, never by normal business logic.
+function clearSheetData_(sheetName) {
+  const sheet = getSheet_(sheetName);
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+}
+
+// Production Reset / Go-Live Data Wipe — Super Admin only, requires the
+// admin to re-enter their OWN password as a safeguard against an
+// unattended logged-in session triggering this by accident. Deletes every
+// transactional/test record; explicitly PRESERVES configuration data
+// (menu, room definitions, employee accounts, suppliers, recurring
+// expense templates, raw material definitions, geofence settings).
+function resetForProduction_(username, password) {
+  const auth = login_(username, password);
+  if (!auth.ok || auth.role !== "admin") {
+    return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
+  }
+
+  // Transactional / test data — WIPED.
+  ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "RestockLog", "Batches", "BusinessDays"]
+    .forEach(function (name) { clearSheetData_(name); });
+
+  // Configuration — PRESERVED (RawMaterials, Suppliers, RecurringExpenses,
+  // Accounts are simply never touched here).
+
+  const state = getState_();
+  state.rooms = state.rooms.map(function (r) {
+    return Object.assign({}, r, {
+      status: "available", startedAt: null, orders: [],
+      isPaused: false, pausedAt: null, pausedDurationSec: 0,
+      hourlyRate: 0, rateMode: null, splitInvoiceNumber: null, transferredFrom: null,
+    });
+  });
+  state.activeShiftId = null;
+  state.businessDayId = null;
+  state.actualCashInput = 0;
+  state.activity = [];
+  state.cashRecords = [];
+  setState_(state);
+
+  // This log entry is deliberately the FIRST thing written after the wipe —
+  // proof the reset happened, permanently, even though everything before
+  // it is gone.
+  logActivity_({
+    actorUsername: username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+    description: username + " performed a Go-Live Production Reset — all test orders, shifts, transactions, " +
+      "and financial history were permanently deleted. Menu, room configuration, and employee accounts were preserved.",
+  });
+
+  return { ok: true, state: withStockView_(state) };
+}
+
+function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
+  if (!state.businessDayId) return { ok: false, error: "No business day is currently open", state: state };
+  if (state.activeShiftId) return { ok: false, error: "Close the active shift before closing the business day", state: state };
+  const bdId = state.businessDayId;
+
+  const bdShifts = shifts.filter((sh) => sh.businessDayId === bdId);
+  const shiftIds = bdShifts.map((sh) => sh.id);
+  const bdSessions = sessions.filter((s) => s.shiftId && shiftIds.indexOf(s.shiftId) !== -1);
+
+  const totalRevenue = bdSessions.reduce((a, s) => a + s.total, 0);
+  const totalCash = bdSessions.reduce((a, s) => a + s.cashAmount, 0);
+  const totalVisa = bdSessions.reduce((a, s) => a + s.visaAmount, 0);
+  const totalInstapay = bdSessions.reduce((a, s) => a + s.instapayAmount, 0);
+
+  const bdRecord = readObjects_("BusinessDays").find((b) => b.id === bdId);
+  const windowStart = bdRecord ? bdRecord.openedAt : 0;
+  const now = Date.now();
+  // Expenses: anything in the Ledger posted during this business day's
+  // time window, not strictly by shiftId — this correctly catches
+  // recurring-expense payments and staff consumption that aren't tied to
+  // any specific shift but still belong to this operating period.
+  const totalExpenses = ledger
+    .filter((l) => l.direction === "outflow" && l.status === "approved" && l.ts >= windowStart && l.ts <= now)
+    .reduce((a, l) => a + Number(l.amount), 0);
+  const netProfit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+
+  updateObjectById_("BusinessDays", bdId, {
+    closedAt: now,
+    totalRevenue: Math.round(totalRevenue * 100) / 100,
+    totalCash: Math.round(totalCash * 100) / 100,
+    totalVisa: Math.round(totalVisa * 100) / 100,
+    totalInstapay: Math.round(totalInstapay * 100) / 100,
+    totalExpenses: Math.round(totalExpenses * 100) / 100,
+    netProfit: netProfit,
+    shiftCount: bdShifts.length,
+    closedBy: username,
+  });
+
+  state.businessDayId = null;
+  pushActivity_(state, "Business day closed by " + username + " — $" + totalRevenue.toFixed(2) + " revenue across " + bdShifts.length + " shift(s)");
+  return {
+    ok: true, state: state, businessDayId: bdId, totalRevenue: totalRevenue, totalCash: totalCash,
+    totalVisa: totalVisa, totalInstapay: totalInstapay, totalExpenses: totalExpenses, netProfit: netProfit, shiftCount: bdShifts.length,
+  };
+}
+
 function bizCloseActiveShift_(state, sessions, ledger, shifts, actualCash, forced, lat, lng) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift to close", state: state };
   const shiftId = state.activeShiftId;
@@ -1601,6 +1730,36 @@ function doPost(e) {
           description: "Admin force-closed shift " + shiftIdBefore,
         });
         return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      case "closeBusinessDay": {
+        requireRole_(body.username, ["admin"]);
+        const state0 = getState_();
+        const result = bizCloseBusinessDay_(state0, readSessions_(), readShifts_(), readObjects_("Ledger"), body.username);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(state0) });
+        setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "BUSINESS_DAY_CLOSED",
+          description: "Business day closed — $" + result.totalRevenue.toFixed(2) + " revenue, $" + result.totalExpenses.toFixed(2) +
+            " expenses, $" + result.netProfit.toFixed(2) + " net profit across " + result.shiftCount + " shift(s)",
+          after: {
+            businessDayId: result.businessDayId, totalRevenue: result.totalRevenue, totalCash: result.totalCash,
+            totalVisa: result.totalVisa, totalInstapay: result.totalInstapay, totalExpenses: result.totalExpenses,
+            netProfit: result.netProfit, shiftCount: result.shiftCount,
+          },
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      case "getBusinessDays":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readBusinessDays_() });
+
+      case "resetForProduction": {
+        requireRole_(body.username, ["admin"]);
+        const result = resetForProduction_(body.username, body.password);
+        if (!result.ok) return json_({ ok: false, error: result.error });
+        return json_({ ok: true, state: result.state });
       }
 
       // ---- Raw materials / suppliers / recurring expenses CRUD (admin) ----
@@ -2321,6 +2480,7 @@ function withStockView_(state) {
   // set fresh, same pattern as stock.
   state.sessions = readSessions_();
   state.shifts = readShifts_();
+  state.businessDays = readBusinessDays_();
   return state;
 }
 
@@ -2467,6 +2627,7 @@ function getState_() {
         if (typeof parsed.cafeLat !== "number") parsed.cafeLat = 0;
         if (typeof parsed.cafeLng !== "number") parsed.cafeLng = 0;
         if (typeof parsed.geofenceRadiusMeters !== "number") parsed.geofenceRadiusMeters = 50;
+        if (typeof parsed.businessDayId === "undefined") parsed.businessDayId = null;
         if (parsed.menu) {
           parsed.menu = parsed.menu.map(function (m) {
             return m.category ? m : Object.assign({}, m, { category: "Extras" });
@@ -2539,6 +2700,7 @@ function setState_(state) {
   delete toSave.stock; // never persist the computed view
   delete toSave.pendingVoidCountForActiveShift; // also computed, never persisted
   delete toSave.sessions; // sessions live in their own sheet now — see getState_ above
+  delete toSave.businessDays; // also computed, never persisted
   const sheet = getSheet_(STATE_SHEET);
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {

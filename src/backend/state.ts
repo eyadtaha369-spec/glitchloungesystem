@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, MenuItem, Session, PaymentMethod } from "@/lib/types";
+import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -203,4 +203,30 @@ export const forceEndShiftFn = createServerFn({ method: "POST" })
       username: user.username,
     });
     return res.state;
+  });
+
+// 24/7 Business Day lifecycle — closing freezes/aggregates every shift
+// since the last close (which may span multiple shifts, including past
+// midnight) into the Financial Ledger, then opens fresh for the next one.
+export const closeBusinessDayFn = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireAdmin();
+  return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("closeBusinessDay", { username: user.username });
+});
+
+export const getBusinessDaysFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireAdmin();
+  const res = await callAppsScript<{ items: BusinessDay[] }>("getBusinessDays", { username: user.username });
+  return res.items;
+});
+
+// Go-Live Data Wipe — Super Admin only, irreversible. Requires the admin's
+// OWN password again as a safeguard against an unattended session.
+export const resetForProductionFn = createServerFn({ method: "POST" })
+  .validator((d: { password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("resetForProduction", {
+      username: user.username,
+      password: data.password,
+    });
   });

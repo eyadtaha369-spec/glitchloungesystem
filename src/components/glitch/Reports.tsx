@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Shift, Session } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin } from "lucide-react";
+import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle } from "lucide-react";
 
 function startOfDay(ts: number) {
   const d = new Date(ts);
@@ -106,6 +106,8 @@ export function ReportsPage() {
         <span>{todayShifts.length} shift{todayShifts.length === 1 ? "" : "s"}</span>
       </div>
 
+      <BusinessDayPanel />
+
       {/* Total Daily Revenue — the definitive benchmark, before any expenses */}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
         <div className="flex items-center gap-2 mb-1">
@@ -175,6 +177,150 @@ export function ReportsPage() {
 }
 
 type RangeKey = "today" | "week" | "month" | "custom";
+
+function BusinessDayPanel() {
+  const { state, closeBusinessDay } = useStore();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const currentBd = state.businessDays.find((b) => b.id === state.businessDayId);
+  const bdShifts = state.shifts.filter((sh) => sh.businessDayId === state.businessDayId);
+  const bdShiftIds = new Set(bdShifts.map((sh) => sh.id));
+  const bdSessions = state.sessions.filter((s) => s.shiftId && bdShiftIds.has(s.shiftId));
+  const liveRevenue = bdSessions.reduce((a, s) => a + s.total, 0);
+  const closedHistory = state.businessDays.filter((b) => b.closedAt !== null);
+
+  const canClose = !!state.businessDayId && !state.activeShiftId;
+
+  const doClose = async () => {
+    setClosing(true);
+    setErr(null);
+    try {
+      const res = await closeBusinessDay();
+      if (!res.ok) { setErr(res.error ?? "Could not close business day"); return; }
+      setConfirmOpen(false);
+    } finally {
+      setClosing(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.72_0.14_85/0.5)]">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Sunrise className="w-5 h-5 text-[oklch(0.72_0.14_85)]" />
+          <h2 className="text-lg font-semibold">Current Business Day</h2>
+        </div>
+        <button onClick={() => setShowHistory((v) => !v)} className="text-xs px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 flex items-center gap-1.5">
+          <History className="w-3.5 h-3.5" /> {showHistory ? "Hide" : "Show"} History
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        A business day stays open across any number of shifts — Shift 1, 2, 3 — even straight through midnight. It only
+        ends when you explicitly close it here.
+      </p>
+
+      {state.businessDayId ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-black/5 rounded-lg p-3 border border-black/8">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Opened</div>
+            <div className="text-sm font-mono font-bold mt-1">{currentBd ? new Date(currentBd.openedAt).toLocaleString() : "—"}</div>
+          </div>
+          <div className="bg-black/5 rounded-lg p-3 border border-black/8">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Shifts So Far</div>
+            <div className="text-lg font-mono font-bold mt-1">{bdShifts.length}</div>
+          </div>
+          <div className="bg-black/5 rounded-lg p-3 border border-black/8 col-span-2">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue So Far (Live)</div>
+            <div className="text-lg font-mono font-bold mt-1 text-[oklch(0.62_0.16_155)]">{fmtMoney(liveRevenue)}</div>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground font-mono mb-4">No business day is open yet — one starts automatically the moment the next shift opens.</div>
+      )}
+
+      {!canClose && state.businessDayId && (
+        <div className="flex items-center gap-2 text-xs text-[oklch(0.82_0.16_85)] mb-3">
+          <AlertTriangle className="w-3.5 h-3.5" /> Close the active shift first — a business day can't close while a shift is still running.
+        </div>
+      )}
+
+      <button
+        onClick={() => setConfirmOpen(true)}
+        disabled={!canClose}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-sm font-bold uppercase tracking-wide shadow-[0_0_20px_oklch(0.72_0.14_85/0.4)] disabled:opacity-40"
+      >
+        <CalendarCheck className="w-4 h-4" /> Close Business Day
+      </button>
+
+      {showHistory && (
+        <div className="mt-5 pt-4 border-t border-black/8">
+          <h3 className="text-sm font-semibold mb-2">Closed Business Days</h3>
+          {closedHistory.length === 0 ? (
+            <div className="text-xs text-muted-foreground font-mono">None closed yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[9px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
+                    <th className="text-left py-1.5 px-2">Opened</th>
+                    <th className="text-left py-1.5 px-2">Closed</th>
+                    <th className="text-right py-1.5 px-2">Shifts</th>
+                    <th className="text-right py-1.5 px-2">Revenue</th>
+                    <th className="text-right py-1.5 px-2">Expenses</th>
+                    <th className="text-right py-1.5 px-2">Net Profit</th>
+                    <th className="text-left py-1.5 px-2">Closed By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closedHistory.map((b) => (
+                    <tr key={b.id} className="border-b border-black/8">
+                      <td className="py-1.5 px-2 font-mono">{new Date(b.openedAt).toLocaleString()}</td>
+                      <td className="py-1.5 px-2 font-mono">{b.closedAt ? new Date(b.closedAt).toLocaleString() : "—"}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{b.shiftCount}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{fmtMoney(b.totalRevenue)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{fmtMoney(b.totalExpenses)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono font-bold">{fmtMoney(b.netProfit)}</td>
+                      <td className="py-1.5 px-2">{b.closedBy}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmOpen(false)}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.72_0.14_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 space-y-3">
+              <h3 className="text-lg font-bold">Close Business Day?</h3>
+              <p className="text-sm text-muted-foreground">
+                This freezes and aggregates <strong>{fmtMoney(liveRevenue)}</strong> in revenue across{" "}
+                <strong>{bdShifts.length}</strong> shift{bdShifts.length === 1 ? "" : "s"} into the permanent financial
+                ledger, then opens a brand new business day starting from zero for the next shift. This cannot be undone.
+              </p>
+              {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+            </div>
+            <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+              <button onClick={() => setConfirmOpen(false)} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+              <button
+                onClick={doClose}
+                disabled={closing}
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold disabled:opacity-60"
+              >
+                {closing ? "Closing..." : "Confirm & Close"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PnLLedgerPanel() {
   const { state } = useStore();
