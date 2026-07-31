@@ -133,7 +133,7 @@ export const submitPurchaseFn = createServerFn({ method: "POST" })
     supplierId?: string;
     category?: string;
     description?: string;
-    paidFromDrawer: boolean;
+    paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer";
     shiftId?: string | null;
     receiptBase64: string;
     receiptMimeType: string;

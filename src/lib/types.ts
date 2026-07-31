@@ -274,6 +274,8 @@ export type LedgerType =
 export type LedgerStatus = "approved" | "pending" | "rejected";
 export type LedgerDirection = "inflow" | "outflow";
 
+export type PaymentSource = "cash_drawer" | "out_of_pocket" | "bank_transfer";
+
 export interface LedgerEntry {
   id: string;
   ts: number;
@@ -287,6 +289,11 @@ export interface LedgerEntry {
   status: LedgerStatus;
   receiptUrl: string | null;
   paidFromDrawer: boolean;
+  // More granular than paidFromDrawer — distinguishes "Out of Pocket"
+  // (owner/staff personal expense, no till effect) from "Bank Transfer"
+  // (digital payment, also no till effect) so reporting can break out
+  // Till vs Personal vs Digital separately, not just drawer-or-not.
+  paymentSource: PaymentSource | null;
   shiftId: string | null;
   materialId: string | null;
   qty: number | null;

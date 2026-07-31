@@ -171,7 +171,7 @@ function sheetObjectHeaders_(name) {
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
-    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
@@ -2503,6 +2503,10 @@ function handleSubmitPurchase_(body) {
   if (!body.materialId || !body.qty || !body.unitCost) {
     return json_({ ok: false, error: "Material, quantity, and cost are required." });
   }
+  const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+  if (validSources.indexOf(body.paymentSource) === -1) {
+    return json_({ ok: false, error: "Select a payment source (Cash Drawer, Out of Pocket, or Bank Transfer)." });
+  }
 
   let receiptUrl;
   try {
@@ -2528,7 +2532,8 @@ function handleSubmitPurchase_(body) {
       staffUsername: body.username,
       status: isAdmin ? "approved" : "pending",
       receiptUrl: receiptUrl,
-      paidFromDrawer: body.paidFromDrawer !== false,
+      paidFromDrawer: body.paymentSource === "cash_drawer",
+      paymentSource: body.paymentSource,
       shiftId: body.shiftId || null,
       materialId: body.materialId,
       qty: body.qty,

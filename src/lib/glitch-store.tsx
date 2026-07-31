@@ -18,6 +18,7 @@ import type {
   AuditLogEntry,
   StaffOrder,
   RestockLogEntry,
+  PaymentSource,
   BusinessDay,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
@@ -66,7 +67,7 @@ import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay,
+  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource,
 } from "./types";
 export { VOID_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
@@ -168,7 +169,7 @@ interface StoreContextValue {
     supplierId?: string;
     category?: string;
     description?: string;
-    paidFromDrawer: boolean;
+    paymentSource: PaymentSource;
     receiptFile: File;
   }) => Promise<{ ok: boolean; error?: string; status?: string }>;
   approvePurchase: (ledgerId: string) => Promise<void>;
@@ -660,7 +661,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           supplierId: p.supplierId,
           category: p.category,
           description: p.description,
-          paidFromDrawer: p.paidFromDrawer,
+          paymentSource: p.paymentSource,
           shiftId: appState.activeShiftId,
           receiptBase64,
           receiptMimeType: p.receiptFile.type || "image/jpeg",
