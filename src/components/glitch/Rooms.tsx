@@ -769,6 +769,13 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
 function ReceiptModal({ session, onClose }: { session: Session; onClose: () => void }) {
   const startD = new Date(session.startedAt);
   const endD = new Date(session.endedAt);
+  const [logoReady, setLogoReady] = useState(false);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLogoReady(true);
+    img.src = logo;
+    if (img.complete) setLogoReady(true);
+  }, []);
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -854,9 +861,10 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+            disabled={!logoReady}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-60"
           >
-            <Printer className="w-4 h-4" /> Print
+            <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
           </button>
         </div>
       </div>
@@ -872,6 +880,13 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
   // hash — so kitchen staff can spot a missed ticket at a glance. Falls
   // back to a timestamp only if the shift lookup somehow failed.
   const kotNumber = kotNumberProp !== null ? "#" + String(kotNumberProp).padStart(3, "0") : "KOT-" + String(now.getTime()).slice(-6);
+  const [logoReady, setLogoReady] = useState(false);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLogoReady(true);
+    img.src = logo;
+    if (img.complete) setLogoReady(true);
+  }, []);
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -916,9 +931,10 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)]"
+            disabled={!logoReady}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] disabled:opacity-60"
           >
-            <Printer className="w-4 h-4" /> Print
+            <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
           </button>
         </div>
       </div>
@@ -1261,6 +1277,13 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [splitReceipt, setSplitReceipt] = useState<Session | null>(null);
+  const [logoReady, setLogoReady] = useState(false);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLogoReady(true);
+    img.src = logo;
+    if (img.complete) setLogoReady(true);
+  }, []);
 
   useEffect(() => {
     openSplitInterface(room.id);
@@ -1374,9 +1397,10 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
             <button
               onClick={() => window.print()}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-semibold shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)]"
+              disabled={!logoReady}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-semibold shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)] disabled:opacity-60"
             >
-              <Printer className="w-4 h-4" /> Print
+              <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
             </button>
           </div>
         </div>

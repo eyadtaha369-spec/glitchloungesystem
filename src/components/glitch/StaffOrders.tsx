@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { useStore, fmtMoney, MENU_CATEGORIES } from "@/lib/glitch-store";
@@ -256,6 +256,13 @@ function StaffItemPickerModal({ menu, onClose, onPick }: { menu: MenuItem[]; onC
 }
 
 function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () => void }) {
+  const [logoReady, setLogoReady] = useState(false);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLogoReady(true);
+    img.src = logo;
+    if (img.complete) setLogoReady(true);
+  }, []);
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
@@ -292,9 +299,10 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.85_0.16_200)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-semibold"
+            disabled={!logoReady}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.85_0.16_200)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-semibold disabled:opacity-60"
           >
-            <Printer className="w-4 h-4" /> Print
+            <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
           </button>
         </div>
       </div>

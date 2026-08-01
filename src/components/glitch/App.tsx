@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StoreProvider, useStore } from "@/lib/glitch-store";
+import receiptLogo from "@/assets/glitch-logo-mark.png";
 import { Login } from "./Login";
 import { Sidebar, type View } from "./Sidebar";
 import { Dashboard } from "./Dashboard";
@@ -18,6 +19,17 @@ import { Lock } from "lucide-react";
 function Shell() {
   const { state, ready, activeShift } = useStore();
   const [view, setView] = useState<View>("dashboard");
+
+  // Warm the browser's image cache for the receipt logo as early as
+  // possible — the actual bug this fixes: window.print() firing before a
+  // freshly-created <img> has finished loading prints with that image
+  // completely blank. Preloading here means by the time anyone actually
+  // opens a receipt/KOT modal, the image already has a decoded cache
+  // entry and renders instantly instead of racing the print call.
+  useEffect(() => {
+    const img = new Image();
+    img.src = receiptLogo;
+  }, []);
 
   if (!ready) return null;
   if (!state.currentUser) return <Login />;
