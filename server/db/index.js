@@ -18,6 +18,14 @@ const DB_PATH = process.env.GLITCH_DB_PATH || path.join(__dirname, "..", "glitch
 // identically before this switch was made).
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL"); // safe for multiple registers writing concurrently
+// If the file is ever momentarily locked by anything else — another
+// stray process still holding it open, a backup's checkpoint, a slow
+// disk — wait up to 5 seconds for it to clear instead of immediately
+// failing the request with "database is locked". Genuinely observed
+// this exact error during testing (a leftover process from an earlier
+// session still had the file open); this makes that class of problem
+// self-heal instead of surfacing as a broken button.
+db.exec("PRAGMA busy_timeout = 5000");
 db.exec(SCHEMA_SQL);
 
 const KNOWN_TABLES = [
