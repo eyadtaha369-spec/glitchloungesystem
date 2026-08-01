@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
-import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
+import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
 // Mirrors the server's effectiveDurationSec_: elapsed seconds at an
 // arbitrary point in time, excluding all paused time. Used to freeze the
@@ -11,7 +11,7 @@ function effectiveElapsedAt(room: Room, atMs: number): number {
   if (!room.startedAt) return 0;
   const raw = (atMs - room.startedAt) / 1000;
   const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (atMs - room.pausedAt) / 1000 : 0);
-  return Math.max(0, raw - pausedSoFar);
+  return Math.max(0, raw - pausedSoFar + (room.timeAdjustmentSec || 0));
 }
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
@@ -99,7 +99,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 }
 
 function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
-  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -119,6 +119,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
   const [noteInput, setNoteInput] = useState("");
   const [transferOpen, setTransferOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
+  const [extendTimeOpen, setExtendTimeOpen] = useState(false);
   const [pickingRateToStart, setPickingRateToStart] = useState(false);
 
   const timeCost = (elapsed / 3600) * room.hourlyRate;
@@ -481,6 +482,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         <TransferModal room={room} targets={transferTargets.filter((t) => t.id !== room.id)} onClose={() => setTransferOpen(false)} />
       )}
       {splitOpen && <SplitModal room={room} onClose={() => setSplitOpen(false)} />}
+      {extendTimeOpen && <ExtendTimeModal room={room} elapsed={elapsed} extendRoomTime={extendRoomTime} onClose={() => setExtendTimeOpen(false)} />}
 
       {voidTarget && (
         <VoidRequestModal
@@ -554,6 +556,15 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
                   <Pause className="w-4 h-4" /> Pause
                 </button>
               )
+            )}
+            {room.zone === "room" && (
+              <button
+                onClick={() => setExtendTimeOpen(true)}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.85_0.16_200)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
+                title="Extend Time"
+              >
+                <Clock className="w-4 h-4" />
+              </button>
             )}
             {room.zone === "waste" ? (
               <button
@@ -1176,6 +1187,108 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
       </div>
     </div>,
     document.body,
+  );
+}
+
+function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
+  room: Room;
+  elapsed: number;
+  extendRoomTime: ReturnType<typeof useStore>["extendRoomTime"];
+  onClose: () => void;
+}) {
+  const currentMins = Math.floor(elapsed / 60);
+  const [mode, setMode] = useState<"quick" | "custom">("quick");
+  const [customTarget, setCustomTarget] = useState(String(currentMins));
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const applyDelta = async (deltaSec: number) => {
+    setErr(null);
+    setSubmitting(true);
+    try {
+      const res = await extendRoomTime(room.id, deltaSec);
+      if (!res.ok) { setErr(res.error ?? "Could not extend time"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const targetMins = parseInt(customTarget, 10);
+  const customDeltaSec = isNaN(targetMins) ? 0 : (targetMins * 60) - elapsed;
+  const customInvalid = isNaN(targetMins) || customDeltaSec <= 0;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+            <Clock className="w-4 h-4" /> Extend Time — {room.name}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="text-center">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Current Elapsed Time</div>
+            <div className="text-2xl font-mono font-bold">{fmtDuration(elapsed)}</div>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={() => setMode("quick")} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "quick" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
+              Quick Add
+            </button>
+            <button onClick={() => setMode("custom")} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "custom" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
+              Set Target Time
+            </button>
+          </div>
+
+          {mode === "quick" ? (
+            <div className="grid grid-cols-3 gap-2">
+              {[15, 30, 60].map((mins) => (
+                <button
+                  key={mins}
+                  onClick={() => void applyDelta(mins * 60)}
+                  disabled={submitting}
+                  className="py-3 rounded-lg bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] font-bold text-sm disabled:opacity-60"
+                >
+                  +{mins} min
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">New Total Time (minutes)</label>
+              <input
+                type="number" min={currentMins} value={customTarget}
+                onChange={(e) => setCustomTarget(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-xl font-mono text-center"
+              />
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Must be at least the current elapsed time ({currentMins} min) — time can only be extended, never reduced.
+              </p>
+              {!customInvalid && (
+                <p className="text-xs font-bold text-[oklch(0.78_0.2_155)] mt-1 text-center">
+                  Adds +{Math.round(customDeltaSec / 60)} min
+                </p>
+              )}
+              <button
+                onClick={() => void applyDelta(customDeltaSec)}
+                disabled={submitting || customInvalid}
+                className="w-full mt-3 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-40"
+              >
+                {submitting ? "Applying..." : "Apply New Total Time"}
+              </button>
+            </div>
+          )}
+
+          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

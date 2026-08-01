@@ -245,3 +245,12 @@ export const nextKotNumberFn = createServerFn({ method: "POST" })
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; number?: number }>("nextKotNumber", { ...data, username: user.username });
   });
+
+// Flexible Time Extension — INCREASE ONLY, enforced server-side too, not
+// just in the UI.
+export const extendRoomTimeFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; deltaSec: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("extendRoomTime", { ...data, username: user.username });
+  });

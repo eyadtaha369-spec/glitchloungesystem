@@ -317,6 +317,7 @@ function StockTable() {
   const [restockTarget, setRestockTarget] = useState<{ id: string; name: string; unit: string; unitCost: number } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number } | null>(null);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [unitInput, setUnitInput] = useState("");
@@ -433,6 +434,13 @@ function StockTable() {
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
+                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining })}
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.72_0.14_85/0.15)] border border-[oklch(0.72_0.14_85/0.4)] text-[oklch(0.72_0.14_85)] hover:bg-[oklch(0.72_0.14_85/0.25)] mr-1.5"
+                        title="Edit this entry"
+                      >
+                        <Pencil className="w-3.5 h-3.5 inline mr-1" />Edit
+                      </button>
+                      <button
                         onClick={() => setHistoryTarget({ id: s.id, name: s.name, unit: s.unit })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/8 text-muted-foreground hover:text-[#2b2416] mr-1.5"
                         title="History"
@@ -471,6 +479,114 @@ function StockTable() {
       {actualStockTarget && (
         <ActualStockModal target={actualStockTarget} setActualStock={setActualStock} onClose={() => setActualStockTarget(null)} />
       )}
+      {editTarget && (
+        <EditMaterialModal target={editTarget} updateRawMaterial={updateRawMaterial} adjustStock={adjustStock} onClose={() => setEditTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+function EditMaterialModal({ target, updateRawMaterial, adjustStock, onClose }: {
+  target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number };
+  updateRawMaterial: ReturnType<typeof useStore>["updateRawMaterial"];
+  adjustStock: ReturnType<typeof useStore>["adjustStock"];
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(target.name);
+  const [unit, setUnit] = useState(target.unit);
+  const [unitCost, setUnitCost] = useState(String(target.unitCost));
+  const [minStock, setMinStock] = useState(String(target.minStock));
+  const [quantity, setQuantity] = useState(String(target.remaining));
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const newQty = parseFloat(quantity);
+  const qtyDelta = isNaN(newQty) ? 0 : Math.round((newQty - target.remaining) * 100) / 100;
+  const valuationPreview = (isNaN(newQty) ? target.remaining : newQty) * (parseFloat(unitCost) || 0);
+
+  const submit = async () => {
+    setErr(null);
+    if (!name.trim()) { setErr("Name is required."); return; }
+    if (!unit.trim()) { setErr("Unit is required."); return; }
+    if (isNaN(newQty) || newQty < 0) { setErr("Enter a valid quantity."); return; }
+    setSubmitting(true);
+    try {
+      const patch: Record<string, string | number> = {};
+      if (name.trim() !== target.name) patch.name = name.trim();
+      if (unit.trim() !== target.unit) patch.unit = unit.trim();
+      if ((parseFloat(unitCost) || 0) !== target.unitCost) patch.unitCost = parseFloat(unitCost) || 0;
+      if ((parseFloat(minStock) || 0) !== target.minStock) patch.minStockAlert = parseFloat(minStock) || 0;
+
+      if (Object.keys(patch).length > 0) {
+        await updateRawMaterial(target.id, patch);
+      }
+      if (qtyDelta !== 0) {
+        const res = await adjustStock(target.id, qtyDelta, "correction", "Edited via Inventory Edit modal (was " + target.remaining + ", corrected to " + newQty + ")");
+        if (!res.ok) { setErr(res.error ?? "Quantity correction failed"); return; }
+      }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.72_0.14_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/8">
+          <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.72_0.14_85)]">Edit Inventory Entry</div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Raw Material Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Current Stock Quantity</label>
+              <input type="number" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit of Measurement</label>
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost</label>
+              <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Min Alert Threshold</label>
+              <input type="number" step="0.01" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-xs font-mono space-y-1">
+            {qtyDelta !== 0 && !isNaN(newQty) && (
+              <div className={`flex justify-between font-bold ${qtyDelta < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                <span>Quantity Correction</span><span>{qtyDelta > 0 ? "+" : ""}{qtyDelta} {unit}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-muted-foreground">
+              <span>New Stock Valuation</span><span>{fmtMoney(valuationPreview)}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Name/unit/cost/min-alert changes and any quantity correction are recorded separately in the Audit Log with your username, timestamp, and before/after values.
+          </p>
+          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold disabled:opacity-60"
+          >
+            {submitting ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

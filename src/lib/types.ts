@@ -82,6 +82,10 @@ export interface Room {
   isPaused: boolean;
   pausedAt: number | null;
   pausedDurationSec: number;
+  // Manual time extension (increase-only) — added on top of the natural
+  // elapsed calculation. Never allowed to go negative; there is no
+  // "reduce session time" mechanism anywhere in this system.
+  timeAdjustmentSec: number;
   // "room" = the original timed bays/VIP suite. "lounge" = a no-time-charge
   // table customers can be transferred to. "split" = an ephemeral
   // independent invoice created by extracting items off another active

@@ -29,6 +29,7 @@ import {
   endRoomFn,
   logWasteMarketingFn,
   nextKotNumberFn,
+  extendRoomTimeFn,
   pauseRoomFn,
   resumeRoomFn,
   addOrderFn,
@@ -127,6 +128,7 @@ interface StoreContextValue {
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   logWasteMarketing: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
+  extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -441,6 +443,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Could not get ticket number." };
     }
+  };
+  const extendRoomTime: StoreContextValue["extendRoomTime"] = async (roomId, deltaSec) => {
+    return withPending(`extendRoomTime:${roomId}`, async () => {
+      try {
+        const res = await extendRoomTimeFn({ data: { roomId, deltaSec } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not extend time." };
+      }
+    });
   };
   const resumeRoom: StoreContextValue["resumeRoom"] = async (roomId) => {
     return withPending(`resumeRoom:${roomId}`, async () => {
@@ -886,7 +899,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const now = Date.now();
     const raw = (now - room.startedAt) / 1000;
     const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (now - room.pausedAt) / 1000 : 0);
-    return Math.max(0, Math.floor(raw - pausedSoFar));
+    return Math.max(0, Math.floor(raw - pausedSoFar + (room.timeAdjustmentSec || 0)));
   };
 
   const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, restockLog };
@@ -894,7 +907,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
