@@ -7,6 +7,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Local env files — contain real secrets, must never be committed
+.env
+.env.local
+.env.*.local
+
 node_modules
 dist
 dist-ssr
