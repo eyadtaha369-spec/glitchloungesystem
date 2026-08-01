@@ -864,7 +864,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
           </div>
           <div className="text-center text-sm font-bold uppercase tracking-widest mt-4">
-            Thank you — Game On.
+            Thank you — Game Off.
           </div>
         </div>
 
