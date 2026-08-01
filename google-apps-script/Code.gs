@@ -1088,7 +1088,17 @@ function bizNextKotNumber_(shiftId) {
 function clearSheetData_(sheetName) {
   const sheet = getSheet_(sheetName);
   const lastRow = sheet.getLastRow();
-  if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+  const lastCol = sheet.getLastColumn();
+  if (lastRow > 1 && lastCol > 0) {
+    // clearContent() is dramatically faster than deleteRows() for large
+    // sheets — deleteRows has to physically resize/reshuffle the sheet's
+    // dimensions, which gets slower the more rows there are (exactly the
+    // situation after months of accumulated Activity Logs). clearContent
+    // just blanks the values in place, same end result for our purposes
+    // since every read path here goes through readObjects_, which only
+    // ever looks at actual populated rows.
+    sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+  }
 }
 
 // Production Reset / Go-Live Data Wipe — Super Admin only, requires the
