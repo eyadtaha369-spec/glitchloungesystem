@@ -100,6 +100,7 @@ const emptyAppState: AppState = {
   activeShiftId: null,
   businessDayId: null,
   businessDays: [],
+  orderCounter: 0,
   fraudThresholdPercent: 2,
   geofenceEnabled: false,
   cafeLat: 0,

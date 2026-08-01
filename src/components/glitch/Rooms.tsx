@@ -789,10 +789,10 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <div className="text-center mb-4 receipt-block">
             <img src={logo} alt="GLITCH" className="w-40 h-auto mx-auto receipt-logo" />
             <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
-            <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">PlayStation &amp; Lounge</div>
+            <div className="text-sm font-bold uppercase tracking-[0.15em] mt-1">PlayStation &amp; Lounge</div>
           </div>
-          <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
-            <div className="flex justify-between"><span>Order #</span><span className="font-bold">{session.id.replace("sess-", "")}</span></div>
+          <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+            <div className="flex justify-between"><span>Order #</span><span className="font-bold">{session.orderNumber}</span></div>
             <div className="flex justify-between"><span>Room</span><span>{session.roomName}</span></div>
             <div className="flex justify-between"><span>Start</span><span>{startD.toLocaleString()}</span></div>
             <div className="flex justify-between"><span>End</span><span>{endD.toLocaleString()}</span></div>
@@ -841,7 +841,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             </>
           )}
 
-          <div className="flex justify-between border-t border-dashed border-black/20 mt-3 pt-2 text-xs">
+          <div className="flex justify-between border-t border-dashed border-black/40 mt-3 pt-2 text-sm font-bold">
             <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
           </div>
           {session.discountAmount > 0 && (
@@ -852,7 +852,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <div className="border-t border-double border-black/25 mt-2 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
             <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
           </div>
-          <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">
+          <div className="text-center text-sm font-bold uppercase tracking-widest mt-4">
             Thank you — Game On.
           </div>
         </div>
@@ -903,7 +903,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           <div className="text-center mb-3 receipt-block">
             <img src={logo} alt="GLITCH" className="w-32 h-auto mx-auto receipt-logo" />
             <div className="text-lg font-bold tracking-widest mt-1">GLITCH</div>
-            <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Kitchen Order Ticket</div>
+            <div className="text-sm font-bold uppercase tracking-[0.15em] mt-1">Kitchen Order Ticket</div>
           </div>
           <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
             <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
@@ -1354,7 +1354,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             <div className="text-center mb-4 receipt-block">
               <img src={logo} alt="GLITCH" className="w-40 h-auto mx-auto receipt-logo" />
               <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
-              <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Split Payment Receipt</div>
+              <div className="text-sm font-bold uppercase tracking-[0.15em] mt-1">Split Payment Receipt</div>
             </div>
             <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
               <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
@@ -1391,7 +1391,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
               <span>SUB-BILL TOTAL</span><span>{fmtMoney(splitReceipt.total)}</span>
             </div>
-            <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">Partial Payment — Table Remains Open</div>
+            <div className="text-center text-sm font-bold uppercase tracking-widest mt-4">Partial Payment — Table Remains Open</div>
           </div>
           <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
             <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>

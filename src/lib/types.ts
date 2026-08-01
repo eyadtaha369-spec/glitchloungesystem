@@ -96,6 +96,9 @@ export interface Room {
 
 export interface Session {
   id: string;
+  // Clean permanent sequential Order # (1, 2, 3...) — never resets, shown
+  // on the customer receipt instead of the raw internal id.
+  orderNumber: number;
   roomId: string;
   roomName: string;
   startedAt: number;
@@ -191,6 +194,10 @@ export interface AppState {
   // until explicitly closed via Close Business Day.
   businessDayId: string | null;
   businessDays: BusinessDay[]; // computed, read fresh — same pattern as sessions/shifts
+  // Permanent, never-resetting global counter — the source of every
+  // Session's orderNumber. A tiny integer, safe to keep directly in the
+  // state blob (not a growing list).
+  orderCounter: number;
   fraudThresholdPercent: number;
   // Geofence config for the Shift Gatekeeper — cashiers (and admins) must be
   // physically at these coordinates, within the radius, to open/close a shift.

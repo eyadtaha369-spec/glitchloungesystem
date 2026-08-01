@@ -293,7 +293,7 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
           <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
             <span>TOTAL (Staff Expense)</span><span>{fmtMoney(order.totalAmount)}</span>
           </div>
-          <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">Not a Retail Sale — Staff Consumption</div>
+          <div className="text-center text-sm font-bold uppercase tracking-widest mt-4">Not a Retail Sale — Staff Consumption</div>
         </div>
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>

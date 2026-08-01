@@ -120,7 +120,7 @@ function defaultAppState_() {
   rooms.push({ id: "waste-marketing", name: "Wasted / Marketing / هدر وماركتينج", isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "active", startedAt: Date.now(), orders: [], zone: "waste", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0 });
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
-    actualCashInput: 0, shifts: [], activeShiftId: null, businessDayId: null, fraudThresholdPercent: 2,
+    actualCashInput: 0, shifts: [], activeShiftId: null, businessDayId: null, orderCounter: 0, fraudThresholdPercent: 2,
     geofenceEnabled: false, cafeLat: 0, cafeLng: 0, geofenceRadiusMeters: 50,
   };
 }
@@ -178,7 +178,7 @@ function sheetObjectHeaders_(name) {
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
-    Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
+    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
@@ -193,7 +193,7 @@ function sheetObjectHeaders_(name) {
 // per-cell limit that broke the old single-blob-holds-everything design.
 function sessionToRow_(s) {
   return {
-    id: s.id, roomId: s.roomId, roomName: s.roomName, startedAt: s.startedAt, endedAt: s.endedAt,
+    id: s.id, orderNumber: s.orderNumber || 0, roomId: s.roomId, roomName: s.roomName, startedAt: s.startedAt, endedAt: s.endedAt,
     durationSec: s.durationSec, timeCost: s.timeCost, orders: JSON.stringify(s.orders || []),
     ordersCost: s.ordersCost, total: s.total, cogs: s.cogs,
     discountAmount: s.discountAmount || 0, discountLabel: s.discountLabel || null,
@@ -206,7 +206,7 @@ function rowToSession_(r) {
   let orders = [];
   try { orders = JSON.parse(r.orders || "[]"); } catch (e) { orders = []; }
   return Object.assign({}, r, {
-    orders: orders, splitBill: !!r.splitBill,
+    orders: orders, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
   });
 }
@@ -678,8 +678,10 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     });
   });
 
+  state.orderCounter = (state.orderCounter || 0) + 1;
   const session = {
     id: "sess-" + endedAt,
+    orderNumber: state.orderCounter,
     roomId: room.id,
     roomName: room.name,
     startedAt: room.startedAt,
@@ -910,8 +912,10 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   }
 
   const now = Date.now();
+  state.orderCounter = (state.orderCounter || 0) + 1;
   const splitSession = {
     id: "split-" + now,
+    orderNumber: state.orderCounter,
     roomId: room.id,
     roomName: room.name + " (Split)",
     startedAt: now,
@@ -2779,6 +2783,7 @@ function getState_() {
         if (typeof parsed.cafeLng !== "number") parsed.cafeLng = 0;
         if (typeof parsed.geofenceRadiusMeters !== "number") parsed.geofenceRadiusMeters = 50;
         if (typeof parsed.businessDayId === "undefined") parsed.businessDayId = null;
+        if (typeof parsed.orderCounter !== "number") parsed.orderCounter = 0;
         if (parsed.menu) {
           parsed.menu = parsed.menu.map(function (m) {
             return m.category ? m : Object.assign({}, m, { category: "Extras" });
