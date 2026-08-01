@@ -26,7 +26,15 @@ export const reconcileUnapprovedVoidFn = createServerFn({ method: "POST" })
   .validator((d: { voidId: string; action: "approve" | "flag_discrepancy"; note?: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    return callAppsScript<{ ok: boolean; error?: string }>("reconcileUnapprovedVoid", { ...data, username: user.username });
+    // Sent over the wire as "decision", NOT "action" — the top-level
+    // dispatch field is ALSO called "action" (the string "reconcileUnapprovedVoid"
+    // passed to callAppsScript below), and both would collide under the
+    // same flat JSON object if this field kept the same name. Renaming
+    // here, not in the public function signature, so nothing calling
+    // this needs to change.
+    return callAppsScript<{ ok: boolean; error?: string }>("reconcileUnapprovedVoid", {
+      voidId: data.voidId, decision: data.action, note: data.note, username: user.username,
+    });
   });
 
 // Generic on-the-spot admin authorization (manager-key-style override) —

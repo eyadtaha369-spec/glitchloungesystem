@@ -612,13 +612,13 @@ Object.assign(handlers, {
     const before = readObjects_("VoidRequests").find((r) => r.id === body.voidId);
     if (!before) return { ok: false, error: "Void request not found" };
     if (before.status !== "unapproved") return { ok: false, error: "This request has already been reconciled" };
-    const newStatus = body.action === "flag_discrepancy" ? "discrepancy" : "approved";
+    const newStatus = body.decision === "flag_discrepancy" ? "discrepancy" : "approved";
     updateObjectById_("VoidRequests", body.voidId, { status: newStatus, approvedBy: body.username, approvedAt: Date.now() });
     logActivity_({
       actorUsername: body.username, actorRole: "admin",
-      actionType: body.action === "flag_discrepancy" ? "UNAPPROVED_VOID_FLAGGED" : "UNAPPROVED_VOID_RECONCILED",
+      actionType: body.decision === "flag_discrepancy" ? "UNAPPROVED_VOID_FLAGGED" : "UNAPPROVED_VOID_RECONCILED",
       location: before.roomName, shiftId: before.shiftId,
-      description: (body.action === "flag_discrepancy" ? "Flagged: " : "Reconciled: ") + before.qty + "x " + before.itemName,
+      description: (body.decision === "flag_discrepancy" ? "Flagged: " : "Reconciled: ") + before.qty + "x " + before.itemName,
       before: { status: "unapproved" }, after: { status: newStatus, note: body.note || null },
     });
     return { ok: true };

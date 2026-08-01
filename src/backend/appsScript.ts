@@ -15,7 +15,15 @@ export async function callAppsScript<T = unknown>(
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret, action, ...payload }),
+    // IMPORTANT: `action` must be spread LAST. Some payloads legitimately
+    // have their own field also called "action" (e.g. reconcileUnapprovedVoid's
+    // {action: "approve" | "flag_discrepancy"}), which is a completely
+    // different thing from the dispatch action name below it — but with
+    // ...payload spread after `action`, that field silently overwrote the
+    // real dispatch name, sending e.g. "approve" as the action instead of
+    // "reconcileUnapprovedVoid". Spreading payload first and `action` last
+    // guarantees the real dispatch name always wins.
+    body: JSON.stringify({ secret, ...payload, action }),
     redirect: "follow",
   });
 

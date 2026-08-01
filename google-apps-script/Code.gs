@@ -2383,13 +2383,13 @@ function doPost(e) {
         const before = readObjects_("VoidRequests").find((r) => r.id === body.voidId);
         if (!before) return json_({ ok: false, error: "Void request not found" });
         if (before.status !== "unapproved") return json_({ ok: false, error: "This request has already been reconciled" });
-        const newStatus = body.action === "flag_discrepancy" ? "discrepancy" : "approved";
+        const newStatus = body.decision === "flag_discrepancy" ? "discrepancy" : "approved";
         updateObjectById_("VoidRequests", body.voidId, { status: newStatus, approvedBy: body.username, approvedAt: Date.now() });
         logActivity_({
           actorUsername: body.username, actorRole: "admin",
-          actionType: body.action === "flag_discrepancy" ? "UNAPPROVED_VOID_FLAGGED" : "UNAPPROVED_VOID_RECONCILED",
+          actionType: body.decision === "flag_discrepancy" ? "UNAPPROVED_VOID_FLAGGED" : "UNAPPROVED_VOID_RECONCILED",
           location: before.roomName, shiftId: before.shiftId,
-          description: (body.action === "flag_discrepancy" ? "Flagged as DISCREPANCY: " : "Reconciled: ") +
+          description: (body.decision === "flag_discrepancy" ? "Flagged as DISCREPANCY: " : "Reconciled: ") +
             before.qty + "x " + before.itemName + " (originally routed by " + before.cashierUsername + ", " + before.billValue.toFixed(2) + " EGP" + " bill value)" +
             (body.note ? " — Note: " + body.note : ""),
           before: { status: "unapproved" }, after: { status: newStatus, note: body.note || null },
