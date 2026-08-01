@@ -34,6 +34,35 @@ exists to verify a cashier is physically at your venue over the
 public internet; on a LAN you already control, it doesn't add
 anything, so shifts can open from any register on your network.
 
+## Migrating your real data from the live cloud site
+
+This is a **separate, one-time step** — after installing and creating your
+first account, run:
+
+```bash
+node migrate-from-sheets.js
+```
+
+It needs 4 settings — either in `server/.env` or as environment variables:
+
+```
+CLOUD_URL=https://script.google.com/.../exec     (your live Apps Script web app URL)
+CLOUD_SECRET=<your live APPS_SCRIPT_SECRET>
+CLOUD_ADMIN_USER=<a real admin username on the live site>
+CLOUD_ADMIN_PASS=<that admin's password>
+```
+
+This pulls your real menu, room names/rates, raw materials, current stock
+batches, suppliers, and recurring expenses from the live site and writes
+them into the local database, replacing the placeholder starter set.
+**Accounts (usernames + roles) are listed at the end but passwords are
+never migrated** — the cloud API deliberately never exposes password
+hashes — recreate each one with `create-account.js` using a new password.
+
+**Not migrated yet**: historical Sessions, Shifts, Ledger, ActivityLogs,
+and other past-activity records. The app works fully for everything
+going forward; old reports just won't show pre-migration history.
+
 ## Setup
 
 No Python, no Visual Studio Build Tools, no compilation — this uses

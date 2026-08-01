@@ -1902,6 +1902,15 @@ function doPost(e) {
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ items: readObjects_("RawMaterials") });
 
+      // Read-only, added for the offline-migration script — the computed
+      // "stock" view (in getState) aggregates batches into one number per
+      // material, but migrating to the local server needs the individual
+      // batch records themselves (purchase dates, remaining qty per lot)
+      // to preserve real FIFO history, not just the current totals.
+      case "getBatches":
+        requireRole_(body.username, ["admin"]);
+        return json_({ items: readObjects_("Batches") });
+
       case "submitStaffOrder": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
