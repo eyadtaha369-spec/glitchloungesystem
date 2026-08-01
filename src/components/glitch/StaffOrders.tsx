@@ -359,7 +359,7 @@ function printStaffOrdersReport(orders: StaffOrder[], fromDate: string, toDate: 
     </tr>`).join("") || "<tr><td colspan=5>No orders in this range</td></tr>"}
   </tbody>
 </table>
-<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent().catch(() => window.print()); } else { window.print(); } }, 300);</script>
+<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent({ deviceName: localStorage.getItem("glitch-preferred-printer") || "" }).catch(() => window.print()); } else { window.print(); } }, 300);</script>
 </body></html>`);
   win.document.close();
 }

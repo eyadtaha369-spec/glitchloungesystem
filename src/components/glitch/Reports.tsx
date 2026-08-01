@@ -757,7 +757,7 @@ function generateDailyReport(
     </tr>`).join("")}
   </tbody>
 </table>
-<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent().catch(() => window.print()); } else { window.print(); } }, 300);</script>
+<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent({ deviceName: localStorage.getItem("glitch-preferred-printer") || "" }).catch(() => window.print()); } else { window.print(); } }, 300);</script>
 </body></html>`);
   win.document.close();
 }

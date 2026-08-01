@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon, Printer, Copy, Check } from "lucide-react";
+import { getPreferredPrinter, setPreferredPrinter } from "@/lib/print";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon, Printer, Copy, Check, RefreshCw } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -125,6 +126,19 @@ function ProductionResetPanel() {
 function PrinterSetupPanel() {
   const [copied, setCopied] = useState<string | null>(null);
   const kioskCommand = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --kiosk-printing --app=https://glitchloungesystem.vercel.app';
+  const [printers, setPrinters] = useState<{ name: string; displayName?: string; isDefault?: boolean }[] | null>(null);
+  const [selected, setSelected] = useState(getPreferredPrinter());
+  const isElectron = typeof window !== "undefined" && !!window.electronAPI;
+
+  useEffect(() => {
+    if (!isElectron) return;
+    window.electronAPI?.listPrinters().then(setPrinters);
+  }, [isElectron]);
+
+  const choosePrinter = (name: string) => {
+    setSelected(name);
+    setPreferredPrinter(name);
+  };
 
   const copy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -139,13 +153,64 @@ function PrinterSetupPanel() {
         <h2 className="text-lg font-semibold">Thermal Printer Setup — One-Click Printing</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
-        Being honest about what's possible here: no website can silently print without asking, on any browser — that's
-        a deliberate security boundary, not a limitation of this app. The Print buttons already fire instantly with no
-        extra clicks needed inside the print dialog itself, but to skip that dialog entirely on your actual till
-        computer, launch Chrome with the <code className="bg-black/5 px-1 rounded">--kiosk-printing</code> flag below.
-        Do this once on the register's PC.
+        {isElectron ? (
+          <>You're running the desktop app, which prints silently already — no dialog, ever. Pick which physical printer it should use below.</>
+        ) : (
+          <>Being honest about what's possible here: no website can silently print without asking, on any browser — that's
+          a deliberate security boundary, not a limitation of this app. The Print buttons already fire instantly with no
+          extra clicks needed inside the print dialog itself, but to skip that dialog entirely on your actual till
+          computer, launch Chrome with the <code className="bg-black/5 px-1 rounded">--kiosk-printing</code> flag below.
+          Do this once on the register's PC.</>
+        )}
       </p>
 
+      {isElectron && (
+        <div className="mb-5 rounded-xl bg-black/5 border border-black/8 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Printer for This Device</div>
+            <button
+              onClick={() => window.electronAPI?.listPrinters().then(setPrinters)}
+              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8"
+            >
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </button>
+          </div>
+          {printers === null ? (
+            <div className="text-xs text-muted-foreground font-mono">Detecting printers...</div>
+          ) : printers.length === 0 ? (
+            <div className="text-xs text-muted-foreground font-mono">No printers detected on this machine — check it's installed in Windows first.</div>
+          ) : (
+            <div className="space-y-2">
+              <button
+                onClick={() => choosePrinter("")}
+                className={`w-full flex items-center justify-between text-start text-xs px-3 py-2.5 rounded-lg border ${
+                  selected === "" ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
+                }`}
+              >
+                <span>System Default</span>
+                {selected === "" && <Check className="w-3.5 h-3.5" />}
+              </button>
+              {printers.map((p) => (
+                <button
+                  key={p.name}
+                  onClick={() => choosePrinter(p.name)}
+                  className={`w-full flex items-center justify-between text-start text-xs px-3 py-2.5 rounded-lg border ${
+                    selected === p.name ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
+                  }`}
+                >
+                  <span>{p.displayName || p.name}{p.isDefault ? " (Windows default)" : ""}</span>
+                  {selected === p.name && <Check className="w-3.5 h-3.5" />}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Applies to every receipt, kitchen ticket, and report on this device from now on — each till can have its own choice.
+          </p>
+        </div>
+      )}
+
+      {!isElectron && (
       <div className="space-y-4">
         <div>
           <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1.5">Windows — Desktop Shortcut Target</div>
@@ -183,6 +248,7 @@ function PrinterSetupPanel() {
           80mm profile the first time, so it doesn't need to ask again.
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -9,14 +9,29 @@ declare global {
     electronAPI?: {
       isElectron: true;
       printSilent: (options?: { deviceName?: string }) => Promise<{ ok: boolean; error?: string }>;
-      listPrinters: () => Promise<unknown[]>;
+      listPrinters: () => Promise<{ name: string; displayName?: string; description?: string; isDefault?: boolean }[]>;
     };
   }
 }
 
+const PRINTER_STORAGE_KEY = "glitch-preferred-printer";
+
+// Device-specific choice (which physical printer this particular till
+// should use) — deliberately NOT part of the shared app state, same
+// reasoning as the language preference: it describes this machine, not
+// the business, so it lives in localStorage instead of syncing anywhere.
+export function getPreferredPrinter(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(PRINTER_STORAGE_KEY) || "";
+}
+export function setPreferredPrinter(name: string): void {
+  if (name) window.localStorage.setItem(PRINTER_STORAGE_KEY, name);
+  else window.localStorage.removeItem(PRINTER_STORAGE_KEY);
+}
+
 export async function printSmart(): Promise<void> {
   if (window.electronAPI) {
-    const result = await window.electronAPI.printSilent();
+    const result = await window.electronAPI.printSilent({ deviceName: getPreferredPrinter() });
     if (!result.ok) {
       // Fall back rather than leave the user with nothing printed and no
       // explanation — a misconfigured/offline printer shouldn't strand them.
