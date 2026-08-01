@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import logo from "@/assets/glitch-logo.jpg";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
@@ -779,7 +780,8 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-4 receipt-block">
-            <div className="text-xl font-bold tracking-widest">GLITCH</div>
+            <img src={logo} alt="GLITCH" className="w-16 h-16 mx-auto rounded-full receipt-logo" />
+            <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">PlayStation &amp; Lounge</div>
           </div>
           <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
@@ -884,7 +886,8 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
         {/* No prices/totals here on purpose — this goes to the kitchen, not the customer. */}
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-3 receipt-block">
-            <div className="text-lg font-bold tracking-widest">GLITCH</div>
+            <img src={logo} alt="GLITCH" className="w-12 h-12 mx-auto rounded-full receipt-logo" />
+            <div className="text-lg font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Kitchen Order Ticket</div>
           </div>
           <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
@@ -1326,7 +1329,8 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           </div>
           <div className="print-area p-6 font-mono text-sm bg-white/50">
             <div className="text-center mb-4 receipt-block">
-              <div className="text-xl font-bold tracking-widest">GLITCH</div>
+              <img src={logo} alt="GLITCH" className="w-16 h-16 mx-auto rounded-full receipt-logo" />
+              <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
               <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Split Payment Receipt</div>
             </div>
             <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">

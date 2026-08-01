@@ -251,6 +251,15 @@
     border-color: #000000 !important;
   }
 
+  /* The logo is gold/metallic on a light background — on a monochrome
+     thermal head that washes out to a faint gray blob unless pushed to
+     high-contrast grayscale first. */
+  .print-area .receipt-logo {
+    filter: grayscale(1) contrast(1.6) brightness(0.9) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   /* Never split a line item, or the header/total block, across a page
      break — mostly relevant for printers that still paginate. */
   .print-area .receipt-line,
