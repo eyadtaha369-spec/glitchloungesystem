@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
+
+// Stable reference (never recreated) — passing `[]` inline as a prop
+// creates a brand-new array every render, which alone defeats
+// React.memo on whatever receives it.
+const EMPTY_ROOMS: Room[] = [];
 
 // Mirrors the server's effectiveDurationSec_: elapsed seconds at an
 // arbitrary point in time, excluding all paused time. Used to freeze the
@@ -35,14 +40,18 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 
   const [receipt, setReceipt] = useState<Session | null>(null);
 
-  const roomZone = state.rooms.filter((r) => r.zone === "room");
-  const loungeZone = state.rooms.filter((r) => r.zone === "lounge");
-  const standardTables = loungeZone.filter((r) => !r.isOwnerTable);
-  const ownerTables = loungeZone.filter((r) => r.isOwnerTable);
-  const wasteTable = state.rooms.find((r) => r.zone === "waste");
+  // Memoized on state.rooms specifically (not the 1-second tick) — these
+  // arrays would otherwise get a brand-new reference every second even
+  // when nothing in them changed, which alone defeats React.memo on every
+  // RoomCard below regardless of how carefully IT is memoized.
+  const roomZone = useMemo(() => state.rooms.filter((r) => r.zone === "room"), [state.rooms]);
+  const loungeZone = useMemo(() => state.rooms.filter((r) => r.zone === "lounge"), [state.rooms]);
+  const standardTables = useMemo(() => loungeZone.filter((r) => !r.isOwnerTable), [loungeZone]);
+  const ownerTables = useMemo(() => loungeZone.filter((r) => r.isOwnerTable), [loungeZone]);
+  const wasteTable = useMemo(() => state.rooms.find((r) => r.zone === "waste"), [state.rooms]);
   // Any room or lounge table is a valid transfer target regardless of which
   // view you're on — transfer is explicitly cross-zone.
-  const transferTargets = [...roomZone, ...loungeZone];
+  const transferTargets = useMemo(() => [...roomZone, ...loungeZone], [roomZone, loungeZone]);
   const primaryZone = scope === "room" ? roomZone : standardTables;
 
   return (
@@ -88,7 +97,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         <div>
           <h2 className="text-sm uppercase tracking-widest text-[oklch(0.58_0.22_25)] font-mono mb-3">Wasted / Marketing — Remakes, Complaints &amp; Complimentary</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            <RoomCard room={wasteTable} elapsed={0} onCheckout={setReceipt} transferTargets={[]} />
+            <RoomCard room={wasteTable} elapsed={0} onCheckout={setReceipt} transferTargets={EMPTY_ROOMS} />
           </div>
         </div>
       )}
@@ -98,7 +107,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
   );
 }
 
-function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
+const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
   const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
@@ -692,7 +701,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
       </label>
     </div>
   );
-}
+});
 
 // Large, high-contrast, touch-friendly menu picker with category tabs
 // across the top — replaces the old small dropdown list entirely.

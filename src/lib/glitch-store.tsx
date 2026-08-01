@@ -415,6 +415,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const pauseRoom: StoreContextValue["pauseRoom"] = async (roomId) => {
     return withPending(`pauseRoom:${roomId}`, async () => {
+      const now = Date.now();
+      // Instant feedback — flip to paused locally right away; a failed
+      // request just gets overwritten by the server's real state below,
+      // which is an automatic rollback since setAppState always takes
+      // the server's word as final once the response comes back.
+      setAppState((prev) => ({
+        ...prev,
+        rooms: prev.rooms.map((r) => (r.id === roomId && !r.isPaused ? { ...r, isPaused: true, pausedAt: now } : r)),
+      }));
       try {
         const res = await pauseRoomFn({ data: { roomId } });
         if (res.ok) setAppState(res.state);
@@ -457,6 +466,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const resumeRoom: StoreContextValue["resumeRoom"] = async (roomId) => {
     return withPending(`resumeRoom:${roomId}`, async () => {
+      const now = Date.now();
+      setAppState((prev) => ({
+        ...prev,
+        rooms: prev.rooms.map((r) => {
+          if (r.id !== roomId || !r.isPaused) return r;
+          const addedPause = r.pausedAt ? (now - r.pausedAt) / 1000 : 0;
+          return { ...r, isPaused: false, pausedAt: null, pausedDurationSec: (r.pausedDurationSec || 0) + addedPause };
+        }),
+      }));
       try {
         const res = await resumeRoomFn({ data: { roomId } });
         if (res.ok) setAppState(res.state);
