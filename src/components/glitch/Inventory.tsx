@@ -306,7 +306,7 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
     </tr>`).join("") || "<tr><td colspan=7>No restocks logged yet</td></tr>"}
   </tbody>
 </table>
-<script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent().catch(() => window.print()); } else { window.print(); } }, 300);</script>
 </body></html>`);
   win.document.close();
 }
@@ -1147,7 +1147,7 @@ function printReport(month: string, sessions: Session[], state: ReturnType<typeo
     ${state.stock.map((s) => `<tr><td>${s.name}</td><td>${s.unit}</td><td>${s.initialStock}</td><td>${s.used}</td><td>${s.initialStock - s.used}</td></tr>`).join("")}
   </tbody>
 </table>
-<script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent().catch(() => window.print()); } else { window.print(); } }, 300);</script>
 </body></html>`);
   win.document.close();
 }

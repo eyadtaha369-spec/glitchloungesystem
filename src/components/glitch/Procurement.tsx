@@ -485,7 +485,7 @@ function ReportModal({ entries, materials, onClose }: {
     }).join("") || "<tr><td colspan=7>No purchases in this period</td></tr>"}
   </tbody>
 </table>
-<script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent().catch(() => window.print()); } else { window.print(); } }, 300);</script>
 </body></html>`);
     win.document.close();
   };

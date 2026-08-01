@@ -3,13 +3,17 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "dotenv -e .env -- vite dev",
     "build": "dotenv -e .env -- vite build",
     "build:dev": "dotenv -e .env -- vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder --win",
+    "electron:build:dir": "electron-builder --win --dir"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -83,6 +87,31 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.glitchlounge.pos",
+    "productName": "GLITCH Lounge OS",
+    "files": [
+      "electron/main.js",
+      "electron/preload.js",
+      "electron/assets/**/*"
+    ],
+    "directories": {
+      "output": "electron-dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "electron/assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GLITCH Lounge OS"
+    }
   }
 }

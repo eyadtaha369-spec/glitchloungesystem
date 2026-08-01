@@ -1,27 +1,27 @@
 // GLITCH Lounge OS — Electron Desktop Shell
 //
-// PHASE 1 of the offline roadmap: this gives you a real desktop app
-// (taskbar icon, its own window, no browser chrome, launches like any
-// other Windows program) with genuine SILENT thermal printing — no
-// print dialog, ever, once your printer is set as the default.
+// This gives you a real desktop app (taskbar icon, its own window, no
+// browser chrome) with genuine SILENT thermal printing — no print
+// dialog, ever, once your printer is set as the default.
 //
-// IMPORTANT — read this before assuming it's fully offline: this shell
-// currently loads the app from its deployed URL (APP_URL below), which
-// still talks to Google Sheets/Apps Script over the internet for every
-// action, same as it does in a normal browser tab today. Wrapping it in
-// Electron does not, by itself, make the POS logic or data local — that
-// is Phase 2 (a full local SQLite + ported business-logic migration),
-// a separate and much larger project. This file is honestly scoped to
-// what Electron packaging + native printing actually solve on their own.
+// By default this now points at your LOCAL server (Phase 2 — see
+// server/README.md), the fully offline setup. Set GLITCH_APP_URL to
+// override it, e.g. back to the cloud-deployed site if you ever want
+// this shell to run against that instead.
 
 const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 
-// Point this at your deployed app. If/when Phase 2 ships a local
-// server, this becomes "http://localhost:PORT" instead.
-const APP_URL = process.env.GLITCH_APP_URL || "https://glitchloungesystem.vercel.app";
+const APP_URL = process.env.GLITCH_APP_URL || "http://localhost:3000";
 
 let mainWindow;
+
+const WEB_PREFERENCES = {
+  preload: path.join(__dirname, "preload.js"),
+  contextIsolation: true, // security: renderer can't touch Node directly
+  nodeIntegration: false,
+  spellcheck: false,
+};
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -32,13 +32,23 @@ function createWindow() {
     icon: path.join(__dirname, "assets", "icon.png"),
     title: "GLITCH Lounge OS",
     autoHideMenuBar: true, // no File/Edit/View menu bar cluttering a POS screen
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true, // security: renderer can't touch Node directly
-      nodeIntegration: false,
-      spellcheck: false,
-    },
+    webPreferences: WEB_PREFERENCES,
   });
+
+  // Report/Inventory/Procurement/Voids print-outs open via window.open()
+  // into a plain popup by default — without this, that popup gets NO
+  // preload script and therefore no window.electronAPI, so those
+  // printouts would silently fall back to the normal dialog even
+  // inside the desktop app. Attaching the SAME preload here means
+  // every popup gets real silent printing too, not just the 4 primary
+  // receipt/ticket types.
+  mainWindow.webContents.setWindowOpenHandler(() => ({
+    action: "allow",
+    overrideBrowserWindowOptions: {
+      autoHideMenuBar: true,
+      webPreferences: WEB_PREFERENCES,
+    },
+  }));
 
   Menu.setApplicationMenu(null);
   mainWindow.loadURL(APP_URL);
@@ -66,7 +76,9 @@ app.on("activate", () => {
 // webContents.print() supports { silent: true }, which no ordinary
 // website can ever do (that's a real browser security boundary, not a
 // bug — see the app's own printer-setup notes). Renderer calls this via
-// the preload bridge (window.electronAPI.printSilent()).
+// the preload bridge (window.electronAPI.printSilent()). Works
+// identically for the main window and for popups, since both share the
+// same preload via setWindowOpenHandler above.
 ipcMain.handle("print-silent", async (event, options = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return { ok: false, error: "No window" };

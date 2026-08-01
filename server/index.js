@@ -31,6 +31,7 @@ const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_ } = require("./lib/inventory");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
+const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 
 const PORT = process.env.PORT || 4000;
 const SHARED_SECRET = process.env.GLITCH_LOCAL_SECRET || "change-me-local-secret";
@@ -893,4 +894,6 @@ app.get("/health", (req, res) => res.json({ ok: true, actionsImplemented: Object
 app.listen(PORT, "0.0.0.0", () => {
   console.log("GLITCH local server listening on http://0.0.0.0:" + PORT);
   console.log("Actions implemented so far: " + Object.keys(handlers).join(", "));
+  scheduleBackups();
+  console.log("Automatic backups: one now, then every 24h, kept in " + BACKUP_DIR);
 });

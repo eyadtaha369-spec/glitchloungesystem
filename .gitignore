@@ -42,7 +42,9 @@ server/glitch.db
 server/glitch.db-wal
 server/glitch.db-shm
 server/uploads/
+server/backups/
 
 # Electron
+electron-dist/
 electron/dist/
 electron/out/

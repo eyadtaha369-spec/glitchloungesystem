@@ -127,3 +127,38 @@ Every register (including the host machine itself) opens the app in
 a browser pointed at the host's address — same UI everyone already
 knows. The host is the only machine that needs Node.js and this
 server running; the others are just clients.
+
+Fired 10 genuinely simultaneous requests from different "registers" at
+the same room and confirmed zero lost updates (all 10 items landed
+correctly) and that opening a second shift while one's already active
+is correctly rejected every time, even under concurrent load. Node's
+single-threaded event loop combined with this server's synchronous
+SQLite calls means two requests can never actually interleave
+mid-write — there's no window for the kind of race condition a
+multi-register setup would otherwise risk.
+
+## Automatic backups
+
+Runs once the moment the server starts, then every 24 hours after
+that for as long as it keeps running — saved to `server/backups/`,
+keeping the most recent 30. Each backup checkpoints the database
+first (merges any pending writes) so it's always a complete,
+consistent snapshot, never a half-written one. Copy any of these
+files to a USB drive anytime for extra offsite insurance — they're
+just plain files.
+
+## Building the desktop .exe
+
+From the repo root (not `server/`):
+
+```bash
+npm install
+npm run electron:build
+```
+
+This produces an installer in `electron-dist/`. **This step has to
+run on your own Windows machine** — I can write and verify the
+configuration, but I can't produce or test a real Windows binary from
+here. First run `npm run electron:dev` to sanity-check the shell opens
+correctly against your local server before building the installer.
+
