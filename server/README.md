@@ -1,5 +1,20 @@
 # GLITCH Local Server — Phase 2 Offline Backend
 
+## Quick start (after everything below is set up once)
+
+From the repo root, just double-click **`start-local.bat`** (or run it
+from PowerShell/cmd) — it opens all three windows you need (database
+server, dev server, desktop app), in the right order, automatically.
+No more retyping the same three sets of commands every time.
+
+When you're done for the day, double-click **`stop-local.bat`** to
+close all three cleanly. This matters more than it sounds like it
+should: a server window left running in the background after you
+think everything's closed is exactly what caused the "database is
+locked" bug — a leftover process quietly still holding the database
+file open while a new one starts. Using `stop-local.bat` instead of
+just closing windows by hand avoids that.
+
 Replaces Google Sheets + Apps Script with a local Node server + a real
 SQLite file on your hard drive, speaking the **exact same** request
 protocol your frontend already uses — no frontend changes needed, only
