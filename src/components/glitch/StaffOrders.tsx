@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
+import { printSmart } from "@/lib/print";
 import { useStore, fmtMoney, MENU_CATEGORIES } from "@/lib/glitch-store";
 import type { MenuItem, MenuCategory, StaffOrder } from "@/lib/glitch-store";
 import { Users, Plus, Minus, X, Printer } from "lucide-react";
@@ -298,7 +299,7 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
-            onClick={() => window.print()}
+            onClick={() => void printSmart()}
             disabled={!logoReady}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.85_0.16_200)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-semibold disabled:opacity-60"
           >

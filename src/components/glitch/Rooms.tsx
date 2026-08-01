@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
+import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
@@ -880,7 +881,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
-            onClick={() => window.print()}
+            onClick={() => void printSmart()}
             disabled={!logoReady}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-60"
           >
@@ -950,7 +951,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
-            onClick={() => window.print()}
+            onClick={() => void printSmart()}
             disabled={!logoReady}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] disabled:opacity-60"
           >
@@ -1518,7 +1519,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
             <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
             <button
-              onClick={() => window.print()}
+              onClick={() => void printSmart()}
               disabled={!logoReady}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.78_0.2_155)] to-[oklch(0.7_0.2_170)] text-black font-semibold shadow-[0_0_20px_oklch(0.78_0.2_155/0.4)] disabled:opacity-60"
             >

@@ -753,7 +753,121 @@ Object.assign(handlers, {
     setState_(state);
     return { state: withStockView_(state) };
   },
+
+  setAbsoluteStock(body) {
+    requireRole_(body.username, ["admin"]);
+    const material = readObjects_("RawMaterials").find((m) => m.id === body.materialId);
+    if (!material) return { ok: false, error: "Material not found" };
+    const target = Number(body.targetQty);
+    if (isNaN(target) || target < 0) return { ok: false, error: "Enter a valid quantity" };
+
+    // Same fix as the cloud version: compute the delta HERE, against the
+    // live remaining at this exact moment — never trust a delta the
+    // client pre-computed, since that goes stale the instant real
+    // consumption happens between opening the Edit modal and saving.
+    const batches = readObjects_("Batches");
+    const before = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
+    const delta = Math.round((target - before) * 1e6) / 1e6;
+    let after = before;
+    if (delta !== 0) {
+      const result = adjustStock_(body.materialId, delta, "correction", body.note || "", body.username);
+      after = result.after;
+    }
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "STOCK_ADJUSTED",
+      description: material.name + ": Actual Stock set to " + target + " " + material.unit +
+        " (system showed " + before + " " + material.unit + ") — " +
+        (delta < 0 ? "DEFICIT of " + Math.abs(delta) : delta > 0 ? "SURPLUS of " + delta : "no variance") + " " + material.unit +
+        (body.note ? " — " + body.note : ""),
+      before: { remaining: before }, after: { remaining: after, delta },
+    });
+    return { ok: true, before, after, delta, state: withStockView_(getState_()) };
+  },
+
+  nextKotNumber(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    if (!body.shiftId) return { ok: false, error: "No active shift" };
+    const shift = readShifts_().find((s) => s.id === body.shiftId);
+    if (!shift) return { ok: false, error: "Shift not found" };
+    const next = (Number(shift.kotCounter) || 0) + 1;
+    updateObjectById_("Shifts", body.shiftId, { kotCounter: next });
+    return { ok: true, number: next };
+  },
+
+  verifyAdminAuth(body) {
+    const result = login_(body.adminUsername, body.adminPassword);
+    const ok = result.ok && result.role === "admin";
+    if (!ok) {
+      logActivity_({ actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "LOGIN_FAILED", description: "Failed on-the-spot admin authorization attempt (target: '" + (body.adminUsername || "") + "')" });
+    }
+    return { ok, adminUsername: ok ? result.username : null };
+  },
+
+  logRecurringExpensePayment(body) {
+    requireRole_(body.username, ["admin"]);
+    const entry = {
+      id: newId_("ledg"), ts: Date.now(), amount: body.amount, direction: "outflow",
+      type: "recurringExpense", category: body.name || "Recurring Expense", description: body.description || "",
+      supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: body.receiptUrl || null,
+      paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null, paymentSource: null,
+    };
+    appendObject_("Ledger", entry);
+    logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RECURRING_EXPENSE_PAID", description: "Logged payment of " + body.amount + " EGP for '" + body.name + "'", after: { name: body.name, amount: body.amount } });
+    return { ok: true, entry };
+  },
+
+  logSplitInterfaceOpened(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const state0 = getState_();
+    const source = state0.rooms.find((r) => r.id === body.roomId);
+    logActivity_({ actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SPLIT_INTERFACE_OPENED", location: source ? source.name : body.roomId, shiftId: state0.activeShiftId, description: "Split interface opened for " + (source ? source.name : body.roomId) });
+    return { ok: true };
+  },
+
+  setGeofenceConfig(body) {
+    requireRole_(body.username, ["admin"]);
+    const state = getState_();
+    const before = { enabled: state.geofenceEnabled, lat: state.cafeLat, lng: state.cafeLng, radiusMeters: state.geofenceRadiusMeters };
+    state.geofenceEnabled = !!body.enabled;
+    state.cafeLat = Number(body.lat) || 0;
+    state.cafeLng = Number(body.lng) || 0;
+    state.geofenceRadiusMeters = Number(body.radiusMeters) || 50;
+    setState_(state);
+    logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "GEOFENCE_CONFIG_CHANGED", description: "Geofence config updated — enabled=" + state.geofenceEnabled, before, after: { enabled: state.geofenceEnabled, lat: state.cafeLat, lng: state.cafeLng, radiusMeters: state.geofenceRadiusMeters } });
+    return { state: withStockView_(state) };
+  },
+
+  resetForProduction(body) {
+    requireRole_(body.username, ["admin"]);
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
+
+    // Transactional / test data — WIPED. Configuration (RawMaterials,
+    // Suppliers, RecurringExpenses, Accounts) is never touched here.
+    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "RestockLog", "Batches", "BusinessDays"]
+      .forEach((table) => db.exec(`DELETE FROM ${table}`));
+
+    const state = getState_();
+    state.rooms = state.rooms.map((r) => Object.assign({}, r, {
+      status: "available", startedAt: null, orders: [],
+      isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+      hourlyRate: 0, rateMode: null, splitInvoiceNumber: null, transferredFrom: null,
+    }));
+    state.activeShiftId = null;
+    state.businessDayId = null;
+    state.actualCashInput = 0;
+    state.activity = [];
+    state.cashRecords = [];
+    setState_(state);
+
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+      description: body.username + " performed a Go-Live Production Reset (local server) — all test orders, shifts, transactions, and financial history were permanently deleted. Menu, room configuration, and employee accounts were preserved.",
+    });
+    return { ok: true, state: withStockView_(state) };
+  },
 });
+
 
 app.post("/", (req, res) => {
   const body = req.body || {};
