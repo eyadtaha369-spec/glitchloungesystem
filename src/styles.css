@@ -260,14 +260,13 @@
   }
 }
 
-/* This logo mark is a light metallic emblem on a SOLID BLACK background —
-   printed as-is that's a giant black rectangle wasting ink/heat and
-   looking wrong on a receipt. Inverting turns the black background white
-   (matching the paper) and the emblem into clean dark linework — applied
-   universally (not just @media print) so the on-screen preview matches
-   exactly what comes out of the printer. */
+/* This logo asset was processed (not just CSS-filtered) into a genuine
+   solid black silhouette on a transparent background — see the build
+   notes for why: the raw uploaded artwork was a very low-contrast dark
+   emblem on a near-black background, and a runtime CSS filter alone
+   couldn't reliably guarantee full visibility on a real thermal
+   printer. No filter needed here now — it prints exactly as stored. */
 .receipt-logo {
-  filter: invert(1) grayscale(1) contrast(1.3);
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }

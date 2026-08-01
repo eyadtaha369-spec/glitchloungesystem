@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import logo from "@/assets/glitch-logo-mark.jpg";
+import logo from "@/assets/glitch-logo-mark.png";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
@@ -780,7 +780,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-4 receipt-block">
-            <img src={logo} alt="GLITCH" className="w-40 h-40 mx-auto receipt-logo" />
+            <img src={logo} alt="GLITCH" className="w-40 h-auto mx-auto receipt-logo" />
             <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">PlayStation &amp; Lounge</div>
           </div>
@@ -886,7 +886,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
         {/* No prices/totals here on purpose — this goes to the kitchen, not the customer. */}
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-3 receipt-block">
-            <img src={logo} alt="GLITCH" className="w-32 h-32 mx-auto receipt-logo" />
+            <img src={logo} alt="GLITCH" className="w-32 h-auto mx-auto receipt-logo" />
             <div className="text-lg font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Kitchen Order Ticket</div>
           </div>
@@ -1329,7 +1329,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           </div>
           <div className="print-area p-6 font-mono text-sm bg-white/50">
             <div className="text-center mb-4 receipt-block">
-              <img src={logo} alt="GLITCH" className="w-40 h-40 mx-auto receipt-logo" />
+              <img src={logo} alt="GLITCH" className="w-40 h-auto mx-auto receipt-logo" />
               <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
               <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Split Payment Receipt</div>
             </div>
