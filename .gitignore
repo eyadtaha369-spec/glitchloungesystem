@@ -41,6 +41,7 @@ server/node_modules/
 server/glitch.db
 server/glitch.db-wal
 server/glitch.db-shm
+server/uploads/
 
 # Electron
 electron/dist/

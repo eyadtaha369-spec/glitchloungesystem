@@ -27,4 +27,32 @@ function getAccounts_() {
   return db.prepare("SELECT username, role FROM Accounts").all();
 }
 
-module.exports = { login_, roleForUsername_, requireRole_, getAccounts_ };
+function addAccount_(username, password, role) {
+  if (!username || !password || !role) return { ok: false, error: "Missing fields" };
+  const existing = db.prepare("SELECT username FROM Accounts WHERE username = ?").get(username);
+  if (existing) return { ok: false, error: "Username already exists" };
+  db.prepare("INSERT INTO Accounts (username, passwordHash, role) VALUES (?, ?, ?)").run(username, sha256Hex_(password), role);
+  return { ok: true };
+}
+
+function updateAccount_(originalUsername, patch) {
+  const existing = db.prepare("SELECT * FROM Accounts WHERE username = ?").get(originalUsername);
+  if (!existing) return { ok: false, error: "Account not found" };
+  const nextUsername = (patch.username && patch.username.trim()) || existing.username;
+  if (nextUsername !== existing.username) {
+    const clash = db.prepare("SELECT username FROM Accounts WHERE username = ?").get(nextUsername);
+    if (clash) return { ok: false, error: "Username already exists" };
+  }
+  const nextHash = patch.password && patch.password.length > 0 ? sha256Hex_(patch.password) : existing.passwordHash;
+  const nextRole = patch.role || existing.role;
+  db.prepare("DELETE FROM Accounts WHERE username = ?").run(originalUsername);
+  db.prepare("INSERT INTO Accounts (username, passwordHash, role) VALUES (?, ?, ?)").run(nextUsername, nextHash, nextRole);
+  return { ok: true };
+}
+
+function deleteAccount_(username) {
+  const info = db.prepare("DELETE FROM Accounts WHERE username = ?").run(username);
+  return info.changes > 0 ? { ok: true } : { ok: false, error: "Account not found" };
+}
+
+module.exports = { login_, roleForUsername_, requireRole_, getAccounts_, addAccount_, updateAccount_, deleteAccount_ };

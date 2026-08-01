@@ -3,6 +3,18 @@ const { materialRemaining_, materialReserved_, consumeFifo_ } = require("./state
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
 
+function bizSetRoomRate_(state, roomId, singleRate, multiRate) {
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { singleRate, multiRate }) : r));
+  return state;
+}
+
+function bizRenameRoom_(state, roomId, name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return { ok: false, error: "Name cannot be empty", state };
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { name: trimmed }) : r));
+  return { ok: true, state };
+}
+
 function effectiveDurationSec_(room, atTime) {
   if (!room.startedAt) return 0;
   const raw = (atTime - room.startedAt) / 1000;
@@ -193,7 +205,33 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   return { session, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
 }
 
+function bizLogWasteMarketing_(state, batches, roomId) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room || room.zone !== "waste") return { ok: false, error: "This is only for the Wasted/Marketing table", state };
+  if (room.orders.length === 0) return { ok: false, error: "Nothing on the Wasted/Marketing table to log", state };
+
+  let cogs = 0;
+  let retailValue = 0;
+  const touchedBatchIds = [];
+  const loggedItems = room.orders.slice();
+  loggedItems.forEach((line) => {
+    retailValue += line.qty * line.price;
+    const menuItem = state.menu.find((m) => m.id === line.menuItemId);
+    if (menuItem) {
+      menuItem.ingredients.forEach((ing) => {
+        const res = consumeFifo_(batches, ing.stockId, ing.qty * line.qty);
+        cogs += res.cost;
+        touchedBatchIds.push(...res.touched);
+      });
+    }
+  });
+
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [] }) : r));
+  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing — " + cogs.toFixed(2) + " EGP ingredient cost");
+  return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), cogs, retailValue, items: loggedItems };
+}
+
 module.exports = {
-  PAYMENT_METHODS, effectiveDurationSec_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
-  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizPauseRoom_, bizResumeRoom_, bizEndRoom_,
+  PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
+  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 };
