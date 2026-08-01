@@ -36,22 +36,35 @@ anything, so shifts can open from any register on your network.
 
 ## Setup
 
+No Python, no Visual Studio Build Tools, no compilation — this uses
+Node's own built-in SQLite (Node 22.5+), not a native addon package.
+You'll see one harmless line like `ExperimentalWarning: SQLite is an
+experimental feature` every time it runs — that's just Node's normal
+notice for a newer built-in feature, not an error.
+
 ```bash
 cd server
 npm install
 ```
 
-Create `server/.env` (or set these as real environment variables):
+Create your first login:
 
-```
-PORT=4000
-GLITCH_LOCAL_SECRET=pick-a-long-random-string-here
+```bash
+node create-account.js <username> <password> admin
 ```
 
 Run it:
 
 ```bash
 npm start
+```
+
+By default it listens on port 4000 with a placeholder shared secret
+(`change-me-local-secret`) — fine to leave as-is on a private home/venue
+network. To customize either one, create `server/.env`:
+```
+PORT=4000
+GLITCH_LOCAL_SECRET=pick-your-own-long-random-string
 ```
 
 You should see:
@@ -71,7 +84,7 @@ whatever config the Electron shell uses):
 
 ```
 APPS_SCRIPT_URL=http://<host-laptop-IP>:4000/
-APPS_SCRIPT_SECRET=pick-a-long-random-string-here   # must match GLITCH_LOCAL_SECRET above
+APPS_SCRIPT_SECRET=change-me-local-secret   # or your custom GLITCH_LOCAL_SECRET, must match exactly
 ```
 
 Use the **host laptop's actual LAN IP** (e.g. `http://192.168.1.50:4000/`),

@@ -1,5 +1,5 @@
 const path = require("path");
-const Database = require("better-sqlite3");
+const { DatabaseSync } = require("node:sqlite");
 const { SCHEMA_SQL } = require("./schema");
 
 // The actual database FILE lives right next to this server, on the host
@@ -7,8 +7,17 @@ const { SCHEMA_SQL } = require("./schema");
 // Back it up like you'd back up anything irreplaceable.
 const DB_PATH = process.env.GLITCH_DB_PATH || path.join(__dirname, "..", "glitch.db");
 
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL"); // safe for multiple registers writing concurrently
+// Using Node's BUILT-IN SQLite (available since Node 22.5, stable in the
+// versions this app targets) instead of the better-sqlite3 package on
+// purpose — better-sqlite3 is a native addon that needs to compile C++
+// code on install, which requires Python + a full C++ build toolchain on
+// Windows. That's a heavy, error-prone ask for a laptop that just needs
+// to run a POS. node:sqlite needs none of that: it ships inside Node
+// itself, zero extra installs, same core API (prepare/run/get/all,
+// @param named bindings, ON CONFLICT upserts — all verified to behave
+// identically before this switch was made).
+const db = new DatabaseSync(DB_PATH);
+db.exec("PRAGMA journal_mode = WAL"); // safe for multiple registers writing concurrently
 db.exec(SCHEMA_SQL);
 
 const KNOWN_TABLES = [
