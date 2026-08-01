@@ -246,9 +246,14 @@
   }
 
   /* Borders inside the receipt (item dividers, totals rule) print at
-     full black weight, not the on-screen border-black/10-style tints. */
+     full black weight, not the on-screen border-black/10-style tints.
+     IMPORTANT: only force color here, never a border-width shorthand —
+     that shorthand sets ALL FOUR sides at once, which is exactly what
+     turned single-side rules like border-t/border-b into full boxes
+     around the Order-info block and the TOTAL line. Each element's
+     Tailwind classes (border-t, border-b, etc.) already control which
+     sides actually show a line; this rule must never touch that. */
   .print-area [class*="border-"] {
-    border-width: 2px !important;
     border-color: #000000 !important;
   }
 
