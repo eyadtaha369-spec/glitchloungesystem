@@ -205,12 +205,12 @@
        Tahoma/Arial fall back for Arabic glyphs (JetBrains Mono has none),
        ui-monospace/monospace as a final generic fallback. */
     font-family: "Courier New", "Tahoma", "Arial", ui-monospace, monospace !important;
-    font-size: 13px !important;
-    line-height: 1.45 !important;
+    font-size: 16px !important;
+    line-height: 1.55 !important;
     width: 80mm !important;
     max-width: 80mm !important;
     margin: 0 !important;
-    padding: 3mm 4mm !important;
+    padding: 4mm 4mm !important;
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
@@ -236,28 +236,20 @@
      a glance — bump size and weight well past the on-screen defaults. */
   .print-area .receipt-line,
   .print-area .receipt-block {
-    font-size: 14px !important;
+    font-size: 17px !important;
     font-weight: 700 !important;
   }
   .print-area .receipt-block:has(.receipt-total),
   .print-area .receipt-total {
-    font-size: 17px !important;
+    font-size: 24px !important;
     font-weight: 800 !important;
   }
 
   /* Borders inside the receipt (item dividers, totals rule) print at
      full black weight, not the on-screen border-black/10-style tints. */
   .print-area [class*="border-"] {
+    border-width: 2px !important;
     border-color: #000000 !important;
-  }
-
-  /* The logo is gold/metallic on a light background — on a monochrome
-     thermal head that washes out to a faint gray blob unless pushed to
-     high-contrast grayscale first. */
-  .print-area .receipt-logo {
-    filter: grayscale(1) contrast(1.6) brightness(0.9) !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
   }
 
   /* Never split a line item, or the header/total block, across a page
@@ -266,4 +258,16 @@
   .print-area .receipt-block {
     break-inside: avoid;
   }
+}
+
+/* This logo mark is a light metallic emblem on a SOLID BLACK background —
+   printed as-is that's a giant black rectangle wasting ink/heat and
+   looking wrong on a receipt. Inverting turns the black background white
+   (matching the paper) and the emblem into clean dark linework — applied
+   universally (not just @media print) so the on-screen preview matches
+   exactly what comes out of the printer. */
+.receipt-logo {
+  filter: invert(1) grayscale(1) contrast(1.3);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }

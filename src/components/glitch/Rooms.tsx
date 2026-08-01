@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import logo from "@/assets/glitch-logo.jpg";
+import logo from "@/assets/glitch-logo-mark.jpg";
 import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal } from "lucide-react";
 
@@ -772,7 +772,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
+      <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-black/10">
           <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.85_0.16_200)]">Receipt</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -780,7 +780,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-4 receipt-block">
-            <img src={logo} alt="GLITCH" className="w-16 h-16 mx-auto rounded-full receipt-logo" />
+            <img src={logo} alt="GLITCH" className="w-40 h-40 mx-auto receipt-logo" />
             <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">PlayStation &amp; Lounge</div>
           </div>
@@ -875,7 +875,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/10 shadow-2xl">
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-sm text-[oklch(0.82_0.16_85)]">
             <ChefHat className="w-4 h-4" /> Kitchen Order Ticket
@@ -886,7 +886,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
         {/* No prices/totals here on purpose — this goes to the kitchen, not the customer. */}
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-3 receipt-block">
-            <img src={logo} alt="GLITCH" className="w-12 h-12 mx-auto rounded-full receipt-logo" />
+            <img src={logo} alt="GLITCH" className="w-32 h-32 mx-auto receipt-logo" />
             <div className="text-lg font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Kitchen Order Ticket</div>
           </div>
@@ -1322,14 +1322,14 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   if (splitReceipt) {
     return createPortal(
       <div className="print-root fixed inset-0 z-[210] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
+        <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
           <div className="flex items-center justify-between p-4 border-b border-black/10">
             <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.78_0.2_155)]">Split Receipt</div>
             <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
           </div>
           <div className="print-area p-6 font-mono text-sm bg-white/50">
             <div className="text-center mb-4 receipt-block">
-              <img src={logo} alt="GLITCH" className="w-16 h-16 mx-auto rounded-full receipt-logo" />
+              <img src={logo} alt="GLITCH" className="w-40 h-40 mx-auto receipt-logo" />
               <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
               <div className="text-[10px] uppercase tracking-[0.3em] opacity-70">Split Payment Receipt</div>
             </div>

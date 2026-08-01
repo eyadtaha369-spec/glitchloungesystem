@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import logo from "@/assets/glitch-logo.jpg";
+import logo from "@/assets/glitch-logo-mark.jpg";
 import { useStore, fmtMoney, MENU_CATEGORIES } from "@/lib/glitch-store";
 import type { MenuItem, MenuCategory, StaffOrder } from "@/lib/glitch-store";
 import { Users, Plus, Minus, X, Printer } from "lucide-react";
@@ -258,14 +258,14 @@ function StaffItemPickerModal({ menu, onClose, onPick }: { menu: MenuItem[]; onC
 function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () => void }) {
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
+      <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-black/10">
           <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.85_0.16_200)]">Staff Check</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="print-area p-6 font-mono text-sm bg-white/50">
           <div className="text-center mb-2 receipt-block">
-            <img src={logo} alt="GLITCH" className="w-14 h-14 mx-auto rounded-full receipt-logo" />
+            <img src={logo} alt="GLITCH" className="w-36 h-36 mx-auto receipt-logo" />
             <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
             <div className="text-sm font-bold uppercase tracking-[0.2em] mt-2 text-[oklch(0.82_0.16_85)]">STAFF CHECK</div>
             <div className="text-sm font-bold tracking-widest" dir="rtl">مسحوبات الموظفين</div>
