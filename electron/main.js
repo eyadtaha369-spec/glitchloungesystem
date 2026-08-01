@@ -69,8 +69,10 @@ function createWindow() {
     );
   });
 
-  // Uncomment while debugging a printer/layout issue:
-  // mainWindow.webContents.openDevTools();
+  // TEMPORARY: forced open while diagnosing an issue — remove this line
+  // (or re-comment it) once debugging is done, real cashiers shouldn't
+  // see a code panel on every launch.
+  mainWindow.webContents.openDevTools();
 
   mainWindow.on("closed", () => {
     mainWindow = null;
