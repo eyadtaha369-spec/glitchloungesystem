@@ -1,35 +1,49 @@
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
 
 export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit";
 
-const items: { id: View; label: string; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "rooms", label: "Rooms", icon: Gamepad2 },
-  { id: "lounge", label: "Lounge", icon: Sofa },
-  { id: "procurement", label: "Procurement", icon: ShoppingCart },
-  { id: "staffOrders", label: "Staff Orders", icon: UserCog },
-  { id: "inventory", label: "Inventory", icon: Package, adminOnly: true },
-  { id: "voids", label: "Void Ledger", icon: ShieldAlert, adminOnly: true },
-  { id: "audit", label: "Audit Trail", icon: Activity, adminOnly: true },
-  { id: "setup", label: "Setup", icon: Settings2, adminOnly: true },
-  { id: "reports", label: "Reports", icon: FileBarChart, adminOnly: true },
-  { id: "users", label: "Users", icon: Users, adminOnly: true },
+const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
+  { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { id: "rooms", labelKey: "nav.rooms", icon: Gamepad2 },
+  { id: "lounge", labelKey: "nav.lounge", icon: Sofa },
+  { id: "procurement", labelKey: "nav.procurement", icon: ShoppingCart },
+  { id: "staffOrders", labelKey: "nav.staffOrders", icon: UserCog },
+  { id: "inventory", labelKey: "nav.inventory", icon: Package, adminOnly: true },
+  { id: "voids", labelKey: "nav.voidLedger", icon: ShieldAlert, adminOnly: true },
+  { id: "audit", labelKey: "nav.auditTrail", icon: Activity, adminOnly: true },
+  { id: "setup", labelKey: "nav.setup", icon: Settings2, adminOnly: true },
+  { id: "reports", labelKey: "nav.reports", icon: FileBarChart, adminOnly: true },
+  { id: "users", labelKey: "nav.users", icon: Users, adminOnly: true },
 ];
 
 export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   const { state, logout } = useStore();
+  const { t, lang, toggleLang } = useLanguage();
   const isAdmin = state.currentUser?.role === "admin";
 
   return (
-    <aside className="no-print fixed left-0 top-0 h-screen w-64 glass-strong border-r border-black/10 flex flex-col z-30">
+    <aside className="no-print fixed start-0 top-0 h-screen w-64 glass-strong border-e border-black/10 flex flex-col z-30">
       <div className="p-6 flex items-center gap-3 border-b border-black/8">
         <img src={logo} alt="GLITCH" className="w-11 h-11 rounded-lg object-cover ring-1 ring-[oklch(0.82_0.16_85/0.5)]" />
         <div>
           <div className="font-bold tracking-widest text-gradient-gold text-lg leading-tight">GLITCH</div>
           <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Lounge OS</div>
         </div>
+      </div>
+
+      <div className="px-6 py-3 border-b border-black/8">
+        <button
+          onClick={toggleLang}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-xs font-bold uppercase tracking-widest"
+          title={lang === "en" ? "التبديل إلى العربية" : "Switch to English"}
+        >
+          <Languages className="w-3.5 h-3.5" />
+          {lang === "en" ? "العربية" : "English"}
+        </button>
       </div>
 
       <nav className="flex-1 p-3 space-y-1">
@@ -47,7 +61,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
               }`}
             >
               <Icon className={`w-4 h-4 ${active ? "text-[oklch(0.85_0.16_200)]" : ""}`} />
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
               {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[oklch(0.85_0.16_200)] shadow-[0_0_10px_oklch(0.85_0.16_200)]" />}
             </button>
           );
@@ -68,7 +82,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
           onClick={logout}
           className="w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-[#2b2416] hover:bg-[oklch(0.62_0.24_25/0.15)] hover:border-[oklch(0.62_0.24_25/0.4)] border border-transparent transition"
         >
-          <LogOut className="w-4 h-4" /> Logout
+          <LogOut className="w-4 h-4" /> {t("nav.logout")}
         </button>
       </div>
     </aside>
