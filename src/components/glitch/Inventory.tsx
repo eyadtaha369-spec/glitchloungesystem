@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, type MenuItem, type MenuCategory, type Session } from "@/lib/glitch-store";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, PackagePlus, FileBarChart } from "lucide-react";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, PackagePlus, FileBarChart, Search } from "lucide-react";
 
 export function InventoryPage() {
   const {
@@ -322,8 +322,10 @@ function StockTable() {
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [unitInput, setUnitInput] = useState("");
   const [costInput, setCostInput] = useState("");
+  const [search, setSearch] = useState("");
 
   const totalInventoryValue = state.stock.reduce((a, s) => a + s.totalValue, 0);
+  const filteredStock = state.stock.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
     <div className="glass rounded-2xl p-6">
@@ -340,8 +342,29 @@ function StockTable() {
         </div>
       </div>
 
+      <div className="relative mb-4">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search inventory by name..."
+          className="w-full bg-white/70 border border-black/10 rounded-lg pl-9 pr-9 py-2 text-sm"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[#2b2416]"
+            title="Clear search"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {state.stock.length === 0 ? (
         <div className="text-sm text-muted-foreground font-mono">No raw materials yet — add one on the Setup page.</div>
+      ) : filteredStock.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">No items match &quot;{search}&quot;.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -359,7 +382,7 @@ function StockTable() {
               </tr>
             </thead>
             <tbody>
-              {state.stock.map((s) => {
+              {filteredStock.map((s) => {
                 const low = s.remaining < s.minStock || (s.initialStock > 0 && s.remaining < s.initialStock * 0.2);
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
