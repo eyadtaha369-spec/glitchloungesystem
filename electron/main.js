@@ -12,7 +12,7 @@
 const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 
-const APP_URL = process.env.GLITCH_APP_URL || "http://localhost:3000";
+const APP_URL = process.env.GLITCH_APP_URL || "http://localhost:8080";
 
 let mainWindow;
 
@@ -52,6 +52,22 @@ function createWindow() {
 
   Menu.setApplicationMenu(null);
   mainWindow.loadURL(APP_URL);
+
+  // A blank white window with no explanation (exactly what happened when
+  // this pointed at the wrong port) is the worst possible failure mode —
+  // show something diagnosable instead.
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+    mainWindow.loadURL(
+      "data:text/html," + encodeURIComponent(`
+        <body style="font-family:sans-serif;background:#faf6ec;color:#2b2416;padding:48px;text-align:center;">
+          <h2>Couldn't reach ${APP_URL}</h2>
+          <p>${errorDescription} (${errorCode})</p>
+          <p>Make sure <code>npm run dev</code> is running in another window before opening this app,
+          or set GLITCH_APP_URL if it's on a different port.</p>
+        </body>
+      `),
+    );
+  });
 
   // Uncomment while debugging a printer/layout issue:
   // mainWindow.webContents.openDevTools();
