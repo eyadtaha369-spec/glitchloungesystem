@@ -272,8 +272,8 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
 <h1>GLITCH LOUNGE</h1>
 <div class="sub">Inventory Valuation &amp; Audit Report — ${today}</div>
 <div class="totals">
-  <div><span>Total Value On Hand</span><span>$${totalOnHand.toFixed(2)}</span></div>
-  <div class="grand"><span>Lifetime Value Consumed</span><span>$${totalConsumedValue.toFixed(2)}</span></div>
+  <div><span>Total Value On Hand</span><span>${totalOnHand.toFixed(2)} EGP</span></div>
+  <div class="grand"><span>Lifetime Value Consumed</span><span>${totalConsumedValue.toFixed(2)} EGP</span></div>
 </div>
 <h3 style="margin-top:24px">Stock Valuation by Material</h3>
 <table>
@@ -285,9 +285,9 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
       <td>${r.totalRestocked} ${r.unit}</td>
       <td>${r.totalConsumed} ${r.unit}</td>
       <td>${r.remaining} ${r.unit}</td>
-      <td>$${r.unitCost.toFixed(2)}</td>
-      <td>$${r.valueOnHand.toFixed(2)}</td>
-      <td>$${r.valueConsumed.toFixed(2)}</td>
+      <td>${r.unitCost.toFixed(2)} EGP</td>
+      <td>${r.valueOnHand.toFixed(2)} EGP</td>
+      <td>${r.valueConsumed.toFixed(2)} EGP</td>
     </tr>`).join("")}
   </tbody>
 </table>
@@ -301,7 +301,7 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
       <td>+${r.qtyAdded}</td>
       <td>${r.carryoverAdded}</td>
       <td>${r.newTotal}</td>
-      <td>$${r.unitCost.toFixed(2)}</td>
+      <td>${r.unitCost.toFixed(2)} EGP</td>
       <td>${r.performedBy}</td>
     </tr>`).join("") || "<tr><td colspan=7>No restocks logged yet</td></tr>"}
   </tbody>
@@ -974,22 +974,22 @@ function printReport(month: string, sessions: Session[], state: ReturnType<typeo
 <h1>GLITCH LOUNGE</h1>
 <div class="sub">Monthly Report — ${month}</div>
 <div class="totals">
-  <div><span>Total Time Revenue</span><span>$${totalTime.toFixed(2)}</span></div>
-  <div><span>Total Orders Revenue</span><span>$${totalOrders.toFixed(2)}</span></div>
-  <div class="grand"><span>GRAND TOTAL</span><span>$${totalRev.toFixed(2)}</span></div>
+  <div><span>Total Time Revenue</span><span>${totalTime.toFixed(2)} EGP</span></div>
+  <div><span>Total Orders Revenue</span><span>${totalOrders.toFixed(2)} EGP</span></div>
+  <div class="grand"><span>GRAND TOTAL</span><span>${totalRev.toFixed(2)} EGP</span></div>
   <div><span>Sessions</span><span>${sessions.length}</span></div>
 </div>
 <h3 style="margin-top:24px">Sessions</h3>
 <table>
-  <thead><tr><th>Room</th><th>Start</th><th>End</th><th>Time $</th><th>Orders $</th><th>Total</th></tr></thead>
+  <thead><tr><th>Room</th><th>Start</th><th>End</th><th>Time (EGP)</th><th>Orders (EGP)</th><th>Total</th></tr></thead>
   <tbody>
     ${sessions.map((s) => `<tr>
       <td>${s.roomName}</td>
       <td>${new Date(s.startedAt).toLocaleString()}</td>
       <td>${new Date(s.endedAt).toLocaleString()}</td>
-      <td>$${s.timeCost.toFixed(2)}</td>
-      <td>$${s.ordersCost.toFixed(2)}</td>
-      <td><strong>$${s.total.toFixed(2)}</strong></td>
+      <td>${s.timeCost.toFixed(2)} EGP</td>
+      <td>${s.ordersCost.toFixed(2)} EGP</td>
+      <td><strong>${s.total.toFixed(2)} EGP</strong></td>
     </tr>`).join("")}
   </tbody>
 </table>

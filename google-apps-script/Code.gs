@@ -179,7 +179,7 @@ function sheetObjectHeaders_(name) {
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
-    Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId"],
+    Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
     BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy"],
@@ -420,7 +420,7 @@ function bizStartRoom_(state, roomId, rateMode) {
   state.rooms = state.rooms.map((r) =>
     r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate: hourlyRate, rateMode: mode }) : r
   );
-  pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ $" + hourlyRate + "/hr)" : ""));
+  pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ " + hourlyRate + " EGP/hr)" : ""));
   return { ok: true, state: state };
 }
 
@@ -610,7 +610,7 @@ function bizLogWasteMarketing_(state, batches, roomId) {
   });
 
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [] }) : r));
-  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing — $" + cogs.toFixed(2) + " ingredient cost");
+  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing — " + cogs.toFixed(2) + " EGP" + " ingredient cost");
   return {
     ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)),
     cogs: cogs, retailValue: retailValue, items: loggedItems,
@@ -651,14 +651,14 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     if (s > total + 0.01) {
       return {
         session: null, state: state, touchedBatchIds: [],
-        error: (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " amount ($" + s.toFixed(2) + ") can't exceed the ticket total ($" + total.toFixed(2) + ").",
+        error: (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " amount (" + s.toFixed(2) + " EGP" + ") can't exceed the ticket total (" + total.toFixed(2) + " EGP" + ").",
       };
     }
     if (Math.abs(c + s - total) > 0.01) {
       return {
         session: null, state: state, touchedBatchIds: [],
-        error: "Cash + " + (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " must equal the ticket total ($" +
-          total.toFixed(2) + "). You entered $" + (c + s).toFixed(2) + ".",
+        error: "Cash + " + (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " must equal the ticket total (" +
+          total.toFixed(2) + " EGP). You entered " + (c + s).toFixed(2) + " EGP.",
       };
     }
     cashAmount = c;
@@ -706,10 +706,10 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   // persisted directly to the dedicated Sessions sheet by the "endRoom"
   // doPost handler (appendSessionRow_), since sessions no longer live in
   // this blob at all (see getState_/setState_ for why).
-  const paymentLabel = method === "mixed_cash_visa" ? "Cash $" + cashAmount.toFixed(2) + " + Visa $" + visaAmount.toFixed(2)
-    : method === "mixed_cash_instapay" ? "Cash $" + cashAmount.toFixed(2) + " + InstaPay $" + instapayAmount.toFixed(2)
+  const paymentLabel = method === "mixed_cash_visa" ? "Cash " + cashAmount.toFixed(2) + " EGP" + " + Visa " + visaAmount.toFixed(2) + " EGP"
+    : method === "mixed_cash_instapay" ? "Cash " + cashAmount.toFixed(2) + " EGP" + " + InstaPay " + instapayAmount.toFixed(2) + " EGP"
     : method;
-  pushActivity_(state, room.name + " checked out - $" + total.toFixed(2) + " collected (" + paymentLabel + ")");
+  pushActivity_(state, room.name + " checked out - " + total.toFixed(2) + " EGP" + " collected (" + paymentLabel + ")");
   return { session: session, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
 }
 
@@ -791,7 +791,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   pushActivity_(
     state,
     source.name + " transferred to " + target.name +
-      (roomCharge > 0 ? " ($" + roomCharge.toFixed(2) + " room charge)" : "") +
+      (roomCharge > 0 ? " (" + roomCharge.toFixed(2) + " EGP" + " room charge)" : "") +
       (target.zone === "room" ? " — started " + rateMode : ""),
   );
   return {
@@ -859,7 +859,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     const ordersCostNow = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
     const currentTotal = timeCostNow + ordersCostNow;
     if (amt > currentTotal + 0.01) {
-      return { ok: false, error: "Split amount ($" + amt.toFixed(2) + ") exceeds the remaining balance ($" + currentTotal.toFixed(2) + ")", state: state };
+      return { ok: false, error: "Split amount (" + amt.toFixed(2) + " EGP" + ") exceeds the remaining balance (" + currentTotal.toFixed(2) + " EGP" + ")", state: state };
     }
     splitTotal = amt;
     splitOrders = [{ menuItemId: "partial-payment", name: "Partial Payment", qty: 1, price: amt }];
@@ -894,14 +894,14 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     if (s > splitTotal + 0.01) {
       return {
         ok: false,
-        error: (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " amount ($" + s.toFixed(2) + ") can't exceed the sub-bill total ($" + splitTotal.toFixed(2) + ").",
+        error: (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " amount (" + s.toFixed(2) + " EGP" + ") can't exceed the sub-bill total (" + splitTotal.toFixed(2) + " EGP" + ").",
         state: state,
       };
     }
     if (Math.abs(c + s - splitTotal) > 0.01) {
       return {
         ok: false,
-        error: "Cash + " + (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " must equal the split total ($" + splitTotal.toFixed(2) + ").",
+        error: "Cash + " + (method === "mixed_cash_visa" ? "Visa" : "InstaPay") + " must equal the split total (" + splitTotal.toFixed(2) + " EGP" + ").",
         state: state,
       };
     }
@@ -932,7 +932,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     shiftId: state.activeShiftId || null,
   };
 
-  pushActivity_(state, "Split payment of $" + splitTotal.toFixed(2) + " taken on " + room.name + " (" + method + ")");
+  pushActivity_(state, "Split payment of " + splitTotal.toFixed(2) + " EGP" + " taken on " + room.name + " (" + method + ")");
   return { ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), splitSession: splitSession };
 }
 
@@ -1024,17 +1024,30 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
     closedLat: null,
     closedLng: null,
     businessDayId: state.businessDayId,
+    kotCounter: 0,
   };
   appendObject_("Shifts", shift);
   state.activeShiftId = id;
   state.actualCashInput = 0;
-  pushActivity_(state, username + " opened a shift (opening balance $" + (openingBalance || 0).toFixed(2) + ")");
+  pushActivity_(state, username + " opened a shift (opening balance " + (openingBalance || 0).toFixed(2) + " EGP)");
   return { ok: true, state: state };
 }
 
 function formatDateLabel_(ts) {
   const d = new Date(ts);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+// Kitchen Order Ticket numbering: a clean sequential #001, #002... that
+// resets to #001 at the start of every shift, instead of a random/hash
+// number — makes it trivial for kitchen staff to notice a missed ticket.
+function bizNextKotNumber_(shiftId) {
+  const shifts = readObjects_("Shifts");
+  const shift = shifts.find((s) => s.id === shiftId);
+  if (!shift) return null;
+  const next = (Number(shift.kotCounter) || 0) + 1;
+  updateObjectById_("Shifts", shiftId, { kotCounter: next });
+  return next;
 }
 
 // Expected Cash = Opening Balance + Cash Sales - Approved drawer-paid
@@ -1138,7 +1151,7 @@ function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   });
 
   state.businessDayId = null;
-  pushActivity_(state, "Business day closed by " + username + " — $" + totalRevenue.toFixed(2) + " revenue across " + bdShifts.length + " shift(s)");
+  pushActivity_(state, "Business day closed by " + username + " — " + totalRevenue.toFixed(2) + " EGP" + " revenue across " + bdShifts.length + " shift(s)");
   return {
     ok: true, state: state, businessDayId: bdId, totalRevenue: totalRevenue, totalCash: totalCash,
     totalVisa: totalVisa, totalInstapay: totalInstapay, totalExpenses: totalExpenses, netProfit: netProfit, shiftCount: bdShifts.length,
@@ -1172,7 +1185,7 @@ function bizCloseActiveShift_(state, sessions, ledger, shifts, actualCash, force
   pushActivity_(
     state,
     (forced ? "Admin force-closed shift" : "Shift closed") +
-      " — expected $" + expectedCash.toFixed(2) + ", counted $" + closingActualCash.toFixed(2),
+      " — expected " + expectedCash.toFixed(2) + " EGP" + ", counted " + closingActualCash.toFixed(2) + " EGP",
   );
   return {
     ok: true, state: state,
@@ -1220,7 +1233,7 @@ function bizSubmitStaffOrder_(state, batches, staffName, items) {
     id: newId_("staff"), ts: Date.now(), staffName: trimmedName, items: orderLines,
     totalAmount: totalAmount, cogs: cogs, processedBy: null, shiftId: state.activeShiftId || null,
   };
-  pushActivity_(state, "Staff order: " + trimmedName + " — $" + totalAmount.toFixed(2) + " (" + orderLines.length + " item(s))");
+  pushActivity_(state, "Staff order: " + trimmedName + " — " + totalAmount.toFixed(2) + " EGP" + " (" + orderLines.length + " item(s))");
   return { ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), staffOrder: staffOrder };
 }
 
@@ -1466,7 +1479,7 @@ function doPost(e) {
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "ROOM_RATE_CHANGED",
           location: before ? before.name : body.roomId,
-          description: (before ? before.name : body.roomId) + " rates changed to Single $" + body.singleRate + "/hr, Multi $" + body.multiRate + "/hr",
+          description: (before ? before.name : body.roomId) + " rates changed to Single " + body.singleRate + " EGP/hr, Multi " + body.multiRate + " EGP/hr",
           before: before ? { singleRate: before.singleRate, multiRate: before.multiRate } : null,
           after: { singleRate: body.singleRate, multiRate: body.multiRate },
         });
@@ -1497,11 +1510,19 @@ function doPost(e) {
           logActivity_({
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_STARTED",
             location: room ? room.name : body.roomId, shiftId: result.state.activeShiftId,
-            description: (room ? room.name : body.roomId) + " session started" + (room && room.rateMode ? " (" + room.rateMode + " @ $" + room.hourlyRate + "/hr)" : ""),
+            description: (room ? room.name : body.roomId) + " session started" + (room && room.rateMode ? " (" + room.rateMode + " @ " + room.hourlyRate + " EGP/hr)" : ""),
           });
         }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
+      case "nextKotNumber": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        if (!body.shiftId) return json_({ ok: false, error: "No active shift" });
+        const num = bizNextKotNumber_(body.shiftId);
+        if (num === null) return json_({ ok: false, error: "Shift not found" });
+        return json_({ ok: true, number: num });
+      }
+
       case "pauseRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const state0 = getState_();
@@ -1549,8 +1570,8 @@ function doPost(e) {
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "WASTE_MARKETING_LOGGED",
           location: "Wasted / Marketing", shiftId: result.state.activeShiftId,
-          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — $" + result.cogs.toFixed(2) +
-            " ingredient cost (retail value $" + result.retailValue.toFixed(2) + ", not counted as revenue)",
+          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — " + result.cogs.toFixed(2) + " EGP" +
+            " ingredient cost (retail value " + result.retailValue.toFixed(2) + " EGP" + ", not counted as revenue)",
           after: { items: result.items, cogs: result.cogs, retailValue: result.retailValue },
         });
         return json_({ ok: true, state: withStockView_(result.state) });
@@ -1582,7 +1603,7 @@ function doPost(e) {
             actorUsername: body.username, actorRole: roleForUsername_(body.username),
             actionType: body.splitBill ? "CHECKOUT_SPLIT_BILL" : "CHECKOUT",
             location: result.session.roomName, shiftId: result.session.shiftId,
-            description: result.session.roomName + " checked out — $" + result.session.total.toFixed(2) + " (" + result.session.paymentMethod + ")",
+            description: result.session.roomName + " checked out — " + result.session.total.toFixed(2) + " EGP" + " (" + result.session.paymentMethod + ")",
             before: { orders: result.session.orders },
             after: {
               total: result.session.total, cogs: result.session.cogs,
@@ -1657,7 +1678,7 @@ function doPost(e) {
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_TRANSFERRED",
             location: result.roomName + " -> " + result.tableName, shiftId: result.state.activeShiftId,
             description: result.roomName + " transferred to " + result.tableName +
-              (result.roomCharge > 0 ? " ($" + result.roomCharge.toFixed(2) + " frozen room charge, " + result.durationSec + "s elapsed)" : "") +
+              (result.roomCharge > 0 ? " (" + result.roomCharge.toFixed(2) + " EGP" + " frozen room charge, " + result.durationSec + "s elapsed)" : "") +
               (result.targetZone === "room" ? " — started " + body.rateMode : ""),
             before: { source: result.roomName, durationSec: result.durationSec },
             after: { target: result.tableName, roomCharge: result.roomCharge, rateMode: result.targetZone === "room" ? body.rateMode : null },
@@ -1698,7 +1719,7 @@ function doPost(e) {
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_SPLIT",
           location: result.splitSession.roomName, shiftId: result.splitSession.shiftId,
-          description: "Split payment of $" + result.splitSession.total.toFixed(2) + " (" + body.mode + ", " + body.paymentMethod + ")",
+          description: "Split payment of " + result.splitSession.total.toFixed(2) + " EGP" + " (" + body.mode + ", " + body.paymentMethod + ")",
           after: { total: result.splitSession.total, mode: body.mode, paymentMethod: body.paymentMethod },
         });
         return json_({ ok: true, session: result.splitSession, state: withStockView_(result.state) });
@@ -1720,7 +1741,7 @@ function doPost(e) {
         if (before && body.patch && typeof body.patch.price === "number" && body.patch.price !== before.price) {
           logActivity_({
             actorUsername: body.username, actorRole: "admin", actionType: "MENU_PRICE_CHANGED",
-            description: before.name + " price changed from $" + before.price + " to $" + body.patch.price,
+            description: before.name + " price changed from " + before.price + " EGP to " + body.patch.price + " EGP",
             before: { price: before.price }, after: { price: body.patch.price },
           });
         }
@@ -1756,7 +1777,7 @@ function doPost(e) {
           logActivity_({
             actorUsername: body.username, actorRole: role, actionType: "START_SHIFT",
             shiftId: result.state.activeShiftId,
-            description: body.username + " started a shift (opening $" + (body.openingBalance || 0).toFixed(2) + ")",
+            description: body.username + " started a shift (opening " + (body.openingBalance || 0).toFixed(2) + " EGP)",
             after: { openingBalance: body.openingBalance, lat: body.lat, lng: body.lng },
           });
         }
@@ -1782,7 +1803,7 @@ function doPost(e) {
           const closed = result.closedShift;
           logActivity_({
             actorUsername: body.username, actorRole: role, actionType: "END_SHIFT", shiftId: shiftIdBefore,
-            description: body.username + " ended shift — expected $" + (closed ? closed.expectedCash.toFixed(2) : "?") + ", counted $" + (closed ? closed.closingActualCash.toFixed(2) : "?"),
+            description: body.username + " ended shift — expected " + (closed ? closed.expectedCash.toFixed(2) : "?") + " EGP, counted " + (closed ? closed.closingActualCash.toFixed(2) : "?") + " EGP",
             after: closed ? { expectedCash: closed.expectedCash, closingActualCash: closed.closingActualCash, discrepancy: closed.discrepancy, lat: body.lat, lng: body.lng } : null,
           });
         }
@@ -1811,8 +1832,8 @@ function doPost(e) {
         setState_(result.state);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "BUSINESS_DAY_CLOSED",
-          description: "Business day closed — $" + result.totalRevenue.toFixed(2) + " revenue, $" + result.totalExpenses.toFixed(2) +
-            " expenses, $" + result.netProfit.toFixed(2) + " net profit across " + result.shiftCount + " shift(s)",
+          description: "Business day closed — " + result.totalRevenue.toFixed(2) + " EGP" + " revenue, " + result.totalExpenses.toFixed(2) + " EGP" +
+            " expenses, " + result.netProfit.toFixed(2) + " EGP" + " net profit across " + result.shiftCount + " shift(s)",
           after: {
             businessDayId: result.businessDayId, totalRevenue: result.totalRevenue, totalCash: result.totalCash,
             totalVisa: result.totalVisa, totalInstapay: result.totalInstapay, totalExpenses: result.totalExpenses,
@@ -1856,7 +1877,7 @@ function doPost(e) {
         });
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STAFF_ORDER_LOGGED",
-          description: "Staff order for " + result.staffOrder.staffName + " — $" + result.staffOrder.totalAmount.toFixed(2),
+          description: "Staff order for " + result.staffOrder.staffName + " — " + result.staffOrder.totalAmount.toFixed(2) + " EGP",
           shiftId: result.staffOrder.shiftId,
           after: { staffName: result.staffOrder.staffName, totalAmount: result.staffOrder.totalAmount, items: result.staffOrder.items },
         });
@@ -1891,7 +1912,7 @@ function doPost(e) {
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STOCK_RESTOCKED",
           description: "Restocked " + result.materialName + ": +" + result.qtyAdded +
             (result.carryover > 0 ? " (carried over " + result.carryover + " remaining)" : "") +
-            " = " + result.newTotal + " total @ $" + result.unitCost + "/unit",
+            " = " + result.newTotal + " total @ " + result.unitCost + " EGP/unit",
           after: { qtyAdded: result.qtyAdded, carryover: result.carryover, newTotal: result.newTotal, unitCost: result.unitCost },
         });
         return json_({ ok: true, state: withStockView_(getState_()) });
@@ -2034,7 +2055,7 @@ function doPost(e) {
         appendObject_("Ledger", entry);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "RECURRING_EXPENSE_PAID",
-          description: "Logged payment of $" + body.amount + " for '" + body.name + "'",
+          description: "Logged payment of " + body.amount + " EGP for '" + body.name + "'",
           after: { name: body.name, amount: body.amount },
         });
         return json_({ ok: true, entry: entry });
@@ -2065,7 +2086,7 @@ function doPost(e) {
         updateObjectById_("Ledger", entry.id, { status: "approved" });
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_APPROVED", shiftId: entry.shiftId,
-          description: "Approved purchase of " + entry.qty + " " + entry.materialId + " ($" + entry.amount.toFixed(2) + "), submitted by " + entry.staffUsername,
+          description: "Approved purchase of " + entry.qty + " " + entry.materialId + " (" + entry.amount.toFixed(2) + " EGP" + "), submitted by " + entry.staffUsername,
           before: { status: "pending" }, after: { status: "approved" },
         });
         return json_({ ok: true });
@@ -2150,7 +2171,7 @@ function doPost(e) {
               appendObject_("Ledger", {
                 id: newId_("ledg"), ts: req.ts, amount: result.cogs, direction: "outflow", type: "manualAdjustment",
                 category: "Unapproved Void — Pending Reconciliation",
-                description: req.qty + "x " + req.itemName + " — " + room.name + " (bill value $" + req.billValue.toFixed(2) + ")",
+                description: req.qty + "x " + req.itemName + " — " + room.name + " (bill value " + req.billValue.toFixed(2) + " EGP" + ")",
                 supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
                 paidFromDrawer: false, shiftId: state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
               });
@@ -2263,7 +2284,7 @@ function doPost(e) {
           actionType: body.action === "flag_discrepancy" ? "UNAPPROVED_VOID_FLAGGED" : "UNAPPROVED_VOID_RECONCILED",
           location: before.roomName, shiftId: before.shiftId,
           description: (body.action === "flag_discrepancy" ? "Flagged as DISCREPANCY: " : "Reconciled: ") +
-            before.qty + "x " + before.itemName + " (originally routed by " + before.cashierUsername + ", $" + before.billValue.toFixed(2) + " bill value)" +
+            before.qty + "x " + before.itemName + " (originally routed by " + before.cashierUsername + ", " + before.billValue.toFixed(2) + " EGP" + " bill value)" +
             (body.note ? " — Note: " + body.note : ""),
           before: { status: "unapproved" }, after: { status: newStatus, note: body.note || null },
         });
@@ -2677,7 +2698,7 @@ function handleSubmitPurchase_(body) {
 
     logActivity_({
       actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
-      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " " + body.purchaseType + ": " + body.qty + " " + body.materialId + " for $" + amount.toFixed(2),
+      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " " + body.purchaseType + ": " + body.qty + " " + body.materialId + " for " + amount.toFixed(2) + " EGP",
       after: { status: entry.status, amount: amount, materialId: body.materialId, qty: body.qty },
     });
 

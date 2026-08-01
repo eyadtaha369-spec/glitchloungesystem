@@ -461,11 +461,11 @@ function ReportModal({ entries, materials, onClose }: {
 <h1>GLITCH LOUNGE</h1>
 <div class="sub">Procurement Report — ${timeframe.toUpperCase()} — ${range.label}</div>
 <div class="totals">
-  <div class="grand"><span>TOTAL PROCUREMENT EXPENDITURE</span><span>$${total.toFixed(2)}</span></div>
-  <div><span>&nbsp;&nbsp;Cash Drawer / من الدرج</span><span>$${bySource.cash_drawer.toFixed(2)}</span></div>
-  <div><span>&nbsp;&nbsp;Out of Pocket / من الجيب</span><span>$${bySource.out_of_pocket.toFixed(2)}</span></div>
-  <div><span>&nbsp;&nbsp;Bank Transfer / Visa / InstaPay</span><span>$${bySource.bank_transfer.toFixed(2)}</span></div>
-  ${bySource.unspecified > 0 ? `<div><span>&nbsp;&nbsp;Unspecified</span><span>$${bySource.unspecified.toFixed(2)}</span></div>` : ""}
+  <div class="grand"><span>TOTAL PROCUREMENT EXPENDITURE</span><span>${total.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;Cash Drawer / من الدرج</span><span>${bySource.cash_drawer.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;Out of Pocket / من الجيب</span><span>${bySource.out_of_pocket.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;Bank Transfer / Visa / InstaPay</span><span>${bySource.bank_transfer.toFixed(2)} EGP</span></div>
+  ${bySource.unspecified > 0 ? `<div><span>&nbsp;&nbsp;Unspecified</span><span>${bySource.unspecified.toFixed(2)} EGP</span></div>` : ""}
   <div><span>Line Items</span><span>${filtered.length}</span></div>
 </div>
 <table>
@@ -477,10 +477,10 @@ function ReportModal({ entries, materials, onClose }: {
         <td>${new Date(e.ts).toLocaleString()}</td>
         <td>${m?.name ?? e.materialId ?? ""}</td>
         <td>${e.qty ?? ""} ${m?.unit ?? ""}</td>
-        <td>$${(e.unitCost ?? 0).toFixed(2)}</td>
+        <td>${(e.unitCost ?? 0).toFixed(2)} EGP</td>
         <td>${e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource] : "—"}</td>
         <td>${e.staffUsername}</td>
-        <td>$${e.amount.toFixed(2)}</td>
+        <td>${e.amount.toFixed(2)} EGP</td>
       </tr>`;
     }).join("") || "<tr><td colspan=7>No purchases in this period</td></tr>"}
   </tbody>

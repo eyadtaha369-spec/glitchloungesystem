@@ -28,6 +28,7 @@ import {
   startRoomFn,
   endRoomFn,
   logWasteMarketingFn,
+  nextKotNumberFn,
   pauseRoomFn,
   resumeRoomFn,
   addOrderFn,
@@ -124,6 +125,7 @@ interface StoreContextValue {
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   logWasteMarketing: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -429,6 +431,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not log waste/marketing." };
       }
     });
+  };
+  const nextKotNumber: StoreContextValue["nextKotNumber"] = async () => {
+    if (!appState.activeShiftId) return { ok: false, error: "No active shift" };
+    try {
+      const res = await nextKotNumberFn({ data: { shiftId: appState.activeShiftId } });
+      return { ok: res.ok, error: res.error, number: res.number };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Could not get ticket number." };
+    }
   };
   const resumeRoom: StoreContextValue["resumeRoom"] = async (roomId) => {
     return withPending(`resumeRoom:${roomId}`, async () => {
@@ -882,7 +893,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
@@ -931,7 +942,7 @@ export function fmtDuration(sec: number) {
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 export function fmtMoney(n: number) {
-  return `$${n.toFixed(2)}`;
+  return `EGP ${n.toFixed(2)}`;
 }
 export function isToday(ts: number) {
   const d = new Date(ts);

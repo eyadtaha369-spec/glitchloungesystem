@@ -98,13 +98,15 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 }
 
 function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
-  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [frozenAt, setFrozenAt] = useState<number | null>(null);
   const [ticketOpen, setTicketOpen] = useState(false);
+  const [kotNumber, setKotNumber] = useState<number | null>(null);
+  const [fetchingKot, setFetchingKot] = useState(false);
   const [warn, setWarn] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
   const [singleRateInput, setSingleRateInput] = useState(String(room.singleRate));
@@ -439,8 +441,18 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
       <div className="flex items-center gap-2 mt-2 no-print">
         {room.orders.length > 0 && (
           <button
-            onClick={() => setTicketOpen(true)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-xs"
+            onClick={async () => {
+              setFetchingKot(true);
+              try {
+                const res = await nextKotNumber();
+                setKotNumber(res.ok && res.number ? res.number : null);
+                setTicketOpen(true);
+              } finally {
+                setFetchingKot(false);
+              }
+            }}
+            disabled={fetchingKot}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-xs disabled:opacity-60"
           >
             <ChefHat className="w-3.5 h-3.5" /> Send to Kitchen
           </button>
@@ -463,7 +475,7 @@ function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; 
         )}
       </div>
 
-      {ticketOpen && <BaristaTicketModal room={room} onClose={() => setTicketOpen(false)} />}
+      {ticketOpen && <BaristaTicketModal room={room} kotNumber={kotNumber} onClose={() => setTicketOpen(false)} />}
       {transferOpen && (
         <TransferModal room={room} targets={transferTargets.filter((t) => t.id !== room.id)} onClose={() => setTransferOpen(false)} />
       )}
@@ -828,7 +840,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
               <span>{session.discountLabel ?? "Discount"}</span><span>-{fmtMoney(session.discountAmount)}</span>
             </div>
           )}
-          <div className="border-t border-double border-black/25 mt-2 pt-2 flex justify-between text-base font-bold receipt-block">
+          <div className="border-t border-double border-black/25 mt-2 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
             <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
           </div>
           <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">
@@ -851,12 +863,13 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
   );
 }
 
-function BaristaTicketModal({ room, onClose }: { room: Room; onClose: () => void }) {
+function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room: Room; kotNumber: number | null; onClose: () => void }) {
   const { state } = useStore();
   const now = new Date();
-  // Short, human-readable KOT number derived from the print timestamp —
-  // no server round trip needed, unique enough for a kitchen ticket.
-  const kotNumber = "KOT-" + String(now.getTime()).slice(-6);
+  // Clean sequential #001, #002... resetting each shift — not a random
+  // hash — so kitchen staff can spot a missed ticket at a glance. Falls
+  // back to a timestamp only if the shift lookup somehow failed.
+  const kotNumber = kotNumberProp !== null ? "#" + String(kotNumberProp).padStart(3, "0") : "KOT-" + String(now.getTime()).slice(-6);
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1348,7 +1361,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 </div>
               </>
             )}
-            <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block">
+            <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
               <span>SUB-BILL TOTAL</span><span>{fmtMoney(splitReceipt.total)}</span>
             </div>
             <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">Partial Payment — Table Remains Open</div>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon, Printer, Copy, Check } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -13,6 +13,7 @@ export function SetupPage() {
         </p>
       </div>
       <MenuImportPanel />
+      <PrinterSetupPanel />
       <GeofencePanel />
       <MaterialsPanel />
       <SuppliersPanel />
@@ -117,6 +118,71 @@ function ProductionResetPanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PrinterSetupPanel() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const kioskCommand = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --kiosk-printing --app=https://glitchloungesystem.vercel.app';
+
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.72_0.14_85/0.4)]">
+      <div className="flex items-center gap-2 mb-2">
+        <Printer className="w-5 h-5 text-[oklch(0.72_0.14_85)]" />
+        <h2 className="text-lg font-semibold">Thermal Printer Setup — One-Click Printing</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
+        Being honest about what's possible here: no website can silently print without asking, on any browser — that's
+        a deliberate security boundary, not a limitation of this app. The Print buttons already fire instantly with no
+        extra clicks needed inside the print dialog itself, but to skip that dialog entirely on your actual till
+        computer, launch Chrome with the <code className="bg-black/5 px-1 rounded">--kiosk-printing</code> flag below.
+        Do this once on the register's PC.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1.5">Windows — Desktop Shortcut Target</div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-xs font-mono break-all">{kioskCommand}</code>
+            <button onClick={() => copy(kioskCommand, "win")} className="shrink-0 p-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
+              {copied === "win" ? <Check className="w-4 h-4 text-[oklch(0.62_0.16_155)]" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Right-click your desktop → New → Shortcut → paste this as the location (swap the Chrome path if installed
+            elsewhere). Then set this shortcut as the one cashiers actually open every day instead of a normal Chrome icon.
+          </p>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1.5">macOS — Terminal Command</div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-xs font-mono break-all">
+              open -a &quot;Google Chrome&quot; --args --kiosk-printing --app=https://glitchloungesystem.vercel.app
+            </code>
+            <button
+              onClick={() => copy('open -a "Google Chrome" --args --kiosk-printing --app=https://glitchloungesystem.vercel.app', "mac")}
+              className="shrink-0 p-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8"
+            >
+              {copied === "mac" ? <Check className="w-4 h-4 text-[oklch(0.62_0.16_155)]" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-[oklch(0.72_0.14_85/0.1)] border border-[oklch(0.72_0.14_85/0.3)] p-3 text-xs text-muted-foreground">
+          <strong className="text-foreground">Then, in that window, print once manually</strong> (Ctrl/Cmd+P) and set your
+          80mm thermal printer as the default destination — kiosk mode always prints to whatever is currently set as
+          default, silently, from then on. Also make sure "Margins" is set to "None" and paper size to your printer's
+          80mm profile the first time, so it doesn't need to ask again.
+        </div>
+      </div>
     </div>
   );
 }

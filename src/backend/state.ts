@@ -237,3 +237,11 @@ export const resetForProductionFn = createServerFn({ method: "POST" })
       password: data.password,
     });
   });
+
+// Sequential Kitchen Ticket numbering — resets to #1 each shift.
+export const nextKotNumberFn = createServerFn({ method: "POST" })
+  .validator((d: { shiftId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; number?: number }>("nextKotNumber", { ...data, username: user.username });
+  });

@@ -713,25 +713,25 @@ function generateDailyReport(
 <h1>GLITCH LOUNGE</h1>
 <div class="sub">End of Day Sales Log — ${today}</div>
 <div class="totals">
-  <div class="grand"><span>TOTAL DAILY REVENUE</span><span>$${totalRevenue.toFixed(2)}</span></div>
-  <div><span>&nbsp;&nbsp;Cash</span><span>$${cashRevenue.toFixed(2)}</span></div>
-  <div><span>&nbsp;&nbsp;Visa</span><span>$${visaRevenue.toFixed(2)}</span></div>
-  <div><span>&nbsp;&nbsp;InstaPay</span><span>$${instapayRevenue.toFixed(2)}</span></div>
+  <div class="grand"><span>TOTAL DAILY REVENUE</span><span>${totalRevenue.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;Cash</span><span>${cashRevenue.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;Visa</span><span>${visaRevenue.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;InstaPay</span><span>${instapayRevenue.toFixed(2)} EGP</span></div>
   <div><span>Order Count</span><span>${sessions.length}</span></div>
-  <div><span>Wasted / Marketing Expense (excluded above)</span><span>$${wasteExpense.toFixed(2)}</span></div>
+  <div><span>Wasted / Marketing Expense (excluded above)</span><span>${wasteExpense.toFixed(2)} EGP</span></div>
 </div>
 <h3 style="margin-top:24px">Shift Comparison</h3>
 <table>
-  <thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening $</th><th>Expected</th><th>Actual</th><th>Discrepancy</th></tr></thead>
+  <thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening EGP</th><th>Expected</th><th>Actual</th><th>Discrepancy</th></tr></thead>
   <tbody>
     ${shifts.map((sh) => `<tr>
       <td>${sh.cashierUsername}</td>
       <td>${new Date(sh.openedAt).toLocaleTimeString()}</td>
       <td>${sh.closedAt ? new Date(sh.closedAt).toLocaleTimeString() : "Open"}</td>
-      <td>$${sh.openingBalance.toFixed(2)}</td>
-      <td>${sh.expectedCash !== null ? "$" + sh.expectedCash.toFixed(2) : "—"}</td>
-      <td>${sh.closingActualCash !== null ? "$" + sh.closingActualCash.toFixed(2) : "—"}</td>
-      <td>${sh.discrepancy !== null ? "$" + sh.discrepancy.toFixed(2) : "—"}</td>
+      <td>${sh.openingBalance.toFixed(2)} EGP</td>
+      <td>${sh.expectedCash !== null ? sh.expectedCash.toFixed(2) + " EGP" : "—"}</td>
+      <td>${sh.closingActualCash !== null ? sh.closingActualCash.toFixed(2) + " EGP" : "—"}</td>
+      <td>${sh.discrepancy !== null ? sh.discrepancy.toFixed(2) + " EGP" : "—"}</td>
     </tr>`).join("")}
   </tbody>
 </table>
@@ -750,10 +750,10 @@ function generateDailyReport(
       <td>${s.roomName}</td>
       <td>${new Date(s.endedAt).toLocaleTimeString()}</td>
       <td>${s.paymentMethod.toUpperCase()}</td>
-      <td>$${s.cashAmount.toFixed(2)}</td>
-      <td>$${s.visaAmount.toFixed(2)}</td>
-      <td>$${s.instapayAmount.toFixed(2)}</td>
-      <td>$${s.total.toFixed(2)}</td>
+      <td>${s.cashAmount.toFixed(2)} EGP</td>
+      <td>${s.visaAmount.toFixed(2)} EGP</td>
+      <td>${s.instapayAmount.toFixed(2)} EGP</td>
+      <td>${s.total.toFixed(2)} EGP</td>
     </tr>`).join("")}
   </tbody>
 </table>

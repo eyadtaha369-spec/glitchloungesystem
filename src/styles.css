@@ -201,7 +201,12 @@
     display: block !important;
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: "JetBrains Mono", ui-monospace, monospace !important;
+    /* Courier New first for reliable thermal-printer monospace alignment;
+       Tahoma/Arial fall back for Arabic glyphs (JetBrains Mono has none),
+       ui-monospace/monospace as a final generic fallback. */
+    font-family: "Courier New", "Tahoma", "Arial", ui-monospace, monospace !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
     width: 80mm !important;
     max-width: 80mm !important;
     margin: 0 !important;
@@ -221,6 +226,29 @@
     overflow: visible !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    /* Tailwind's opacity-60/70/80 utilities (used for de-emphasized
+       on-screen text/borders) render as faded gray on a thermal head with
+       no true grayscale — force everything to full solid black instead. */
+    opacity: 1 !important;
+  }
+
+  /* Item names, quantities, and totals need to survive a thermal head at
+     a glance — bump size and weight well past the on-screen defaults. */
+  .print-area .receipt-line,
+  .print-area .receipt-block {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
+  .print-area .receipt-block:has(.receipt-total),
+  .print-area .receipt-total {
+    font-size: 17px !important;
+    font-weight: 800 !important;
+  }
+
+  /* Borders inside the receipt (item dividers, totals rule) print at
+     full black weight, not the on-screen border-black/10-style tints. */
+  .print-area [class*="border-"] {
+    border-color: #000000 !important;
   }
 
   /* Never split a line item, or the header/total block, across a page

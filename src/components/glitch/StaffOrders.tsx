@@ -281,7 +281,7 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
               </div>
             ))}
           </div>
-          <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block">
+          <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
             <span>TOTAL (Staff Expense)</span><span>{fmtMoney(order.totalAmount)}</span>
           </div>
           <div className="text-center text-[10px] uppercase tracking-widest mt-4 opacity-70">Not a Retail Sale — Staff Consumption</div>
@@ -325,14 +325,14 @@ function printStaffOrdersReport(orders: StaffOrder[], fromDate: string, toDate: 
 <h1>GLITCH LOUNGE</h1>
 <div class="sub">Staff Orders Report — ${label}</div>
 <div class="totals">
-  <div class="grand"><span>TOTAL STAFF CONSUMPTION EXPENSE</span><span>$${total.toFixed(2)}</span></div>
+  <div class="grand"><span>TOTAL STAFF CONSUMPTION EXPENSE</span><span>${total.toFixed(2)} EGP</span></div>
   <div><span>Total Orders</span><span>${orders.length}</span></div>
 </div>
 <h3 style="margin-top:24px">By Staff Member</h3>
 <table>
   <thead><tr><th>Staff</th><th>Total</th></tr></thead>
   <tbody>
-    ${Array.from(byStaff.entries()).sort((a, b) => b[1] - a[1]).map(([name, amt]) => `<tr><td>${name}</td><td>$${amt.toFixed(2)}</td></tr>`).join("") || "<tr><td colspan=2>No orders</td></tr>"}
+    ${Array.from(byStaff.entries()).sort((a, b) => b[1] - a[1]).map(([name, amt]) => `<tr><td>${name}</td><td>${amt.toFixed(2)} EGP</td></tr>`).join("") || "<tr><td colspan=2>No orders</td></tr>"}
   </tbody>
 </table>
 <h3 style="margin-top:24px">All Orders</h3>
@@ -344,7 +344,7 @@ function printStaffOrdersReport(orders: StaffOrder[], fromDate: string, toDate: 
       <td>${o.staffName}</td>
       <td>${o.items.map((i) => `${i.qty}x ${i.name}`).join(", ")}</td>
       <td>${o.processedBy}</td>
-      <td>$${o.totalAmount.toFixed(2)}</td>
+      <td>${o.totalAmount.toFixed(2)} EGP</td>
     </tr>`).join("") || "<tr><td colspan=5>No orders in this range</td></tr>"}
   </tbody>
 </table>
