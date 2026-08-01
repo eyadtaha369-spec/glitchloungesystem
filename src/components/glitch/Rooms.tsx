@@ -108,7 +108,90 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
   );
 }
 
+// Minimalist entry-point card: name, icon, a status badge, and — only
+// while active — the two numbers that actually matter at a glance
+// (elapsed time, running cost). Every other control (order management,
+// pause/resume, split, transfer, KOT, checkout) lives one click away in
+// RoomDetailModal, not cluttering the grid.
 const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
+  const [open, setOpen] = useState(false);
+  const isActive = room.status === "active";
+  const timeCost = (elapsed / 3600) * room.hourlyRate;
+  const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+  const total = timeCost + ordersCost;
+  const itemCount = room.orders.reduce((a, o) => a + o.qty, 0);
+
+  const cardStyle = room.isVip
+    ? "animate-vip bg-gradient-to-br from-[oklch(0.82_0.16_85/0.08)] via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.82_0.16_85/0.4)]"
+    : isActive
+      ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
+      : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className={`w-full text-start glass rounded-2xl p-6 border transition-all cursor-pointer ${cardStyle}`}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            {room.isVip ? (
+              <Crown className="w-6 h-6 text-[oklch(0.82_0.16_85)] shrink-0" />
+            ) : (
+              <Gamepad2 className="w-6 h-6 text-[oklch(0.85_0.16_200)] shrink-0" />
+            )}
+            <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
+          </div>
+          <span
+            className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
+              isActive
+                ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
+                : "bg-black/5 text-muted-foreground border-black/10"
+            }`}
+          >
+            {isActive ? "Running" : "Available"}
+          </span>
+        </div>
+
+        {room.isOwnerTable && (
+          <div className="mb-3 text-[9px] uppercase tracking-widest font-bold text-[oklch(0.82_0.16_85)]">Owner · 25% Off</div>
+        )}
+
+        {room.zone === "waste" ? (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/70 rounded-xl p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items</div>
+              <div className="mt-1 font-mono text-xl font-bold text-[oklch(0.82_0.16_85)]">{itemCount}</div>
+            </div>
+            <div className="bg-white/70 rounded-xl p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
+              <div className="mt-1 font-mono text-xl font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(total)}</div>
+            </div>
+          </div>
+        ) : isActive ? (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/70 rounded-xl p-4 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.85_0.16_200)]"}`}>{fmtDuration(elapsed)}</div>
+            </div>
+            <div className="bg-white/70 rounded-xl p-4 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.78_0.2_155)]"}`}>{fmtMoney(total)}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="py-3 text-center text-xs text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
+        )}
+      </button>
+
+      {open && (
+        <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />
+      )}
+    </>
+  );
+});
+
+const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckout, transferTargets, onClose }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[]; onClose: () => void }) {
   const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
@@ -222,7 +305,8 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   };
 
   return (
-    <div className={`glass rounded-2xl p-5 border transition-all relative ${cardStyle}`}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className={`glass rounded-2xl p-5 border transition-all relative w-full max-w-lg max-h-[92vh] overflow-y-auto ${cardStyle}`} onClick={(e) => e.stopPropagation()}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
@@ -270,7 +354,8 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             </span>
           )}
         </div>
-        <div className={`shrink-0 text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
+        <div className="flex items-center gap-2 shrink-0">
+          <div className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
           room.isPaused
             ? "bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border-[oklch(0.82_0.16_85/0.5)]"
             : room.status === "active"
@@ -278,6 +363,10 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             : "bg-black/5 text-muted-foreground border-black/10"
         }`}>
           {room.isPaused ? "⏸ Paused" : room.status === "active" ? "● Active" : "○ Available"}
+        </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416] bg-black/5 hover:bg-black/10 rounded-full p-1.5" title="Close">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -700,6 +789,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         </span>
         <span className="uppercase tracking-widest text-[10px]">Split Bill</span>
       </label>
+    </div>
     </div>
   );
 });
