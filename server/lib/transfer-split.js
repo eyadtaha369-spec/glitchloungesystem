@@ -67,17 +67,27 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   if (mode === "items") {
     if (!items || items.length === 0) return { ok: false, error: "No items selected to split", state };
     for (const req of items) {
+      const reqQty = Number(req.qty);
       const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
-      if (!line || line.qty < req.qty || req.qty <= 0) return { ok: false, error: "Invalid item/qty to split", state };
+      if (!line) {
+        return { ok: false, error: "\"" + req.menuItemId + "\" is not on this table's current bill (it may have been removed or already checked out).", state };
+      }
+      if (isNaN(reqQty) || reqQty <= 0) {
+        return { ok: false, error: "Invalid quantity (" + req.qty + ") for \"" + line.name + "\".", state };
+      }
+      if (Number(line.qty) < reqQty) {
+        return { ok: false, error: "Only " + line.qty + "x \"" + line.name + "\" is on the bill, can't split " + reqQty + "x.", state };
+      }
     }
     items.forEach((req) => {
+      const reqQty = Number(req.qty);
       const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
-      splitOrders.push(Object.assign({}, line, { qty: req.qty }));
-      splitTotal += req.qty * line.price;
+      splitOrders.push(Object.assign({}, line, { qty: reqQty }));
+      splitTotal += reqQty * line.price;
       const menuItem = state.menu.find((m) => m.id === req.menuItemId);
       if (menuItem) {
         menuItem.ingredients.forEach((ing) => {
-          const res = consumeFifo_(batches, ing.stockId, ing.qty * req.qty);
+          const res = consumeFifo_(batches, ing.stockId, ing.qty * reqQty);
           cogs += res.cost;
           touchedBatchIds.push(...res.touched);
         });
@@ -88,7 +98,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
       const orders = r.orders.map((o) => {
         const ex = items.find((i) => i.menuItemId === o.menuItemId);
         if (!ex) return o;
-        const newQty = o.qty - ex.qty;
+        const newQty = o.qty - Number(ex.qty);
         return newQty <= 0 ? null : Object.assign({}, o, { qty: newQty });
       }).filter((o) => o !== null);
       return Object.assign({}, r, { orders });

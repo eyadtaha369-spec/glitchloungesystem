@@ -514,7 +514,10 @@ Object.assign(handlers, {
     const room = state.rooms.find((r) => r.id === body.roomId);
     if (!room) return { ok: false, error: "Room not found" };
     const line = room.orders.find((o) => o.menuItemId === body.menuItemId);
-    if (!line || line.qty < body.qty || body.qty <= 0) return { ok: false, error: "Invalid quantity to void" };
+    const voidQty = Number(body.qty);
+    if (!line) return { ok: false, error: "\"" + body.menuItemId + "\" is not on this table's current bill (it may have been removed or already checked out)." };
+    if (isNaN(voidQty) || voidQty <= 0) return { ok: false, error: "Invalid quantity (" + body.qty + ") to void." };
+    if (Number(line.qty) < voidQty) return { ok: false, error: "Only " + line.qty + "x \"" + line.name + "\" is on the bill, can't void " + voidQty + "x." };
 
     let approvingAdmin = null;
     if (role !== "admin" && body.approvingAdminUsername && body.approvingAdminPassword) {
@@ -528,8 +531,8 @@ Object.assign(handlers, {
 
     const req = {
       id: newId_("void"), ts: Date.now(), roomId: room.id, roomName: room.name,
-      menuItemId: body.menuItemId, itemName: line.name, qty: body.qty, unitPrice: line.price,
-      billValue: line.price * body.qty, reason: body.reason,
+      menuItemId: body.menuItemId, itemName: line.name, qty: voidQty, unitPrice: line.price,
+      billValue: line.price * voidQty, reason: body.reason,
       status: executesNow ? (routeUnapproved ? "unapproved" : "approved") : "pending",
       cashierUsername: body.username, waiterName: body.waiterName || "", shiftId: state.activeShiftId,
       approvedBy: executesNow && !routeUnapproved ? approverUsername : null,
