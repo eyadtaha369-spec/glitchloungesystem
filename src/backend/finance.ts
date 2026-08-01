@@ -25,6 +25,18 @@ export const adjustStockFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("adjustStock", { ...data, username: user.username });
   });
 
+// Direct Value Override for the Inventory Edit modal — the entered number
+// becomes the exact current stock. The SERVER computes its own delta
+// against the live remaining at save time (not a delta pre-computed on
+// the client), so it can never go stale if real consumption happens
+// between opening the modal and hitting Save.
+export const setAbsoluteStockFn = createServerFn({ method: "POST" })
+  .validator((d: { materialId: string; targetQty: number; note?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; before?: number; after?: number; delta?: number; state: AppState }>("setAbsoluteStock", { ...data, username: user.username });
+  });
+
 // Adjust/Restock with automatic carryover: whatever's still remaining
 // folds into one fresh batch alongside the new quantity, and "consumed
 // since restock" resets to 0. unitCost is optional — omit to keep the

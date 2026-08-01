@@ -312,7 +312,7 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
 }
 
 function StockTable() {
-  const { state, adjustStock, restockMaterial, updateRawMaterial, setActualStock } = useStore();
+  const { state, adjustStock, setAbsoluteStock, restockMaterial, updateRawMaterial, setActualStock } = useStore();
   const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [restockTarget, setRestockTarget] = useState<{ id: string; name: string; unit: string; unitCost: number } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
@@ -480,16 +480,16 @@ function StockTable() {
         <ActualStockModal target={actualStockTarget} setActualStock={setActualStock} onClose={() => setActualStockTarget(null)} />
       )}
       {editTarget && (
-        <EditMaterialModal target={editTarget} updateRawMaterial={updateRawMaterial} adjustStock={adjustStock} onClose={() => setEditTarget(null)} />
+        <EditMaterialModal target={editTarget} updateRawMaterial={updateRawMaterial} setAbsoluteStock={setAbsoluteStock} onClose={() => setEditTarget(null)} />
       )}
     </div>
   );
 }
 
-function EditMaterialModal({ target, updateRawMaterial, adjustStock, onClose }: {
+function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClose }: {
   target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number };
   updateRawMaterial: ReturnType<typeof useStore>["updateRawMaterial"];
-  adjustStock: ReturnType<typeof useStore>["adjustStock"];
+  setAbsoluteStock: ReturnType<typeof useStore>["setAbsoluteStock"];
   onClose: () => void;
 }) {
   const [name, setName] = useState(target.name);
@@ -501,7 +501,12 @@ function EditMaterialModal({ target, updateRawMaterial, adjustStock, onClose }: 
   const [err, setErr] = useState<string | null>(null);
 
   const newQty = parseFloat(quantity);
-  const qtyDelta = isNaN(newQty) ? 0 : Math.round((newQty - target.remaining) * 100) / 100;
+  // Display-only preview — the REAL delta is computed server-side, fresh,
+  // at save time (see setAbsoluteStock). This local number can go stale
+  // the instant a sale/void/other change happens while this modal is
+  // open; that's fine for a preview, but must never be what's actually
+  // sent to the server — that was the bug.
+  const qtyDeltaPreview = isNaN(newQty) ? 0 : Math.round((newQty - target.remaining) * 100) / 100;
   const valuationPreview = (isNaN(newQty) ? target.remaining : newQty) * (parseFloat(unitCost) || 0);
 
   const submit = async () => {
@@ -520,8 +525,11 @@ function EditMaterialModal({ target, updateRawMaterial, adjustStock, onClose }: 
       if (Object.keys(patch).length > 0) {
         await updateRawMaterial(target.id, patch);
       }
-      if (qtyDelta !== 0) {
-        const res = await adjustStock(target.id, qtyDelta, "correction", "Edited via Inventory Edit modal (was " + target.remaining + ", corrected to " + newQty + ")");
+      // Always call this when the quantity field was touched, even if it
+      // happens to match the stale preview — the server decides the real
+      // delta from the live number, not this component.
+      if (newQty !== target.remaining) {
+        const res = await setAbsoluteStock(target.id, newQty, "Edited via Inventory Edit modal");
         if (!res.ok) { setErr(res.error ?? "Quantity correction failed"); return; }
       }
       onClose();
@@ -562,9 +570,9 @@ function EditMaterialModal({ target, updateRawMaterial, adjustStock, onClose }: 
           </div>
 
           <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-xs font-mono space-y-1">
-            {qtyDelta !== 0 && !isNaN(newQty) && (
-              <div className={`flex justify-between font-bold ${qtyDelta < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
-                <span>Quantity Correction</span><span>{qtyDelta > 0 ? "+" : ""}{qtyDelta} {unit}</span>
+            {qtyDeltaPreview !== 0 && !isNaN(newQty) && (
+              <div className={`flex justify-between font-bold ${qtyDeltaPreview < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                <span>Quantity Correction (est.)</span><span>{qtyDeltaPreview > 0 ? "+" : ""}{qtyDeltaPreview} {unit}</span>
               </div>
             )}
             <div className="flex justify-between text-muted-foreground">

@@ -1939,6 +1939,50 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_({ items: readStaffOrders_() });
 
+      // Direct Value Override — the entered number becomes the exact
+      // current stock, full stop. Unlike adjustStock (which takes a
+      // pre-computed delta from the client), this computes its own delta
+      // HERE, against the live remaining at this exact moment, inside the
+      // lock. That's the actual fix for the Edit-modal bug: a
+      // client-computed delta goes stale the instant any real consumption
+      // happens between opening the modal and hitting Save (a sale, a
+      // void, anything), silently undershooting the entered target. This
+      // action can never go stale — there's no window for it to.
+      case "setAbsoluteStock": {
+        requireRole_(body.username, ["admin"]);
+        const material = readObjects_("RawMaterials").find((m) => m.id === body.materialId);
+        if (!material) return json_({ ok: false, error: "Material not found" });
+        const target = Number(body.targetQty);
+        if (isNaN(target) || target < 0) return json_({ ok: false, error: "Enter a valid quantity" });
+
+        const lock = LockService.getScriptLock();
+        lock.waitLock(30000);
+        let before, after, delta;
+        try {
+          const batches = readObjects_("Batches");
+          before = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
+          delta = Math.round((target - before) * 1e6) / 1e6;
+          if (delta !== 0) {
+            const result = adjustStock_(body.materialId, delta, "correction", body.note || "", body.username);
+            after = result.after;
+          } else {
+            after = before;
+          }
+        } finally {
+          lock.releaseLock();
+        }
+
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "STOCK_ADJUSTED",
+          description: material.name + ": Actual Stock set to " + target + " " + material.unit +
+            " (system showed " + before + " " + material.unit + ") — " +
+            (delta < 0 ? "DEFICIT of " + Math.abs(delta) : delta > 0 ? "SURPLUS of " + delta : "no variance") + " " + material.unit +
+            (body.note ? " — " + body.note : ""),
+          before: { remaining: before }, after: { remaining: after, delta: delta },
+        });
+        return json_({ ok: true, before: before, after: after, delta: delta, state: withStockView_(getState_()) });
+      }
+
       case "adjustStock": {
         requireRole_(body.username, ["admin"]);
         const materials = readObjects_("RawMaterials");

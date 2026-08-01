@@ -52,7 +52,7 @@ import {
   splitBillFn,
 } from "@/backend/state";
 import {
-  getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn,
+  getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
   restockMaterialFn, getRestockLogFn, setActualStockFn,
   importMenuCatalogFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
@@ -153,6 +153,7 @@ interface StoreContextValue {
   // Raw materials / suppliers / recurring expense templates [admin CRUD]
   addRawMaterial: (m: { name: string; unit: string; minStockAlert: number }) => Promise<void>;
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
+  setAbsoluteStock: (materialId: string, targetQty: number, note?: string) => Promise<{ ok: boolean; error?: string; before?: number; after?: number; delta?: number }>;
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
   setActualStock: (materialId: string, actualStock: number) => Promise<{ ok: boolean; error?: string; variance?: number }>;
   refreshRestockLog: () => Promise<void>;
@@ -581,6 +582,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const setAbsoluteStock: StoreContextValue["setAbsoluteStock"] = async (materialId, targetQty, note) => {
+    return withPending(`setAbsoluteStock:${materialId}`, async () => {
+      const res = await setAbsoluteStockFn({ data: { materialId, targetQty, note } });
+      if (res.ok) setAppState(res.state);
+      return { ok: res.ok, error: res.error, before: res.before, after: res.after, delta: res.delta };
+    });
+  };
   const refreshRestockLog: StoreContextValue["refreshRestockLog"] = async () => {
     setRestockLog(await getRestockLogFn());
   };
@@ -928,7 +936,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
-    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
+    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
