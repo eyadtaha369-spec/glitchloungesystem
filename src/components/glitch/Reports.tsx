@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
@@ -23,7 +23,19 @@ function startOfMonth(ts: number) {
 }
 
 export function ReportsPage() {
-  const { state } = useStore();
+  const { state, refreshLedger } = useStore();
+
+  // The Ledger is admin-only and loaded once per session, not something
+  // that magically stays in sync across different browser tabs/logins —
+  // a cashier logging a waste item, or an admin who's been sitting on
+  // this page since before that happened, would otherwise see stale
+  // data indefinitely. Refresh on every visit to this page specifically,
+  // rather than relying on whichever action most recently touched the
+  // ledger to have pushed a refresh into THIS session.
+  useEffect(() => {
+    void refreshLedger();
+  }, [refreshLedger]);
+
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

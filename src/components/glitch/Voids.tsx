@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore, fmtMoney, VOID_REASON_LABELS } from "@/lib/glitch-store";
 import type { VoidRequest, VoidReason } from "@/lib/glitch-store";
 import { ShieldAlert, CheckCircle2, XCircle, Clock, Printer, AlertTriangle, Settings } from "lucide-react";
@@ -18,7 +18,16 @@ function microTimestamp(ts: number) {
 }
 
 export function VoidsPage() {
-  const { state } = useStore();
+  const { state, refreshVoidRequests, refreshLedger } = useStore();
+  // Same reasoning as Reports: this data is admin-only and loaded once
+  // per session, not something that magically stays in sync across
+  // different logins/tabs — a cashier voiding an item in one session
+  // wouldn't refresh what an admin already has open in another.
+  useEffect(() => {
+    void refreshVoidRequests();
+    void refreshLedger();
+  }, [refreshVoidRequests, refreshLedger]);
+
   const pending = state.voidRequests.filter((v) => v.status === "pending");
   const unapproved = state.voidRequests.filter((v) => v.status === "unapproved");
 

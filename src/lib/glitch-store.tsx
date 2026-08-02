@@ -210,6 +210,7 @@ interface StoreContextValue {
     secondaryAmount?: number;
   }) => Promise<{ ok: boolean; error?: string; session?: Session }>;
   refreshActivityLogs: () => Promise<void>;
+  refreshVoidRequests: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -945,7 +946,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
-    transferZone, openSplitInterface, splitBill, refreshActivityLogs,
+    transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

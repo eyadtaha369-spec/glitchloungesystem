@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource } from "@/lib/glitch-store";
 import { Camera, CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History } from "lucide-react";
@@ -22,8 +22,15 @@ const PAYMENT_SOURCE_ICONS: Record<PaymentSource, typeof Wallet> = {
 const PROCUREMENT_TYPES = new Set(["stockedBatch", "dailyFresh", "midShiftPurchase"]);
 
 export function ProcurementPage() {
-  const { state } = useStore();
+  const { state, refreshLedger } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
+  // Same reasoning as Reports/Voids: pending approvals and the purchase
+  // history both come from the ledger, admin-only and loaded once per
+  // session — refresh on every visit rather than depending on some
+  // other session's action to have pushed a refresh into this one.
+  useEffect(() => {
+    if (isAdmin) void refreshLedger();
+  }, [isAdmin, refreshLedger]);
 
   return (
     <div className="space-y-6">
