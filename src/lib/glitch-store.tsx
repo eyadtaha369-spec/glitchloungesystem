@@ -405,6 +405,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt } });
         setAppState(res.state);
+        if (res.session) await refreshLedger();
         return { session: res.session, error: res.error };
       } catch (err) {
         // A server function that throws (network failure, or a mismatch
@@ -438,7 +439,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return withPending(`logWasteMarketing:${roomId}`, async () => {
       try {
         const res = await logWasteMarketingFn({ data: { roomId } });
-        if (res.ok) setAppState(res.state);
+        if (res.ok) { setAppState(res.state); await refreshLedger(); }
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not log waste/marketing." };
@@ -768,6 +769,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         setAppState(res.state);
         await refreshVoidRequests();
+        await refreshLedger();
       }
       return { ok: res.ok, error: res.error };
     });
@@ -793,6 +795,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const res = await approveVoidFn({ data: { voidId } });
       if (res.ok && res.state) setAppState(res.state);
       await refreshVoidRequests();
+      await refreshLedger();
       return { ok: res.ok, error: res.error };
     });
   };
@@ -815,6 +818,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           setAppState(res.state);
           await refreshStaffOrders();
+          await refreshLedger();
         }
         return { ok: res.ok, error: res.error, staffOrder: res.staffOrder };
       } catch (err) {
@@ -840,7 +844,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return withPending(`splitBill:${params.roomId}`, async () => {
       try {
         const res = await splitBillFn({ data: params });
-        if (res.ok) setAppState(res.state);
+        if (res.ok) { setAppState(res.state); await refreshLedger(); }
         return { ok: res.ok, error: res.error, session: res.session };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Split payment failed unexpectedly. Please try again." };
