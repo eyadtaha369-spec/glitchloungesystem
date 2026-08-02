@@ -1,6 +1,6 @@
 const { pushActivity_ } = require("./util");
 const { consumeFifo_ } = require("./state");
-const { effectiveDurationSec_, PAYMENT_METHODS } = require("./rooms");
+const { effectiveDurationSec_, PAYMENT_METHODS, computeDiscount_ } = require("./rooms");
 
 function bizTransferZone_(state, sourceId, targetId, rateMode) {
   const source = state.rooms.find((r) => r.id === sourceId);
@@ -53,7 +53,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   return { ok: true, state, roomCharge, roomName: source.name, tableName: target.name, durationSec, targetZone: target.zone };
 }
 
-function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymentMethod, cashAmountInput, secondaryAmountInput) {
+function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymentMethod, cashAmountInput, secondaryAmountInput, discountInput) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Table/Room not found", state };
   if (room.status !== "active") return { ok: false, error: "Table/Room is not active", state };
@@ -125,8 +125,18 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   }
 
   const preDiscountSplitTotal = splitTotal;
-  const discountAmount = room.isOwnerTable ? Math.round(preDiscountSplitTotal * 0.25 * 100) / 100 : 0;
-  const discountLabel = room.isOwnerTable ? "Owner Discount (25%)" : null;
+  const manualDiscountValue = Number(discountInput && discountInput.discountValue) || 0;
+  let discountAmount, discountLabel;
+  if (manualDiscountValue > 0) {
+    discountAmount = computeDiscount_(preDiscountSplitTotal, discountInput.discountType, discountInput.discountValue);
+    discountLabel = "Discount" + (discountInput.discountType === "percent" ? " (" + discountInput.discountValue + "%)" : "");
+  } else if (room.isOwnerTable) {
+    discountAmount = Math.round(preDiscountSplitTotal * 0.25 * 100) / 100;
+    discountLabel = "Owner Discount (25%)";
+  } else {
+    discountAmount = 0;
+    discountLabel = null;
+  }
   splitTotal = preDiscountSplitTotal - discountAmount;
 
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;

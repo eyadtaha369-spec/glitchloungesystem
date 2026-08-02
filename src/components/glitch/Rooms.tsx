@@ -1662,6 +1662,8 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const [secondaryInput, setSecondaryInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [discountType, setDiscountType] = useState<"fixed" | "percent">("fixed");
+  const [discountInput, setDiscountInput] = useState("");
   const [splitReceipt, setSplitReceipt] = useState<Session | null>(null);
   const [logoReady, setLogoReady] = useState(false);
   useEffect(() => {
@@ -1688,7 +1690,15 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
 
   const items = Object.entries(selected).map(([menuItemId, qty]) => ({ menuItemId, qty }));
   const selectedTotal = room.orders.reduce((a, o) => a + (selected[o.menuItemId] ?? 0) * o.price, 0);
-  const splitTotal = mode === "items" ? selectedTotal : parseFloat(amountInput) || 0;
+  const preDiscountSplitTotal = mode === "items" ? selectedTotal : parseFloat(amountInput) || 0;
+  const discountPreview = (() => {
+    const v = parseFloat(discountInput) || 0;
+    if (v <= 0) return 0;
+    const amt = discountType === "percent" ? preDiscountSplitTotal * (v / 100) : v;
+    return Math.round(Math.max(0, Math.min(amt, preDiscountSplitTotal)) * 100) / 100;
+  })();
+  const hasManualDiscount = discountPreview > 0;
+  const splitTotal = preDiscountSplitTotal - (hasManualDiscount ? discountPreview : (room.isOwnerTable ? Math.round(preDiscountSplitTotal * 0.25 * 100) / 100 : 0));
 
   const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
   // Cashier enters only the Visa/InstaPay amount — Cash is auto-calculated.
@@ -1699,7 +1709,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const submit = async () => {
     setErr(null);
     if (mode === "items" && items.length === 0) { setErr("Select at least one item to split."); return; }
-    if (mode === "amount" && splitTotal <= 0) { setErr("Enter a valid split amount."); return; }
+    if (mode === "amount" && preDiscountSplitTotal <= 0) { setErr("Enter a valid split amount."); return; }
     if (isMixed && (secondaryAmount <= 0 || secondaryExceedsTotal)) {
       setErr(
         secondaryExceedsTotal
@@ -1714,10 +1724,12 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
         roomId: room.id,
         mode,
         items: mode === "items" ? items : undefined,
-        customAmount: mode === "amount" ? splitTotal : undefined,
+        customAmount: mode === "amount" ? preDiscountSplitTotal : undefined,
         paymentMethod: paymentOption,
         cashAmount: isMixed ? cashAmount : undefined,
         secondaryAmount: isMixed ? secondaryAmount : undefined,
+        discountType: hasManualDiscount ? discountType : undefined,
+        discountValue: hasManualDiscount ? parseFloat(discountInput) || 0 : undefined,
       });
       if (!res.ok) { setErr(res.error ?? "Split payment failed"); return; }
       if (res.session) setSplitReceipt(res.session);
@@ -1872,8 +1884,37 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           </div>
         )}
 
+        <div className="px-4 pb-2">
+          <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Discount (optional)</label>
+          <div className="mt-1 flex gap-1.5">
+            <input
+              type="number" min="0" step="0.01" value={discountInput}
+              onChange={(e) => setDiscountInput(e.target.value)}
+              placeholder="0"
+              className="min-w-0 flex-1 bg-white/70 border border-black/10 rounded-lg px-2.5 py-2 text-sm font-mono"
+            />
+            <div className="flex rounded-lg border border-black/10 overflow-hidden shrink-0">
+              <button
+                onClick={() => setDiscountType("fixed")}
+                className={`px-2.5 py-2 text-xs font-bold ${discountType === "fixed" ? "bg-[oklch(0.7_0.19_260/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+              >EGP</button>
+              <button
+                onClick={() => setDiscountType("percent")}
+                className={`px-2.5 py-2 text-xs font-bold border-l border-black/10 ${discountType === "percent" ? "bg-[oklch(0.7_0.19_260/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+              >%</button>
+            </div>
+          </div>
+          {!hasManualDiscount && room.isOwnerTable && (
+            <div className="text-[10px] text-[oklch(0.82_0.16_85)] font-mono mt-1">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
+          )}
+        </div>
+
         <div className="px-4 pb-2 flex justify-between text-sm font-mono">
-          <span className="text-muted-foreground">Sub-Bill Total</span>
+          <span className="text-muted-foreground">
+            {(hasManualDiscount || room.isOwnerTable) && preDiscountSplitTotal - splitTotal > 0
+              ? `Subtotal ${fmtMoney(preDiscountSplitTotal)} − Discount ${fmtMoney(preDiscountSplitTotal - splitTotal)}`
+              : "Sub-Bill Total"}
+          </span>
           <span className="font-bold text-lg">{fmtMoney(splitTotal)}</span>
         </div>
 

@@ -171,6 +171,8 @@ export const splitBillFn = createServerFn({ method: "POST" })
     paymentMethod: PaymentMethod;
     cashAmount?: number;
     secondaryAmount?: number;
+    discountType?: "fixed" | "percent";
+    discountValue?: number;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();

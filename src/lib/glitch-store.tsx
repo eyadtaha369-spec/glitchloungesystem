@@ -208,6 +208,8 @@ interface StoreContextValue {
     paymentMethod: PaymentMethod;
     cashAmount?: number;
     secondaryAmount?: number;
+    discountType?: "fixed" | "percent";
+    discountValue?: number;
   }) => Promise<{ ok: boolean; error?: string; session?: Session }>;
   refreshActivityLogs: () => Promise<void>;
   refreshVoidRequests: () => Promise<void>;

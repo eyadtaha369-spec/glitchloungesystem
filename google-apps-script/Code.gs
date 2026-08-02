@@ -885,7 +885,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
 // entry) immediately. Nothing new appears on the dashboard: the source
 // keeps its same id, same timer (if a room), same zone. Only its live
 // order list shrinks by whatever was just paid for.
-function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymentMethod, cashAmountInput, secondaryAmountInput) {
+function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymentMethod, cashAmountInput, secondaryAmountInput, discountInput) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Table/Room not found", state: state };
   if (room.status !== "active") return { ok: false, error: "Table/Room is not active", state: state };
@@ -955,10 +955,21 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   }
 
   // Owners Tables get the same automatic 25% discount on split sub-bills
-  // as a full checkout — itemized on the split receipt too.
+  // as a full checkout — itemized on the split receipt too. A manually
+  // entered discount takes precedence when given, same rule as checkout.
   const preDiscountSplitTotal = splitTotal;
-  const discountAmount = room.isOwnerTable ? Math.round(preDiscountSplitTotal * 0.25 * 100) / 100 : 0;
-  const discountLabel = room.isOwnerTable ? "Owner Discount (25%)" : null;
+  const manualDiscountValue = Number(discountInput && discountInput.discountValue) || 0;
+  let discountAmount, discountLabel;
+  if (manualDiscountValue > 0) {
+    discountAmount = computeDiscount_(preDiscountSplitTotal, discountInput.discountType, discountInput.discountValue);
+    discountLabel = "Discount" + (discountInput.discountType === "percent" ? " (" + discountInput.discountValue + "%)" : "");
+  } else if (room.isOwnerTable) {
+    discountAmount = Math.round(preDiscountSplitTotal * 0.25 * 100) / 100;
+    discountLabel = "Owner Discount (25%)";
+  } else {
+    discountAmount = 0;
+    discountLabel = null;
+  }
   splitTotal = preDiscountSplitTotal - discountAmount;
 
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
@@ -1818,7 +1829,9 @@ function doPost(e) {
       case "splitBill": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizSplitBill_(getState_(), batches, body.roomId, body.mode, body.items, body.customAmount, body.paymentMethod, body.cashAmount, body.secondaryAmount);
+        const result = bizSplitBill_(getState_(), batches, body.roomId, body.mode, body.items, body.customAmount, body.paymentMethod, body.cashAmount, body.secondaryAmount, {
+          discountType: body.discountType, discountValue: body.discountValue,
+        });
         if (!result.ok) {
           return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
         }

@@ -336,7 +336,9 @@ Object.assign(handlers, {
   splitBill(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const batches = readObjects_("Batches");
-    const result = bizSplitBill_(getState_(), batches, body.roomId, body.mode, body.items, body.customAmount, body.paymentMethod, body.cashAmount, body.secondaryAmount);
+    const result = bizSplitBill_(getState_(), batches, body.roomId, body.mode, body.items, body.customAmount, body.paymentMethod, body.cashAmount, body.secondaryAmount, {
+      discountType: body.discountType, discountValue: body.discountValue,
+    });
     if (!result.ok) return { ok: false, error: result.error, state: withStockView_(result.state) };
     setState_(result.state);
     result.touchedBatchIds.forEach((id) => {
