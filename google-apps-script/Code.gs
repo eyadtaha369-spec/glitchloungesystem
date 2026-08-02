@@ -1621,15 +1621,20 @@ function doPost(e) {
         if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
         setState_(result.state);
         writeBatchesBack_(batches, result.touchedBatchIds);
-        if (result.cogs > 0) {
-          appendObject_("Ledger", {
-            id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
-            category: "Marketing / Waste Expense",
-            description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
-            supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-            paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
-          });
-        }
+        // Always record — even if the calculated ingredient cost happens
+        // to be exactly zero (unconfigured ingredient costs, a genuine
+        // freebie, etc.), the admin still needs the audit record itself:
+        // what was wasted, who logged it, when, and why. Silently
+        // skipping the write here was the actual bug — the room cleared
+        // successfully, giving the illusion the whole thing worked, but
+        // nothing ever reached the Ledger for Reports to show.
+        appendObject_("Ledger", {
+          id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
+          category: "Marketing / Waste Expense",
+          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
+          supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+          paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
+        });
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "WASTE_MARKETING_LOGGED",
           location: "Wasted / Marketing", shiftId: result.state.activeShiftId,

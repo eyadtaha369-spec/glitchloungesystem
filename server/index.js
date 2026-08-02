@@ -296,15 +296,16 @@ Object.assign(handlers, {
       const b = batches.find((x) => x.id === id);
       if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
     });
-    if (result.cogs > 0) {
-      appendObject_("Ledger", {
-        id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
-        category: "Marketing / Waste Expense",
-        description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
-        supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-        paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
-      });
-    }
+    // Always record — even at zero calculated cost. See the matching
+    // comment in Code.gs for why: the audit record itself (what/who/
+    // when/why) is the point, not just tracking non-zero cost.
+    appendObject_("Ledger", {
+      id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
+      category: "Marketing / Waste Expense",
+      description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
+      supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+      paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
+    });
     logActivity_({
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "WASTE_MARKETING_LOGGED",
       location: "Wasted / Marketing", shiftId: result.state.activeShiftId,
