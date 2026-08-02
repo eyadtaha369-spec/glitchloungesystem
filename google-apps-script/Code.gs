@@ -1631,7 +1631,7 @@ function doPost(e) {
         appendObject_("Ledger", {
           id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
           category: "Marketing / Waste Expense",
-          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
+          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : "") + " — Retail value: " + result.retailValue.toFixed(2) + " EGP",
           supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
           paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
         });
