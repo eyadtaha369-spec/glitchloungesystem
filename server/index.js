@@ -289,7 +289,7 @@ Object.assign(handlers, {
   logWasteMarketing(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const batches = readObjects_("Batches");
-    const result = bizLogWasteMarketing_(getState_(), batches, body.roomId);
+    const result = bizLogWasteMarketing_(getState_(), batches, body.roomId, body.reason, body.note);
     if (!result.ok) return { ok: false, error: result.error, state: withStockView_(result.state) };
     setState_(result.state);
     result.touchedBatchIds.forEach((id) => {
@@ -299,7 +299,8 @@ Object.assign(handlers, {
     if (result.cogs > 0) {
       appendObject_("Ledger", {
         id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
-        category: "Marketing / Waste Expense", description: result.items.map((i) => i.qty + "x " + i.name).join(", "),
+        category: "Marketing / Waste Expense",
+        description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
         supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
         paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
       });
@@ -307,8 +308,8 @@ Object.assign(handlers, {
     logActivity_({
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "WASTE_MARKETING_LOGGED",
       location: "Wasted / Marketing", shiftId: result.state.activeShiftId,
-      description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — " + result.cogs.toFixed(2) + " EGP ingredient cost",
-      after: { items: result.items, cogs: result.cogs, retailValue: result.retailValue },
+      description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — " + result.reasonLabel + " — " + result.cogs.toFixed(2) + " EGP ingredient cost",
+      after: { items: result.items, cogs: result.cogs, retailValue: result.retailValue, reason: result.reason, note: result.note },
     });
     return { ok: true, state: withStockView_(result.state) };
   },

@@ -23,7 +23,7 @@ export const startRoomFn = createServerFn({ method: "POST" })
   });
 
 export const logWasteMarketingFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string }) => d)
+  .validator((d: { roomId: string; reason: string; note?: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("logWasteMarketing", { ...data, username: user.username });

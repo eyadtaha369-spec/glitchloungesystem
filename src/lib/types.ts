@@ -355,6 +355,16 @@ export const VOID_REASON_LABELS: Record<VoidReason, string> = {
   complimentary: "Complimentary / VIP Gift (Free)",
 };
 
+export type WasteMarketingReason = "remakeWrongOrder" | "remakeComplaint" | "complimentary" | "spilledDamaged" | "marketingPromo" | "other";
+export const WASTE_MARKETING_REASON_LABELS: Record<WasteMarketingReason, string> = {
+  remakeWrongOrder: "Remake — Wrong Order",
+  remakeComplaint: "Remake — Customer Complaint",
+  complimentary: "Complimentary / VIP Hospitality",
+  spilledDamaged: "Spilled / Damaged",
+  marketingPromo: "Marketing / Promotional Giveaway",
+  other: "Other",
+};
+
 export type StockAdjustmentReason = "waste" | "correction" | "opening_balance";
 
 // ---------- Staff Orders & Consumption ----------

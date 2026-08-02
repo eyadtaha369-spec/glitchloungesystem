@@ -609,10 +609,20 @@ function bizResumeRoom_(state, roomId) {
 // the cost as a Marketing/Waste Expense — NEVER as revenue, NEVER creates
 // a Session, NEVER touches Expected Drawer Cash. Used for remakes,
 // complaints, and complimentary hospitality items.
-function bizLogWasteMarketing_(state, batches, roomId) {
+const WASTE_MARKETING_REASONS = {
+  remakeWrongOrder: "Remake — Wrong Order",
+  remakeComplaint: "Remake — Customer Complaint",
+  complimentary: "Complimentary / VIP Hospitality",
+  spilledDamaged: "Spilled / Damaged",
+  marketingPromo: "Marketing / Promotional Giveaway",
+  other: "Other",
+};
+
+function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.zone !== "waste") return { ok: false, error: "This is only for the Wasted/Marketing table", state: state };
   if (room.orders.length === 0) return { ok: false, error: "Nothing on the Wasted/Marketing table to log", state: state };
+  if (!WASTE_MARKETING_REASONS[reason]) return { ok: false, error: "Select a reason for this waste/marketing entry.", state: state };
 
   let cogs = 0;
   let retailValue = 0;
@@ -631,10 +641,10 @@ function bizLogWasteMarketing_(state, batches, roomId) {
   });
 
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [] }) : r));
-  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing — " + cogs.toFixed(2) + " EGP" + " ingredient cost");
+  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing (" + WASTE_MARKETING_REASONS[reason] + ") — " + cogs.toFixed(2) + " EGP" + " ingredient cost");
   return {
     ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)),
-    cogs: cogs, retailValue: retailValue, items: loggedItems,
+    cogs: cogs, retailValue: retailValue, items: loggedItems, reason: reason, reasonLabel: WASTE_MARKETING_REASONS[reason], note: note || "",
   };
 }
 
@@ -1607,7 +1617,7 @@ function doPost(e) {
       case "logWasteMarketing": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizLogWasteMarketing_(getState_(), batches, body.roomId);
+        const result = bizLogWasteMarketing_(getState_(), batches, body.roomId, body.reason, body.note);
         if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
         setState_(result.state);
         writeBatchesBack_(batches, result.touchedBatchIds);
@@ -1615,7 +1625,7 @@ function doPost(e) {
           appendObject_("Ledger", {
             id: newId_("ledg"), ts: Date.now(), amount: result.cogs, direction: "outflow", type: "manualAdjustment",
             category: "Marketing / Waste Expense",
-            description: result.items.map((i) => i.qty + "x " + i.name).join(", "),
+            description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — Reason: " + result.reasonLabel + (result.note ? " (" + result.note + ")" : ""),
             supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
             paidFromDrawer: false, shiftId: result.state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
           });
@@ -1623,9 +1633,9 @@ function doPost(e) {
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "WASTE_MARKETING_LOGGED",
           location: "Wasted / Marketing", shiftId: result.state.activeShiftId,
-          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — " + result.cogs.toFixed(2) + " EGP" +
+          description: result.items.map((i) => i.qty + "x " + i.name).join(", ") + " — " + result.reasonLabel + " — " + result.cogs.toFixed(2) + " EGP" +
             " ingredient cost (retail value " + result.retailValue.toFixed(2) + " EGP" + ", not counted as revenue)",
-          after: { items: result.items, cogs: result.cogs, retailValue: result.retailValue },
+          after: { items: result.items, cogs: result.cogs, retailValue: result.retailValue, reason: result.reason, note: result.note },
         });
         return json_({ ok: true, state: withStockView_(result.state) });
       }

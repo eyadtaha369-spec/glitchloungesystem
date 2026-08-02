@@ -70,9 +70,9 @@ import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource,
+  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
 } from "./types";
-export { VOID_REASON_LABELS, MENU_CATEGORIES } from "./types";
+export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -126,7 +126,7 @@ interface StoreContextValue {
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
-  logWasteMarketing: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  logWasteMarketing: (roomId: string, reason: string, note?: string) => Promise<{ ok: boolean; error?: string }>;
   nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -436,10 +436,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const logWasteMarketing: StoreContextValue["logWasteMarketing"] = async (roomId) => {
+  const logWasteMarketing: StoreContextValue["logWasteMarketing"] = async (roomId, reason, note) => {
     return withPending(`logWasteMarketing:${roomId}`, async () => {
       try {
-        const res = await logWasteMarketingFn({ data: { roomId } });
+        const res = await logWasteMarketingFn({ data: { roomId, reason, note } });
         if (res.ok) { setAppState(res.state); await refreshLedger(); }
         return { ok: res.ok, error: res.error };
       } catch (err) {

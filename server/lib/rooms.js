@@ -205,10 +205,20 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   return { session, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
 }
 
-function bizLogWasteMarketing_(state, batches, roomId) {
+const WASTE_MARKETING_REASONS = {
+  remakeWrongOrder: "Remake — Wrong Order",
+  remakeComplaint: "Remake — Customer Complaint",
+  complimentary: "Complimentary / VIP Hospitality",
+  spilledDamaged: "Spilled / Damaged",
+  marketingPromo: "Marketing / Promotional Giveaway",
+  other: "Other",
+};
+
+function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.zone !== "waste") return { ok: false, error: "This is only for the Wasted/Marketing table", state };
   if (room.orders.length === 0) return { ok: false, error: "Nothing on the Wasted/Marketing table to log", state };
+  if (!WASTE_MARKETING_REASONS[reason]) return { ok: false, error: "Select a reason for this waste/marketing entry.", state };
 
   let cogs = 0;
   let retailValue = 0;
@@ -227,11 +237,12 @@ function bizLogWasteMarketing_(state, batches, roomId) {
   });
 
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [] }) : r));
-  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing — " + cogs.toFixed(2) + " EGP ingredient cost");
-  return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), cogs, retailValue, items: loggedItems };
+  pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing (" + WASTE_MARKETING_REASONS[reason] + ") — " + cogs.toFixed(2) + " EGP ingredient cost");
+  return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), cogs, retailValue, items: loggedItems, reason, reasonLabel: WASTE_MARKETING_REASONS[reason], note: note || "" };
 }
 
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
   bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  WASTE_MARKETING_REASONS,
 };

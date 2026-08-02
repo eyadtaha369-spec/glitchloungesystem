@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
 // Stable reference (never recreated) — passing `[]` inline as a prop
@@ -213,6 +213,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [transferOpen, setTransferOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [extendTimeOpen, setExtendTimeOpen] = useState(false);
+  const [wasteReasonOpen, setWasteReasonOpen] = useState(false);
   const [pickingRateToStart, setPickingRateToStart] = useState(false);
 
   const timeCost = (elapsed / 3600) * room.hourlyRate;
@@ -582,6 +583,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       )}
       {splitOpen && <SplitModal room={room} onClose={() => setSplitOpen(false)} />}
       {extendTimeOpen && <ExtendTimeModal room={room} elapsed={elapsed} extendRoomTime={extendRoomTime} onClose={() => setExtendTimeOpen(false)} />}
+      {wasteReasonOpen && <WasteReasonModal room={room} logWasteMarketing={logWasteMarketing} onClose={() => setWasteReasonOpen(false)} />}
 
       {voidTarget && (
         <VoidRequestModal
@@ -667,7 +669,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             )}
             {room.zone === "waste" ? (
               <button
-                onClick={() => void logWasteMarketing(room.id)}
+                onClick={() => setWasteReasonOpen(true)}
                 disabled={room.orders.length === 0}
                 className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.82_0.16_85/0.25)] transition disabled:opacity-40"
               >
@@ -1287,6 +1289,88 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
       </div>
     </div>,
     document.body,
+  );
+}
+
+function WasteReasonModal({ room, logWasteMarketing, onClose }: {
+  room: Room;
+  logWasteMarketing: ReturnType<typeof useStore>["logWasteMarketing"];
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState<WasteMarketingReason | "">("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const itemCount = room.orders.reduce((a, o) => a + o.qty, 0);
+  const retailValue = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+
+  const submit = async () => {
+    if (!reason) { setErr("Select a reason."); return; }
+    setErr(null);
+    setSubmitting(true);
+    try {
+      const res = await logWasteMarketing(room.id, reason, note.trim() || undefined);
+      if (!res.ok) { setErr(res.error ?? "Could not log this."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">
+            <ShieldAlert className="w-4 h-4" /> Log as Waste/Marketing
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-xs font-mono flex justify-between">
+            <span>{itemCount} item{itemCount === 1 ? "" : "s"}</span>
+            <span className="font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(retailValue)} retail value</span>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason (required)</label>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value as WasteMarketingReason)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+            >
+              <option value="">Select a reason...</option>
+              {(Object.keys(WASTE_MARKETING_REASON_LABELS) as WasteMarketingReason[]).map((r) => (
+                <option key={r} value={r}>{WASTE_MARKETING_REASON_LABELS[r]}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</label>
+            <input
+              value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. which customer, which order..."
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+            />
+          </div>
+
+          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting || !reason}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-bold disabled:opacity-40"
+          >
+            {submitting ? "Logging..." : "Confirm & Log"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
