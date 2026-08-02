@@ -112,7 +112,7 @@ export function ReportsPage() {
 
       <BusinessDayPanel />
 
-      <WasteMarketingPanel entries={wasteEntries} />
+      <WasteMarketingPanel allEntries={state.ledger.filter((l) => l.category === "Marketing / Waste Expense")} />
 
       {/* Total Daily Revenue — the definitive benchmark, before any expenses */}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
@@ -184,26 +184,83 @@ export function ReportsPage() {
 
 type RangeKey = "today" | "week" | "month" | "custom";
 
-function WasteMarketingPanel({ entries }: { entries: LedgerEntry[] }) {
+function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
+  const [timeframe, setTimeframe] = useState<"day" | "week" | "month">("day");
+  const [dateInput, setDateInput] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const [monthInput, setMonthInput] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  const range = useMemo(() => {
+    if (timeframe === "day") {
+      const start = new Date(dateInput + "T00:00:00").getTime();
+      return { start, end: start + 86400000, label: new Date(dateInput + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) };
+    }
+    if (timeframe === "week") {
+      const anchor = new Date(dateInput + "T00:00:00");
+      const start = new Date(anchor);
+      start.setDate(anchor.getDate() - anchor.getDay());
+      const startTs = start.getTime();
+      const end = startTs + 7 * 86400000;
+      const endDate = new Date(end - 1);
+      return { start: startTs, end, label: `Week of ${start.toLocaleDateString()} – ${endDate.toLocaleDateString()}` };
+    }
+    const [y, m] = monthInput.split("-").map(Number);
+    const start = new Date(y, m - 1, 1).getTime();
+    const end = new Date(y, m, 1).getTime();
+    return { start, end, label: new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }) };
+  }, [timeframe, dateInput, monthInput]);
+
+  const entries = useMemo(() => allEntries.filter((e) => e.ts >= range.start && e.ts < range.end).sort((a, b) => b.ts - a.ts), [allEntries, range]);
   const total = entries.reduce((a, e) => a + e.amount, 0);
+
   return (
     <div className="glass rounded-2xl p-6 border border-[oklch(0.58_0.22_25/0.4)]">
-      <div className="flex items-center gap-2 mb-1">
-        <Trash2 className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
-        <h2 className="text-lg font-semibold">Wasted / Marketing Expense — Audit Summary</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <Trash2 className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
+          <h2 className="text-lg font-semibold">Wasted / Marketing Expense — Audit Summary</h2>
+        </div>
+        <div className="flex gap-1.5">
+          {(["day", "week", "month"] as const).map((tf) => (
+            <button
+              key={tf}
+              onClick={() => setTimeframe(tf)}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${
+                timeframe === tf
+                  ? "bg-[oklch(0.58_0.22_25/0.2)] border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground"
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
       </div>
-      <p className="text-xs text-muted-foreground mb-4">
+      <p className="text-xs text-muted-foreground mb-3">
         Remade orders, complaints, and complimentary hospitality — ingredient cost only, already excluded from revenue
         and Expected Drawer Cash above.
       </p>
+
+      {timeframe === "month" ? (
+        <input type="month" value={monthInput} onChange={(e) => setMonthInput(e.target.value)} className="mb-3 bg-white/70 border border-black/10 rounded-lg px-3 py-1.5 text-xs" />
+      ) : (
+        <input type="date" value={dateInput} onChange={(e) => setDateInput(e.target.value)} max={new Date().toISOString().slice(0, 10)} className="mb-3 bg-white/70 border border-black/10 rounded-lg px-3 py-1.5 text-xs" />
+      )}
+      <div className="text-[11px] text-muted-foreground uppercase tracking-widest mb-1">{range.label}</div>
+
       <div className="text-3xl font-mono font-bold text-[oklch(0.58_0.22_25)] mb-4">{fmtMoney(total)}</div>
       {entries.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono">Nothing logged on this day.</div>
+        <div className="text-sm text-muted-foreground font-mono">Nothing logged in this period.</div>
       ) : (
-        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+        <div className="space-y-1.5 max-h-64 overflow-y-auto">
           {entries.map((e) => (
             <div key={e.id} className="flex items-center justify-between text-xs font-mono bg-white/60 rounded-lg px-3 py-2 border border-black/8">
-              <span className="truncate">{e.description || "Wasted/Marketing item(s)"} · {new Date(e.ts).toLocaleTimeString()} · {e.staffUsername}</span>
+              <span className="truncate">{e.description || "Wasted/Marketing item(s)"} · {new Date(e.ts).toLocaleString()} · {e.staffUsername}</span>
               <span className="text-[oklch(0.58_0.22_25)] font-bold shrink-0 ml-2">{fmtMoney(e.amount)}</span>
             </div>
           ))}
