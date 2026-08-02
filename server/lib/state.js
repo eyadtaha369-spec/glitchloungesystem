@@ -12,6 +12,8 @@ function sessionToRow_(s) {
     startedAt: s.startedAt, endedAt: s.endedAt, durationSec: s.durationSec, timeCost: s.timeCost,
     orders: JSON.stringify(s.orders || []), ordersCost: s.ordersCost, total: s.total, cogs: s.cogs,
     discountAmount: s.discountAmount || 0, discountLabel: s.discountLabel || null,
+    timeDiscountAmount: s.timeDiscountAmount || 0, timeDiscountLabel: s.timeDiscountLabel || null,
+    ordersDiscountAmount: s.ordersDiscountAmount || 0, ordersDiscountLabel: s.ordersDiscountLabel || null,
     splitBill: !!s.splitBill, paymentMethod: s.paymentMethod, cashAmount: s.cashAmount,
     visaAmount: s.visaAmount, instapayAmount: s.instapayAmount, shiftId: s.shiftId,
   };
@@ -22,6 +24,8 @@ function rowToSession_(r) {
   return Object.assign({}, r, {
     orders, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
+    timeDiscountAmount: Number(r.timeDiscountAmount) || 0, timeDiscountLabel: r.timeDiscountLabel || null,
+    ordersDiscountAmount: Number(r.ordersDiscountAmount) || 0, ordersDiscountLabel: r.ordersDiscountLabel || null,
   });
 }
 function readSessions_() {

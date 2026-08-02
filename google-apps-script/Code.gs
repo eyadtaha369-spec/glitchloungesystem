@@ -178,7 +178,7 @@ function sheetObjectHeaders_(name) {
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
-    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
+    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
@@ -197,6 +197,8 @@ function sessionToRow_(s) {
     durationSec: s.durationSec, timeCost: s.timeCost, orders: JSON.stringify(s.orders || []),
     ordersCost: s.ordersCost, total: s.total, cogs: s.cogs,
     discountAmount: s.discountAmount || 0, discountLabel: s.discountLabel || null,
+    timeDiscountAmount: s.timeDiscountAmount || 0, timeDiscountLabel: s.timeDiscountLabel || null,
+    ordersDiscountAmount: s.ordersDiscountAmount || 0, ordersDiscountLabel: s.ordersDiscountLabel || null,
     splitBill: !!s.splitBill,
     paymentMethod: s.paymentMethod, cashAmount: s.cashAmount, visaAmount: s.visaAmount,
     instapayAmount: s.instapayAmount, shiftId: s.shiftId,
@@ -208,6 +210,8 @@ function rowToSession_(r) {
   return Object.assign({}, r, {
     orders: orders, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
+    timeDiscountAmount: Number(r.timeDiscountAmount) || 0, timeDiscountLabel: r.timeDiscountLabel || null,
+    ordersDiscountAmount: Number(r.ordersDiscountAmount) || 0, ordersDiscountLabel: r.ordersDiscountLabel || null,
   });
 }
 function readSessions_() {
@@ -252,7 +256,20 @@ const VOID_REASONS = {
 };
 
 function ensureHeaders_(sheet, headers) {
-  if (sheet.getLastRow() === 0) sheet.appendRow(headers);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    return;
+  }
+  // Migration for existing sheets: readObjects_/appendObject_ always use
+  // THIS headers array (not whatever the sheet's row 1 actually says) to
+  // decide column position — so data stays correct either way. But if a
+  // feature adds new columns and this sheet predates that, its visible
+  // header row would silently fall behind reality. Extend it to match.
+  const currentHeaderRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (currentHeaderRow.length < headers.length) {
+    sheet.getRange(1, currentHeaderRow.length + 1, 1, headers.length - currentHeaderRow.length)
+      .setValues([headers.slice(currentHeaderRow.length)]);
+  }
 }
 
 function readObjects_(sheetName) {
@@ -648,7 +665,14 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
   };
 }
 
-function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt) {
+function computeDiscount_(base, type, value) {
+  const v = Number(value) || 0;
+  if (!type || v <= 0) return 0;
+  const amt = type === "percent" ? base * (v / 100) : v;
+  return Math.round(Math.max(0, Math.min(amt, base)) * 100) / 100;
+}
+
+function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt, discountInput) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status !== "active" || !room.startedAt) return { session: null, state: state, touchedBatchIds: [], error: null };
   // If the client froze the moment "End Order" was clicked, honor that
@@ -662,10 +686,27 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   const timeCost = (durationSec / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const preDiscountTotal = timeCost + ordersCost;
-  // Owners Tables get an automatic, non-negotiable 25% discount on every
-  // checkout — itemized on the receipt, never silently folded into prices.
-  const discountAmount = room.isOwnerTable ? Math.round(preDiscountTotal * 0.25 * 100) / 100 : 0;
-  const discountLabel = room.isOwnerTable ? "Owner Discount (25%)" : null;
+
+  // Two independent, cashier-entered discounts (Time / Orders), each
+  // fixed-EGP or percent, computed HERE from raw type+value — never from
+  // a client-computed amount (same reasoning as the setAbsoluteStock
+  // fix: the server must always be the one doing the math). When
+  // neither is entered, Owner Tables keep their existing automatic 25%
+  // discount unchanged — manual entry takes precedence when given.
+  const di = discountInput || {};
+  const hasManualDiscount = (Number(di.timeDiscountValue) || 0) > 0 || (Number(di.ordersDiscountValue) || 0) > 0;
+  let timeDiscountAmount = 0, timeDiscountLabel = null, ordersDiscountAmount = 0, ordersDiscountLabel = null, discountAmount = 0, discountLabel = null;
+  if (hasManualDiscount) {
+    timeDiscountAmount = computeDiscount_(timeCost, di.timeDiscountType, di.timeDiscountValue);
+    timeDiscountLabel = timeDiscountAmount > 0 ? "Time Discount" + (di.timeDiscountType === "percent" ? " (" + di.timeDiscountValue + "%)" : "") : null;
+    ordersDiscountAmount = computeDiscount_(ordersCost, di.ordersDiscountType, di.ordersDiscountValue);
+    ordersDiscountLabel = ordersDiscountAmount > 0 ? "Orders Discount" + (di.ordersDiscountType === "percent" ? " (" + di.ordersDiscountValue + "%)" : "") : null;
+    discountAmount = timeDiscountAmount + ordersDiscountAmount;
+    discountLabel = [timeDiscountLabel, ordersDiscountLabel].filter(Boolean).join(" + ") || null;
+  } else if (room.isOwnerTable) {
+    discountAmount = Math.round(preDiscountTotal * 0.25 * 100) / 100;
+    discountLabel = "Owner Discount (25%)";
+  }
   const total = preDiscountTotal - discountAmount;
 
   const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
@@ -725,6 +766,10 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     cogs: cogs,
     discountAmount: discountAmount,
     discountLabel: discountLabel,
+    timeDiscountAmount: timeDiscountAmount,
+    timeDiscountLabel: timeDiscountLabel,
+    ordersDiscountAmount: ordersDiscountAmount,
+    ordersDiscountLabel: ordersDiscountLabel,
     splitBill: !!splitBill,
     paymentMethod: method,
     cashAmount: cashAmount,
@@ -1648,7 +1693,10 @@ function doPost(e) {
       case "endRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt);
+        const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt, {
+          timeDiscountType: body.timeDiscountType, timeDiscountValue: body.timeDiscountValue,
+          ordersDiscountType: body.ordersDiscountType, ordersDiscountValue: body.ordersDiscountValue,
+        });
         if (result.error) {
           return json_({ session: null, error: result.error, state: withStockView_(result.state) });
         }

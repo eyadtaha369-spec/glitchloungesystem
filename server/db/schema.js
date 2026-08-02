@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS Sessions (
   orderNumber INTEGER, roomId TEXT, roomName TEXT, startedAt INTEGER,
   endedAt INTEGER, durationSec REAL, timeCost REAL, orders TEXT,
   ordersCost REAL, total REAL, cogs REAL, discountAmount REAL,
-  discountLabel TEXT, splitBill INTEGER, paymentMethod TEXT,
+  discountLabel TEXT, timeDiscountAmount REAL, timeDiscountLabel TEXT,
+  ordersDiscountAmount REAL, ordersDiscountLabel TEXT,
+  splitBill INTEGER, paymentMethod TEXT,
   cashAmount REAL, visaAmount REAL, instapayAmount REAL, shiftId TEXT
 );
 

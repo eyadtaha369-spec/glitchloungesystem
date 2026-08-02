@@ -146,7 +146,20 @@ function bizResumeRoom_(state, roomId) {
   return { ok: true, state };
 }
 
-function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt) {
+// Computes ONE discount amount server-side from a type+value pair —
+// never trust a client-computed discount amount directly (same lesson
+// as the earlier setAbsoluteStock fix: the server must be the one doing
+// the math, from raw inputs, every time). Capped to [0, base] so a
+// mistyped value can never create a negative total or exceed the
+// portion it's discounting.
+function computeDiscount_(base, type, value) {
+  const v = Number(value) || 0;
+  if (!type || v <= 0) return 0;
+  const amt = type === "percent" ? base * (v / 100) : v;
+  return Math.round(Math.max(0, Math.min(amt, base)) * 100) / 100;
+}
+
+function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt, discountInput) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status !== "active" || !room.startedAt) return { session: null, state, touchedBatchIds: [], error: null };
   const now = Date.now();
@@ -155,8 +168,23 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   const timeCost = (durationSec / 3600) * room.hourlyRate;
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const preDiscountTotal = timeCost + ordersCost;
-  const discountAmount = room.isOwnerTable ? Math.round(preDiscountTotal * 0.25 * 100) / 100 : 0;
-  const discountLabel = room.isOwnerTable ? "Owner Discount (25%)" : null;
+
+  const di = discountInput || {};
+  const hasManualDiscount = (Number(di.timeDiscountValue) || 0) > 0 || (Number(di.ordersDiscountValue) || 0) > 0;
+  let timeDiscountAmount = 0, timeDiscountLabel = null, ordersDiscountAmount = 0, ordersDiscountLabel = null, discountAmount = 0, discountLabel = null;
+  if (hasManualDiscount) {
+    timeDiscountAmount = computeDiscount_(timeCost, di.timeDiscountType, di.timeDiscountValue);
+    timeDiscountLabel = timeDiscountAmount > 0 ? "Time Discount" + (di.timeDiscountType === "percent" ? " (" + di.timeDiscountValue + "%)" : "") : null;
+    ordersDiscountAmount = computeDiscount_(ordersCost, di.ordersDiscountType, di.ordersDiscountValue);
+    ordersDiscountLabel = ordersDiscountAmount > 0 ? "Orders Discount" + (di.ordersDiscountType === "percent" ? " (" + di.ordersDiscountValue + "%)" : "") : null;
+    discountAmount = timeDiscountAmount + ordersDiscountAmount;
+    discountLabel = [timeDiscountLabel, ordersDiscountLabel].filter(Boolean).join(" + ") || null;
+  } else if (room.isOwnerTable) {
+    // Unchanged fallback — manual entry takes precedence when given,
+    // but existing owner-table behavior is untouched otherwise.
+    discountAmount = Math.round(preDiscountTotal * 0.25 * 100) / 100;
+    discountLabel = "Owner Discount (25%)";
+  }
   const total = preDiscountTotal - discountAmount;
 
   const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
@@ -194,7 +222,8 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   const session = {
     id: "sess-" + endedAt, orderNumber: state.orderCounter, roomId: room.id, roomName: room.name,
     startedAt: room.startedAt, endedAt, durationSec, timeCost, orders: room.orders, ordersCost, total, cogs,
-    discountAmount, discountLabel, splitBill: !!splitBill, paymentMethod: method,
+    discountAmount, discountLabel, timeDiscountAmount, timeDiscountLabel, ordersDiscountAmount, ordersDiscountLabel,
+    splitBill: !!splitBill, paymentMethod: method,
     cashAmount, visaAmount, instapayAmount, shiftId: state.activeShiftId || null,
   };
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r));
@@ -244,5 +273,5 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
   bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
-  WASTE_MARKETING_REASONS,
+  WASTE_MARKETING_REASONS, computeDiscount_,
 };

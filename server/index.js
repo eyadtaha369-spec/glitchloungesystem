@@ -126,7 +126,10 @@ const handlers = {
   endRoom(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const batches = readObjects_("Batches");
-    const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt);
+    const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt, {
+      timeDiscountType: body.timeDiscountType, timeDiscountValue: body.timeDiscountValue,
+      ordersDiscountType: body.ordersDiscountType, ordersDiscountValue: body.ordersDiscountValue,
+    });
     if (result.error) return json_({ session: null, error: result.error, state: withStockView_(result.state) });
     if (result.session) {
       setState_(result.state);

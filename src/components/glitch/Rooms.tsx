@@ -259,6 +259,10 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [secondaryInput, setSecondaryInput] = useState("");
   const [checkoutErr, setCheckoutErr] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [timeDiscountType, setTimeDiscountType] = useState<"fixed" | "percent">("fixed");
+  const [timeDiscountInput, setTimeDiscountInput] = useState("");
+  const [ordersDiscountType, setOrdersDiscountType] = useState<"fixed" | "percent">("fixed");
+  const [ordersDiscountInput, setOrdersDiscountInput] = useState("");
 
   // Once "End" is clicked, frozenAt locks the bill to that exact instant —
   // the customer isn't charged extra time for however long the payment
@@ -267,7 +271,18 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const checkoutElapsed = frozenAt !== null ? Math.floor(effectiveElapsedAt(room, frozenAt)) : elapsed;
   const checkoutTimeCost = (checkoutElapsed / 3600) * room.hourlyRate;
   const checkoutPreDiscountTotal = checkoutTimeCost + ordersCost;
-  const checkoutDiscountAmount = room.isOwnerTable ? Math.round(checkoutPreDiscountTotal * 0.25 * 100) / 100 : 0;
+  const previewDiscount = (base: number, type: "fixed" | "percent", raw: string) => {
+    const v = parseFloat(raw) || 0;
+    if (v <= 0) return 0;
+    const amt = type === "percent" ? base * (v / 100) : v;
+    return Math.round(Math.max(0, Math.min(amt, base)) * 100) / 100;
+  };
+  const timeDiscountPreview = previewDiscount(checkoutTimeCost, timeDiscountType, timeDiscountInput);
+  const ordersDiscountPreview = previewDiscount(ordersCost, ordersDiscountType, ordersDiscountInput);
+  const hasManualDiscount = timeDiscountPreview > 0 || ordersDiscountPreview > 0;
+  const checkoutDiscountAmount = hasManualDiscount
+    ? timeDiscountPreview + ordersDiscountPreview
+    : room.isOwnerTable ? Math.round(checkoutPreDiscountTotal * 0.25 * 100) / 100 : 0;
   const checkoutTotal = checkoutPreDiscountTotal - checkoutDiscountAmount;
 
   const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
@@ -294,6 +309,10 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         isMixed ? cashAmount : undefined,
         isMixed ? secondaryAmount : undefined,
         frozenAt ?? undefined,
+        hasManualDiscount ? {
+          timeDiscountType, timeDiscountValue: parseFloat(timeDiscountInput) || 0,
+          ordersDiscountType, ordersDiscountValue: parseFloat(ordersDiscountInput) || 0,
+        } : undefined,
       );
       if (res.error) { setCheckoutErr(res.error); return; }
       setCheckoutOpen(false);
@@ -700,8 +719,68 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   Timer frozen at {fmtDuration(checkoutElapsed)} — no extra time is being charged while you complete this payment
                 </div>
               )}
+
+              <div className="rounded-2xl bg-black/5 border border-black/8 p-4 space-y-3">
+                <div className="text-xs uppercase tracking-widest font-bold text-muted-foreground">Discounts (optional)</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Time Discount</label>
+                    <div className="mt-1 flex gap-1.5">
+                      <input
+                        type="number" min="0" step="0.01" value={timeDiscountInput}
+                        onChange={(e) => setTimeDiscountInput(e.target.value)}
+                        placeholder="0"
+                        className="min-w-0 flex-1 bg-white/70 border border-black/10 rounded-lg px-2.5 py-2 text-sm font-mono"
+                      />
+                      <div className="flex rounded-lg border border-black/10 overflow-hidden shrink-0">
+                        <button
+                          onClick={() => setTimeDiscountType("fixed")}
+                          className={`px-2.5 py-2 text-xs font-bold ${timeDiscountType === "fixed" ? "bg-[oklch(0.7_0.19_260/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+                        >EGP</button>
+                        <button
+                          onClick={() => setTimeDiscountType("percent")}
+                          className={`px-2.5 py-2 text-xs font-bold border-l border-black/10 ${timeDiscountType === "percent" ? "bg-[oklch(0.7_0.19_260/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+                        >%</button>
+                      </div>
+                    </div>
+                    {timeDiscountPreview > 0 && <div className="text-[10px] text-[oklch(0.78_0.2_155)] mt-1 font-mono">-{fmtMoney(timeDiscountPreview)}</div>}
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Orders Discount</label>
+                    <div className="mt-1 flex gap-1.5">
+                      <input
+                        type="number" min="0" step="0.01" value={ordersDiscountInput}
+                        onChange={(e) => setOrdersDiscountInput(e.target.value)}
+                        placeholder="0"
+                        className="min-w-0 flex-1 bg-white/70 border border-black/10 rounded-lg px-2.5 py-2 text-sm font-mono"
+                      />
+                      <div className="flex rounded-lg border border-black/10 overflow-hidden shrink-0">
+                        <button
+                          onClick={() => setOrdersDiscountType("fixed")}
+                          className={`px-2.5 py-2 text-xs font-bold ${ordersDiscountType === "fixed" ? "bg-[oklch(0.7_0.19_260/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+                        >EGP</button>
+                        <button
+                          onClick={() => setOrdersDiscountType("percent")}
+                          className={`px-2.5 py-2 text-xs font-bold border-l border-black/10 ${ordersDiscountType === "percent" ? "bg-[oklch(0.7_0.19_260/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+                        >%</button>
+                      </div>
+                    </div>
+                    {ordersDiscountPreview > 0 && <div className="text-[10px] text-[oklch(0.78_0.2_155)] mt-1 font-mono">-{fmtMoney(ordersDiscountPreview)}</div>}
+                  </div>
+                </div>
+                {!hasManualDiscount && room.isOwnerTable && (
+                  <div className="text-[10px] text-[oklch(0.82_0.16_85)] font-mono">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
+                )}
+              </div>
+
               <div className="text-center py-2">
-                <div className="text-xs uppercase tracking-widest text-muted-foreground">Total Due</div>
+                <div className="text-xs uppercase tracking-widest text-muted-foreground">
+                  {checkoutDiscountAmount > 0 ? (
+                    <>Subtotal {fmtMoney(checkoutPreDiscountTotal)} − Discount {fmtMoney(checkoutDiscountAmount)}</>
+                  ) : (
+                    "Total Due"
+                  )}
+                </div>
                 <div className="text-6xl font-mono font-black mt-2">{fmtMoney(checkoutTotal)}</div>
               </div>
               <div className="text-sm uppercase tracking-widest font-bold text-muted-foreground pt-2">Payment Method</div>
@@ -957,7 +1036,17 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <div className="flex justify-between border-t border-dashed border-black/40 mt-3 pt-2 text-sm font-bold">
             <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
           </div>
-          {session.discountAmount > 0 && (
+          {session.timeDiscountAmount > 0 && (
+            <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+              <span>{session.timeDiscountLabel ?? "Time Discount"}</span><span>-{fmtMoney(session.timeDiscountAmount)}</span>
+            </div>
+          )}
+          {session.ordersDiscountAmount > 0 && (
+            <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+              <span>{session.ordersDiscountLabel ?? "Orders Discount"}</span><span>-{fmtMoney(session.ordersDiscountAmount)}</span>
+            </div>
+          )}
+          {session.discountAmount > 0 && session.timeDiscountAmount === 0 && session.ordersDiscountAmount === 0 && (
             <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
               <span>{session.discountLabel ?? "Discount"}</span><span>-{fmtMoney(session.discountAmount)}</span>
             </div>

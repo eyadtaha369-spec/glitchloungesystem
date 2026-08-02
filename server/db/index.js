@@ -28,6 +28,23 @@ db.exec("PRAGMA journal_mode = WAL"); // safe for multiple registers writing con
 db.exec("PRAGMA busy_timeout = 5000");
 db.exec(SCHEMA_SQL);
 
+// Migration: CREATE TABLE IF NOT EXISTS only applies to brand-new
+// databases — an existing glitch.db from before this feature won't
+// automatically gain these columns. ALTER TABLE ADD COLUMN has no
+// "IF NOT EXISTS" in SQLite, so guard each with try/catch instead;
+// running against an already-migrated database is then a harmless no-op.
+function addColumnIfMissing_(table, column, type) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+}
+addColumnIfMissing_("Sessions", "timeDiscountAmount", "REAL");
+addColumnIfMissing_("Sessions", "timeDiscountLabel", "TEXT");
+addColumnIfMissing_("Sessions", "ordersDiscountAmount", "REAL");
+addColumnIfMissing_("Sessions", "ordersDiscountLabel", "TEXT");
+
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",

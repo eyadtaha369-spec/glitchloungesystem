@@ -115,6 +115,10 @@ export interface Session {
   cogs: number;
   discountAmount: number;
   discountLabel: string | null;
+  timeDiscountAmount: number;
+  timeDiscountLabel: string | null;
+  ordersDiscountAmount: number;
+  ordersDiscountLabel: string | null;
   splitBill: boolean;
   paymentMethod: PaymentMethod;
   // Exact per-method breakdown. For pure cash/visa, one of these equals
