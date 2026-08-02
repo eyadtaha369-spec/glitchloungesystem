@@ -48,7 +48,7 @@ addColumnIfMissing_("Sessions", "ordersDiscountLabel", "TEXT");
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
-  "RestockLog", "BusinessDays",
+  "RestockLog", "BusinessDays", "WasteInvoices",
 ];
 
 function assertTable(table) {

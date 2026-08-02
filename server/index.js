@@ -29,7 +29,7 @@ const {
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
-const { adjustStock_, bizRestockMaterial_ } = require("./lib/inventory");
+const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_ } = require("./lib/inventory");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 
@@ -439,6 +439,23 @@ Object.assign(handlers, {
   getRestockLog(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     return { items: readObjects_("RestockLog").sort((a, b) => b.ts - a.ts) };
+  },
+  submitWasteInvoice(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const state = getState_();
+    const result = bizSubmitWasteInvoice_(body.materialId, body.wastedQty, body.reason, body.note, body.username, state.activeShiftId);
+    if (!result.ok) return { ok: false, error: result.error };
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STOCK_ADJUSTED",
+      shiftId: result.invoice.shiftId,
+      description: `Waste Invoice #${String(result.invoice.invoiceNumber).padStart(3, "0")}: ${result.invoice.wastedQty} ${result.invoice.unit} ${result.invoice.materialName} — ${result.invoice.reasonLabel} — ${result.invoice.totalCost.toFixed(2)} EGP`,
+      after: { invoiceNumber: result.invoice.invoiceNumber, materialId: result.invoice.materialId, wastedQty: result.invoice.wastedQty, reason: result.invoice.reason, totalCost: result.invoice.totalCost },
+    });
+    return { ok: true, invoice: result.invoice, state: withStockView_(getState_()) };
+  },
+  getWasteInvoices(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    return { items: readObjects_("WasteInvoices").sort((a, b) => b.ts - a.ts) };
   },
   setActualStock(body) {
     requireRole_(body.username, ["admin", "cashier"]);

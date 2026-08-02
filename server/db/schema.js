@@ -98,6 +98,13 @@ CREATE TABLE IF NOT EXISTS RestockLog (
   carryoverAdded REAL, newTotal REAL, unitCost REAL, performedBy TEXT
 );
 
+CREATE TABLE IF NOT EXISTS WasteInvoices (
+  id TEXT PRIMARY KEY,
+  invoiceNumber INTEGER, ts INTEGER, materialId TEXT, materialName TEXT,
+  unit TEXT, wastedQty REAL, reason TEXT, reasonLabel TEXT, note TEXT,
+  unitCost REAL, totalCost REAL, loggedBy TEXT, shiftId TEXT
+);
+
 CREATE TABLE IF NOT EXISTS BusinessDays (
   id TEXT PRIMARY KEY,
   label TEXT, openedAt INTEGER, closedAt INTEGER, totalRevenue REAL,

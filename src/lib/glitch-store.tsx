@@ -20,6 +20,8 @@ import type {
   RestockLogEntry,
   PaymentSource,
   BusinessDay,
+  WasteInvoice,
+  WasteInvoiceReason,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -53,7 +55,7 @@ import {
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
-  restockMaterialFn, getRestockLogFn, setActualStockFn,
+  restockMaterialFn, getRestockLogFn, setActualStockFn, submitWasteInvoiceFn, getWasteInvoicesFn,
   importMenuCatalogFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
@@ -71,8 +73,9 @@ export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
   MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
+  WasteInvoice, WasteInvoiceReason,
 } from "./types";
-export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES } from "./types";
+export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -157,6 +160,9 @@ interface StoreContextValue {
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
   setActualStock: (materialId: string, actualStock: number) => Promise<{ ok: boolean; error?: string; variance?: number }>;
   refreshRestockLog: () => Promise<void>;
+  submitWasteInvoice: (materialId: string, wastedQty: number, reason: WasteInvoiceReason, note?: string) => Promise<{ ok: boolean; error?: string; invoice?: WasteInvoice }>;
+  wasteInvoices: WasteInvoice[];
+  refreshWasteInvoices: () => Promise<void>;
   importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<void>;
   deleteRawMaterial: (id: string) => Promise<void>;
@@ -230,6 +236,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
   const [staffOrders, setStaffOrders] = useState<StaffOrder[]>([]);
   const [restockLog, setRestockLog] = useState<RestockLogEntry[]>([]);
+  const [wasteInvoices, setWasteInvoices] = useState<WasteInvoice[]>([]);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -596,6 +603,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refreshRestockLog: StoreContextValue["refreshRestockLog"] = async () => {
     setRestockLog(await getRestockLogFn());
   };
+  const refreshWasteInvoices: StoreContextValue["refreshWasteInvoices"] = async () => {
+    setWasteInvoices(await getWasteInvoicesFn());
+  };
+  const submitWasteInvoice: StoreContextValue["submitWasteInvoice"] = async (materialId, wastedQty, reason, note) => {
+    return withPending(`submitWasteInvoice:${materialId}`, async () => {
+      const res = await submitWasteInvoiceFn({ data: { materialId, wastedQty, reason, note } });
+      if (res.ok) {
+        if (res.state) setAppState(res.state);
+        await refreshWasteInvoices();
+        await refreshLedger();
+      }
+      return { ok: res.ok, error: res.error, invoice: res.invoice };
+    });
+  };
   const restockMaterial: StoreContextValue["restockMaterial"] = async (materialId, qtyAdded, unitCost) => {
     return withPending(`restockMaterial:${materialId}`, async () => {
       try {
@@ -944,6 +965,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
+    submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, approvePurchase, rejectPurchase, refreshLedger,

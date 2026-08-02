@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry } from "@/lib/types";
+import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry, WasteInvoice, WasteInvoiceReason } from "@/lib/types";
 
 // ---------- Raw materials ----------
 export const getRawMaterialsFn = createServerFn({ method: "GET" }).handler(async () => {
@@ -51,6 +51,22 @@ export const restockMaterialFn = createServerFn({ method: "POST" })
 export const getRestockLogFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
   const res = await callAppsScript<{ items: RestockLogEntry[] }>("getRestockLog", { username: user.username });
+  return res.items;
+});
+
+// Raw-material Waste Invoice — distinct from Wasted/Marketing (which
+// wastes finished MENU ITEMS off the virtual table). This wastes a raw
+// material directly: spoiled beans, an expired carton of milk.
+export const submitWasteInvoiceFn = createServerFn({ method: "POST" })
+  .validator((d: { materialId: string; wastedQty: number; reason: WasteInvoiceReason; note?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; invoice?: WasteInvoice; state?: AppState }>("submitWasteInvoice", { ...data, username: user.username });
+  });
+
+export const getWasteInvoicesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const res = await callAppsScript<{ items: WasteInvoice[] }>("getWasteInvoices", { username: user.username });
   return res.items;
 });
 

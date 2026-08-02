@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, type MenuItem, type MenuCategory, type Session } from "@/lib/glitch-store";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, PackagePlus, FileBarChart, Search } from "lucide-react";
+import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason } from "@/lib/glitch-store";
+import { printSmart } from "@/lib/print";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, PackagePlus, FileBarChart, Search, Printer } from "lucide-react";
 
 export function InventoryPage() {
   const {
@@ -312,9 +313,10 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
 }
 
 function StockTable() {
-  const { state, adjustStock, setAbsoluteStock, restockMaterial, updateRawMaterial, setActualStock } = useStore();
+  const { state, adjustStock, setAbsoluteStock, restockMaterial, updateRawMaterial, setActualStock, submitWasteInvoice } = useStore();
   const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [restockTarget, setRestockTarget] = useState<{ id: string; name: string; unit: string; unitCost: number } | null>(null);
+  const [wasteInvoiceTarget, setWasteInvoiceTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; remaining: number } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
   const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number } | null>(null);
@@ -478,6 +480,13 @@ function StockTable() {
                         Adjust
                       </button>
                       <button
+                        onClick={() => setWasteInvoiceTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, remaining: s.remaining })}
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.58_0.22_25/0.15)] border border-[oklch(0.58_0.22_25/0.4)] text-[oklch(0.58_0.22_25)] hover:bg-[oklch(0.58_0.22_25/0.25)] mr-1.5"
+                        title="Waste Invoice — Spill, Expired, or Training"
+                      >
+                        <AlertOctagon className="w-3.5 h-3.5 inline mr-1" />Waste Invoice
+                      </button>
+                      <button
                         onClick={() => setRestockTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.85_0.16_200)] hover:bg-[oklch(0.7_0.19_260/0.25)]"
                       >
@@ -497,6 +506,9 @@ function StockTable() {
       )}
       {restockTarget && (
         <RestockModal target={restockTarget} currentRemaining={state.stock.find((s) => s.id === restockTarget.id)?.remaining ?? 0} restockMaterial={restockMaterial} onClose={() => setRestockTarget(null)} />
+      )}
+      {wasteInvoiceTarget && (
+        <WasteInvoiceModal target={wasteInvoiceTarget} submitWasteInvoice={submitWasteInvoice} onClose={() => setWasteInvoiceTarget(null)} />
       )}
       {historyTarget && <MaterialHistoryModal target={historyTarget} onClose={() => setHistoryTarget(null)} />}
       {actualStockTarget && (
@@ -865,6 +877,139 @@ function RestockModal({ target, currentRemaining, restockMaterial, onClose }: {
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold disabled:opacity-60">
             {submitting ? "Saving..." : "Confirm Restock"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WasteInvoiceModal({ target, submitWasteInvoice, onClose }: {
+  target: { id: string; name: string; unit: string; unitCost: number; remaining: number };
+  submitWasteInvoice: ReturnType<typeof useStore>["submitWasteInvoice"];
+  onClose: () => void;
+}) {
+  const [wastedQty, setWastedQty] = useState("");
+  const [reason, setReason] = useState<WasteInvoiceReason | "">("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [invoice, setInvoice] = useState<WasteInvoice | null>(null);
+
+  const qtyNum = parseFloat(wastedQty) || 0;
+  const estimatedCost = qtyNum * target.unitCost;
+
+  const submit = async () => {
+    setErr(null);
+    if (qtyNum <= 0) { setErr("Enter a wasted quantity greater than zero."); return; }
+    if (qtyNum > target.remaining) { setErr(`Only ${target.remaining} ${target.unit} in stock — can't waste ${qtyNum}.`); return; }
+    if (!reason) { setErr("Select a reason."); return; }
+    setSubmitting(true);
+    try {
+      const res = await submitWasteInvoice(target.id, qtyNum, reason, note.trim() || undefined);
+      if (!res.ok) { setErr(res.error ?? "Could not submit waste invoice."); return; }
+      if (res.invoice) setInvoice(res.invoice);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // After a successful submission, show the printable waste invoice
+  // right here instead of closing — same pattern as the split-bill
+  // receipt: print immediately, then close.
+  if (invoice) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+        <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.58_0.22_25/0.5)]" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-black/10 no-print">
+            <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.58_0.22_25)]">Waste Invoice #{String(invoice.invoiceNumber).padStart(3, "0")}</div>
+            <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="print-area p-5 font-mono text-sm bg-white/50">
+            <div className="text-center mb-3">
+              <div className="font-bold uppercase tracking-widest">Waste Invoice</div>
+              <div className="text-xs text-muted-foreground">#{String(invoice.invoiceNumber).padStart(3, "0")} · {new Date(invoice.ts).toLocaleString()}</div>
+            </div>
+            <div className="space-y-1 border-t border-dashed border-black/30 pt-2">
+              <div className="flex justify-between"><span>Material</span><span className="font-bold">{invoice.materialName}</span></div>
+              <div className="flex justify-between"><span>Wasted Qty</span><span>{invoice.wastedQty} {invoice.unit}</span></div>
+              <div className="flex justify-between"><span>Reason</span><span>{invoice.reasonLabel}</span></div>
+              {invoice.note && <div className="flex justify-between"><span>Note</span><span className="text-end">{invoice.note}</span></div>}
+              <div className="flex justify-between"><span>Logged By</span><span>{invoice.loggedBy}</span></div>
+            </div>
+            <div className="border-t border-double border-black/25 mt-2 pt-2 flex justify-between text-base font-bold receipt-total">
+              <span>LOSS</span><span>{fmtMoney(invoice.totalCost)}</span>
+            </div>
+          </div>
+          <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
+            <button
+              onClick={() => void printSmart()}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25/0.2)] border border-[oklch(0.58_0.22_25/0.5)] font-semibold"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.58_0.22_25/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.58_0.22_25)]">Waste Invoice — {target.name}</div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="text-xs text-muted-foreground font-mono">In stock: {target.remaining} {target.unit}</div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Wasted Quantity ({target.unit})</label>
+            <input
+              type="number" step="0.01" autoFocus value={wastedQty}
+              onChange={(e) => setWastedQty(e.target.value)}
+              placeholder="0"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason (required)</label>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value as WasteInvoiceReason)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+            >
+              <option value="">Select a reason...</option>
+              {(Object.keys(WASTE_INVOICE_REASON_LABELS) as WasteInvoiceReason[]).map((r) => (
+                <option key={r} value={r}>{WASTE_INVOICE_REASON_LABELS[r]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</label>
+            <input
+              value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. batch number, details..."
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          {qtyNum > 0 && (
+            <div className="rounded-lg bg-white/60 border border-black/8 p-3 text-xs font-mono flex justify-between">
+              <span className="text-muted-foreground">Estimated Loss</span>
+              <span className="font-bold text-[oklch(0.58_0.22_25)]">{fmtMoney(estimatedCost)}</span>
+            </div>
+          )}
+          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting || !reason || qtyNum <= 0}
+            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25/0.2)] border border-[oklch(0.58_0.22_25/0.5)] font-semibold disabled:opacity-40"
+          >
+            {submitting ? "Submitting..." : "Submit Waste Invoice"}
           </button>
         </div>
       </div>

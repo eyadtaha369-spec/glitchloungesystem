@@ -251,6 +251,29 @@ export interface RestockLogEntry {
   performedBy: string;
 }
 
+export type WasteInvoiceReason = "spill" | "expired" | "training";
+export const WASTE_INVOICE_REASON_LABELS: Record<WasteInvoiceReason, string> = {
+  spill: "Spill",
+  expired: "Expired",
+  training: "Training",
+};
+export interface WasteInvoice {
+  id: string;
+  invoiceNumber: number;
+  ts: number;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  wastedQty: number;
+  reason: WasteInvoiceReason;
+  reasonLabel: string;
+  note: string;
+  unitCost: number;
+  totalCost: number;
+  loggedBy: string;
+  shiftId: string | null;
+}
+
 export interface Supplier {
   id: string;
   name: string;

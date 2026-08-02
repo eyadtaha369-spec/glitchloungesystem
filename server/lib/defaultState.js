@@ -23,7 +23,7 @@ function defaultAppState_() {
   rooms.push({ id: "waste-marketing", name: "Wasted / Marketing / هدر وماركتينج", isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0, rateMode: null, status: "active", startedAt: Date.now(), orders: [], zone: "waste", splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: false, isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0 });
   return {
     rooms: rooms, menu: menu, sessions: [], activity: [], cashRecords: [],
-    actualCashInput: 0, shifts: [], activeShiftId: null, businessDayId: null, orderCounter: 0, fraudThresholdPercent: 2,
+    actualCashInput: 0, shifts: [], activeShiftId: null, businessDayId: null, orderCounter: 0, wasteInvoiceCounter: 0, fraudThresholdPercent: 2,
     geofenceEnabled: false, cafeLat: 0, cafeLng: 0, geofenceRadiusMeters: 50,
   };
 }

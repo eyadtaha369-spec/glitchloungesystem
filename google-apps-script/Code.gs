@@ -182,6 +182,7 @@ function sheetObjectHeaders_(name) {
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
+    WasteInvoices: ["id", "invoiceNumber", "ts", "materialId", "materialName", "unit", "wastedQty", "reason", "reasonLabel", "note", "unitCost", "totalCost", "loggedBy", "shiftId"],
     BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy"],
   };
   return map[name];
@@ -1380,6 +1381,66 @@ function adjustStock_(materialId, deltaQty, reason, note, username) {
 // qtyPurchased/history stays for lifetime audit purposes). This is what
 // makes "consumed since restock" reset to 0 on every restock instead of
 // growing forever across the material's whole lifetime.
+const WASTE_INVOICE_REASONS = {
+  spill: "Spill",
+  expired: "Expired",
+  training: "Training",
+};
+
+// Distinct from Wasted/Marketing (which wastes finished MENU ITEMS off
+// the virtual table, deducting their recipe ingredients). This wastes a
+// RAW MATERIAL directly — spoiled coffee beans, an expired carton of
+// milk — with no menu item or recipe involved at all.
+function bizSubmitWasteInvoice_(materialId, wastedQty, reason, note, username, shiftId) {
+  if (!WASTE_INVOICE_REASONS[reason]) return { ok: false, error: "Select a reason (Spill, Expired, or Training)." };
+  const qty = Number(wastedQty) || 0;
+  if (qty <= 0) return { ok: false, error: "Enter a wasted quantity greater than zero." };
+
+  const material = readObjects_("RawMaterials").find((m) => m.id === materialId);
+  if (!material) return { ok: false, error: "Material not found." };
+
+  const batches = readObjects_("Batches");
+  const remaining = batches.filter((b) => b.materialId === materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
+  if (qty > remaining + 1e-9) {
+    return { ok: false, error: "Only " + remaining + " " + material.unit + " of " + material.name + " in stock — can't waste " + qty + "." };
+  }
+
+  const res = consumeFifo_(batches, materialId, qty);
+  writeBatchesBack_(batches, res.touched);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let invoiceNumber;
+  try {
+    const state = getState_();
+    state.wasteInvoiceCounter = (state.wasteInvoiceCounter || 0) + 1;
+    invoiceNumber = state.wasteInvoiceCounter;
+    setState_(state);
+  } finally {
+    lock.releaseLock();
+  }
+
+  const now = Date.now();
+  const invoice = {
+    id: newId_("wasteinv"), invoiceNumber: invoiceNumber, ts: now, materialId: materialId, materialName: material.name,
+    unit: material.unit, wastedQty: qty, reason: reason, reasonLabel: WASTE_INVOICE_REASONS[reason], note: note || "",
+    unitCost: material.unitCost, totalCost: res.cost, loggedBy: username, shiftId: shiftId || null,
+  };
+  appendObject_("WasteInvoices", invoice);
+
+  if (res.cost > 0) {
+    appendObject_("Ledger", {
+      id: newId_("ledg"), ts: now, amount: res.cost, direction: "outflow", type: "manualAdjustment",
+      category: "Raw Material Waste",
+      description: "Waste Invoice #" + String(invoiceNumber).padStart(3, "0") + ": " + qty + " " + material.unit + " " + material.name + " — " + WASTE_INVOICE_REASONS[reason] + (note ? " (" + note + ")" : ""),
+      supplierId: null, staffUsername: username, status: "approved", receiptUrl: null,
+      paidFromDrawer: false, shiftId: shiftId || null, materialId: materialId, qty: qty, unitCost: material.unitCost, paymentSource: null,
+    });
+  }
+
+  return { ok: true, invoice: invoice };
+}
+
 function bizRestockMaterial_(materialId, qtyAdded, unitCost, username) {
   if (!qtyAdded || qtyAdded <= 0) return { ok: false, error: "Enter a quantity greater than zero" };
   const materials = readObjects_("RawMaterials");
@@ -2103,6 +2164,24 @@ function doPost(e) {
       case "getRestockLog":
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ items: readRestockLog_() });
+
+      case "submitWasteInvoice": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const state0 = getState_();
+        const result = bizSubmitWasteInvoice_(body.materialId, body.wastedQty, body.reason, body.note, body.username, state0.activeShiftId);
+        if (!result.ok) return json_({ ok: false, error: result.error });
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STOCK_ADJUSTED",
+          shiftId: result.invoice.shiftId,
+          description: "Waste Invoice #" + String(result.invoice.invoiceNumber).padStart(3, "0") + ": " + result.invoice.wastedQty + " " + result.invoice.unit + " " + result.invoice.materialName + " — " + result.invoice.reasonLabel + " — " + result.invoice.totalCost.toFixed(2) + " EGP",
+          after: { invoiceNumber: result.invoice.invoiceNumber, materialId: result.invoice.materialId, wastedQty: result.invoice.wastedQty, reason: result.invoice.reason, totalCost: result.invoice.totalCost },
+        });
+        return json_({ ok: true, invoice: result.invoice, state: withStockView_(getState_()) });
+      }
+
+      case "getWasteInvoices":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readObjects_("WasteInvoices").sort(function (a, b) { return b.ts - a.ts; }) });
 
       case "setActualStock": {
         requireRole_(body.username, ["admin", "cashier"]);
