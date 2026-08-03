@@ -171,7 +171,7 @@ function requireRole_(username, allowedRoles) {
 
 function sheetObjectHeaders_(name) {
   const map = {
-    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost", "actualStock", "actualStockUpdatedAt", "actualStockUpdatedBy"],
+    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost", "actualStock", "actualStockUpdatedAt", "actualStockUpdatedBy", "openingStock"],
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
@@ -1214,6 +1214,31 @@ function resetForProduction_(username, password) {
   return { ok: true, state: withStockView_(state) };
 }
 
+// Wipes the ENTIRE stock system — every raw material, every batch,
+// restock history, and waste invoice history — for a genuinely clean
+// slate. Deliberately separate from Production Reset, which preserves
+// RawMaterials/Batches as configuration. This is destructive to menu
+// item recipes too: any menu item's ingredients will point at
+// materials that no longer exist until recipes are rebuilt against the
+// new material list.
+function resetInventory_(username, password) {
+  const auth = login_(username, password);
+  if (!auth.ok || auth.role !== "admin") {
+    return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
+  }
+
+  ["RawMaterials", "Batches", "RestockLog", "WasteInvoices"].forEach(function (name) { clearSheetData_(name); });
+
+  logActivity_({
+    actorUsername: username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+    description: username + " reset the entire Stock Inventory system — every raw material, batch, restock " +
+      "log, and waste invoice was permanently deleted. Menu item recipes now reference materials that no " +
+      "longer exist until rebuilt against the new material list.",
+  });
+
+  return { ok: true, state: withStockView_(getState_()) };
+}
+
 function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   if (!state.businessDayId) return { ok: false, error: "No business day is currently open", state: state };
   if (state.activeShiftId) return { ok: false, error: "Close the active shift before closing the business day", state: state };
@@ -1385,6 +1410,7 @@ const WASTE_INVOICE_REASONS = {
   spill: "Spill",
   expired: "Expired",
   training: "Training",
+  prepError: "Preparation Error",
 };
 
 // Distinct from Wasted/Marketing (which wastes finished MENU ITEMS off
@@ -1499,6 +1525,17 @@ function computeStockView_(materials, batches) {
     // restock/consolidation) — its own consumption resets to 0 every time
     // a restock folds the old remainder into a fresh batch.
     const newest = matBatches.reduce((a, b) => (!a || Number(b.purchasedAt) > Number(a.purchasedAt) ? b : a), null);
+    // Perpetual Inventory Ledger fields — Opening Stock is the one
+    // permanent historical fact (locked from editing at the API level);
+    // Purchases/In is everything added since then (initialStock already
+    // includes the opening batch, subtracting it isolates true
+    // purchases); Sales & Waste/Out is exactly the existing `used`
+    // figure — recipe consumption + waste-marketing + waste invoices all
+    // already flow through the same FIFO consumption. System Balance =
+    // Opening + Purchases - Out holds by construction, since Out is
+    // DERIVED that way, not independently tracked.
+    const openingStock = Number(m.openingStock) || 0;
+    const purchasesIn = Math.round((initialStock - openingStock) * 1e6) / 1e6;
     return {
       id: m.id,
       name: m.name,
@@ -1515,6 +1552,8 @@ function computeStockView_(materials, batches) {
       actualStockUpdatedAt: m.actualStockUpdatedAt || null,
       actualStockUpdatedBy: m.actualStockUpdatedBy || null,
       variance: actualStock === null ? null : Math.round((actualStock - remaining) * 100) / 100,
+      openingStock: openingStock, purchasesIn: purchasesIn, salesWasteOut: initialStock - remaining, systemBalance: remaining,
+      actualCountValue: actualStock === null ? null : Math.round(actualStock * unitCost * 100) / 100,
     };
   });
 }
@@ -2044,6 +2083,13 @@ function doPost(e) {
         return json_({ ok: true, state: result.state });
       }
 
+      case "resetInventory": {
+        requireRole_(body.username, ["admin"]);
+        const result = resetInventory_(body.username, body.password);
+        if (!result.ok) return json_({ ok: false, error: result.error });
+        return json_({ ok: true, state: result.state });
+      }
+
       // ---- Raw materials / suppliers / recurring expenses CRUD (admin) ----
       case "getRawMaterials":
         requireRole_(body.username, ["admin", "cashier"]);
@@ -2213,23 +2259,38 @@ function doPost(e) {
 
       case "addRawMaterial": {
         requireRole_(body.username, ["admin"]);
-        const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0 };
+        const openingStock = Number(body.openingStock) || 0;
+        const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock: openingStock };
         appendObject_("RawMaterials", item);
+        // Opening Stock needs to be REAL, trackable inventory — one
+        // initial batch backs it, tagged distinctly.
+        if (openingStock > 0) {
+          appendObject_("Batches", {
+            id: newId_("batch"), materialId: item.id, supplierId: null,
+            qtyPurchased: openingStock, qtyRemaining: openingStock, unitCost: item.unitCost,
+            purchasedAt: Date.now(), source: "openingStock",
+          });
+        }
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
-          description: "Added raw material '" + body.name + "'", after: item,
+          description: "Added raw material '" + body.name + "'" + (openingStock > 0 ? " with opening stock of " + openingStock + " " + body.unit : ""), after: item,
         });
-        return json_({ ok: true, item: item });
+        return json_({ ok: true, item: item, state: withStockView_(getState_()) });
       }
       case "updateRawMaterial": {
         requireRole_(body.username, ["admin"]);
         const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
-        const ok = updateObjectById_("RawMaterials", body.id, body.patch);
+        // Opening Stock is locked from editing, permanently, once set at
+        // creation — enforced HERE, server-side, not just hidden in the
+        // UI, so it can't be bypassed by a direct API call either.
+        const patch = Object.assign({}, body.patch);
+        delete patch.openingStock;
+        const ok = updateObjectById_("RawMaterials", body.id, patch);
         if (ok) {
           logActivity_({
             actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
             description: "Edited raw material '" + (before ? before.name : body.id) + "'",
-            before: before, after: Object.assign({}, before, body.patch),
+            before: before, after: Object.assign({}, before, patch),
           });
         }
         return json_({ ok: ok });

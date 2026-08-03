@@ -244,6 +244,16 @@ export const resetForProductionFn = createServerFn({ method: "POST" })
     });
   });
 
+export const resetInventoryFn = createServerFn({ method: "POST" })
+  .validator((d: { password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("resetInventory", {
+      username: user.username,
+      password: data.password,
+    });
+  });
+
 // Sequential Kitchen Ticket numbering — resets to #1 each shift.
 export const nextKotNumberFn = createServerFn({ method: "POST" })
   .validator((d: { shiftId: string }) => d)

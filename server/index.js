@@ -392,16 +392,34 @@ Object.assign(handlers, {
   },
   addRawMaterial(body) {
     requireRole_(body.username, ["admin"]);
-    const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0 };
+    const openingStock = Number(body.openingStock) || 0;
+    const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock };
     appendObject_("RawMaterials", item);
-    logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT", description: "Added raw material '" + body.name + "'", after: item });
-    return { ok: true, item };
+    // Opening Stock is a permanent historical fact, but it also needs to
+    // be REAL, trackable inventory — not just a number sitting separate
+    // from the actual FIFO batches everything else reads from. One
+    // initial batch backs it, tagged distinctly so it's identifiable in
+    // history.
+    if (openingStock > 0) {
+      appendObject_("Batches", {
+        id: newId_("batch"), materialId: item.id, supplierId: null,
+        qtyPurchased: openingStock, qtyRemaining: openingStock, unitCost: item.unitCost,
+        purchasedAt: Date.now(), source: "openingStock",
+      });
+    }
+    logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT", description: "Added raw material '" + body.name + "'" + (openingStock > 0 ? " with opening stock of " + openingStock + " " + body.unit : ""), after: item });
+    return { ok: true, item, state: withStockView_(getState_()) };
   },
   updateRawMaterial(body) {
     requireRole_(body.username, ["admin"]);
     const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
-    const ok = updateObjectById_("RawMaterials", body.id, body.patch);
-    if (ok) logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT", description: "Edited raw material '" + (before ? before.name : body.id) + "'", before, after: Object.assign({}, before, body.patch) });
+    // Opening Stock is locked from editing, permanently, once set at
+    // creation — enforced HERE, server-side, not just hidden in the UI,
+    // so it can't be bypassed by a direct API call either.
+    const patch = Object.assign({}, body.patch);
+    delete patch.openingStock;
+    const ok = updateObjectById_("RawMaterials", body.id, patch);
+    if (ok) logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT", description: "Edited raw material '" + (before ? before.name : body.id) + "'", before, after: Object.assign({}, before, patch) });
     return { ok };
   },
   deleteRawMaterial(body) {
@@ -890,6 +908,25 @@ Object.assign(handlers, {
       description: body.username + " performed a Go-Live Production Reset (local server) — all test orders, shifts, transactions, and financial history were permanently deleted. Menu, room configuration, and employee accounts were preserved.",
     });
     return { ok: true, state: withStockView_(state) };
+  },
+
+  resetInventory(body) {
+    requireRole_(body.username, ["admin"]);
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
+
+    // Wipes the ENTIRE stock system for a genuinely clean slate.
+    // Deliberately separate from Production Reset, which preserves
+    // RawMaterials/Batches as configuration. Destructive to menu item
+    // recipes too — ingredients will point at materials that no longer
+    // exist until rebuilt against the new material list.
+    ["RawMaterials", "Batches", "RestockLog", "WasteInvoices"].forEach((table) => db.exec(`DELETE FROM ${table}`));
+
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+      description: body.username + " reset the entire Stock Inventory system (local server) — every raw material, batch, restock log, and waste invoice was permanently deleted. Menu item recipes now reference materials that no longer exist until rebuilt against the new material list.",
+    });
+    return { ok: true, state: withStockView_(getState_()) };
   },
 });
 

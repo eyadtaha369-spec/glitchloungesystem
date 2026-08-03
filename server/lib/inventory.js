@@ -6,6 +6,7 @@ const WASTE_INVOICE_REASONS = {
   spill: "Spill",
   expired: "Expired",
   training: "Training",
+  prepError: "Preparation Error",
 };
 
 // Distinct from Wasted/Marketing (which wastes finished MENU ITEMS off

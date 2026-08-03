@@ -91,6 +91,21 @@ function computeStockView_(materials, batches) {
     const unitCost = Number(m.unitCost) || 0;
     const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
     const newest = matBatches.reduce((a, b) => (!a || Number(b.purchasedAt) > Number(a.purchasedAt) ? b : a), null);
+    // Perpetual Inventory Ledger fields — Opening Stock is the one
+    // permanent historical fact (locked from editing at the API level,
+    // not just hidden in the UI); Purchases/In is everything added
+    // since then (initialStock already includes the opening batch, so
+    // subtracting it out isolates true purchases); Sales & Waste/Out is
+    // exactly the existing `used` figure (recipe consumption + waste-
+    // marketing + waste invoices — all of it already flows through the
+    // same FIFO consumption, so this was already correct, just needed
+    // exposing under this name). System Balance = Opening + Purchases -
+    // Out holds by construction, since Out is DERIVED that way, not
+    // independently tracked — no possibility of the three drifting
+    // apart from each other.
+    const openingStock = Number(m.openingStock) || 0;
+    const purchasesIn = Math.round((initialStock - openingStock) * 1e6) / 1e6;
+    const salesWasteOut = initialStock - remaining;
     return {
       id: m.id, name: m.name, unit: m.unit, initialStock, used: initialStock - remaining,
       minStock: m.minStockAlert, unitCost, remaining, totalValue: Math.round(remaining * unitCost * 100) / 100,
@@ -98,6 +113,8 @@ function computeStockView_(materials, batches) {
       lastRestockAt: newest ? Number(newest.purchasedAt) : null,
       actualStock, actualStockUpdatedAt: m.actualStockUpdatedAt || null, actualStockUpdatedBy: m.actualStockUpdatedBy || null,
       variance: actualStock === null ? null : Math.round((actualStock - remaining) * 100) / 100,
+      openingStock, purchasesIn, salesWasteOut, systemBalance: remaining,
+      actualCountValue: actualStock === null ? null : Math.round(actualStock * unitCost * 100) / 100,
     };
   });
 }

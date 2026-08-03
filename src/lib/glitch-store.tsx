@@ -48,6 +48,7 @@ import {
   forceEndShiftFn,
   closeBusinessDayFn,
   resetForProductionFn,
+  resetInventoryFn,
   getBusinessDaysFn,
   transferZoneFn,
   logSplitInterfaceOpenedFn,
@@ -150,6 +151,7 @@ interface StoreContextValue {
   forceEndShift: (actualCash?: number) => Promise<void>;
   closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
   resetForProduction: (password: string) => Promise<{ ok: boolean; error?: string }>;
+  resetInventory: (password: string) => Promise<{ ok: boolean; error?: string }>;
   setFraudThreshold: (percent: number) => Promise<void>;
   setGeofenceConfig: (cfg: { enabled: boolean; lat: number; lng: number; radiusMeters: number }) => Promise<void>;
 
@@ -931,6 +933,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const resetInventory: StoreContextValue["resetInventory"] = async (password) => {
+    return withPending("resetInventory", async () => {
+      try {
+        const res = await resetInventoryFn({ data: { password } });
+        if (res.ok) {
+          setAppState(res.state);
+          setMaterials(await getRawMaterialsFn());
+          await Promise.all([refreshRestockLog(), refreshWasteInvoices()]);
+        }
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Reset failed unexpectedly." };
+      }
+    });
+  };
   const setGeofenceConfig: StoreContextValue["setGeofenceConfig"] = async (cfg) => {
     return withPending("setGeofenceConfig", async () => {
       setAppState(await setGeofenceConfigFn({ data: cfg }));
@@ -963,7 +980,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction,
+    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,

@@ -29,6 +29,11 @@ export interface StockItem {
   actualStockUpdatedAt: number | null;
   actualStockUpdatedBy: string | null;
   variance: number | null; // actualStock - remaining; negative = deficit, positive = surplus
+  openingStock: number; // one-time historical starting balance, locked from editing after creation
+  purchasesIn: number; // total purchased since Opening Stock was set
+  salesWasteOut: number; // total consumed since Opening Stock was set (sales + waste, all sources) — equals `used`
+  systemBalance: number; // Opening Stock + Purchases In - Sales & Waste Out, equals `remaining`
+  actualCountValue: number | null; // actualStock * unitCost — distinct from totalValue, which uses systemBalance
 }
 
 export interface RecipeIngredient {
@@ -237,6 +242,9 @@ export interface RawMaterial {
   actualStock: number | null;
   actualStockUpdatedAt: number | null;
   actualStockUpdatedBy: string | null;
+  // Set ONCE at creation, locked from editing permanently after — enforced
+  // server-side, not just hidden in the UI.
+  openingStock: number;
 }
 
 export interface RestockLogEntry {
@@ -251,11 +259,12 @@ export interface RestockLogEntry {
   performedBy: string;
 }
 
-export type WasteInvoiceReason = "spill" | "expired" | "training";
+export type WasteInvoiceReason = "spill" | "expired" | "training" | "prepError";
 export const WASTE_INVOICE_REASON_LABELS: Record<WasteInvoiceReason, string> = {
   spill: "Spill",
   expired: "Expired",
   training: "Training",
+  prepError: "Preparation Error",
 };
 export interface WasteInvoice {
   id: string;

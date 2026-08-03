@@ -113,6 +113,7 @@ export function InventoryPage() {
       {/* Stock inventory */}
       <InventoryAuditReportButton />
       <StockTable />
+      <InventoryResetPanel />
 
       {/* Recipes / Menu */}
       <RecipeManager onAdd={addMenuItem} onUpdate={updateMenuItem} onDelete={deleteMenuItem} />
@@ -310,6 +311,107 @@ function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) 
 <script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent({ deviceName: localStorage.getItem("glitch-preferred-printer") || "" }).catch(() => window.print()); } else { window.print(); } }, 300);</script>
 </body></html>`);
   win.document.close();
+}
+
+function InventoryResetPanel() {
+  const { resetInventory } = useStore();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const REQUIRED_PHRASE = "RESET INVENTORY";
+  const canSubmit = confirmText.trim().toUpperCase() === REQUIRED_PHRASE && password.length > 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setRunning(true);
+    setErr(null);
+    try {
+      const res = await resetInventory(password);
+      if (!res.ok) { setErr(res.error ?? "Reset failed"); return; }
+      setDone(true);
+      setTimeout(() => window.location.reload(), 1800);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.58_0.22_25/0.5)] bg-[oklch(0.58_0.22_25/0.06)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">Danger Zone — Reset Entire Stock Inventory</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
+        Permanently deletes every raw material, stock batch, restock log entry, and waste invoice — a genuinely clean
+        slate for the whole inventory system. This is <strong>different</strong> from the Production Reset in Setup,
+        which deliberately keeps your materials as configuration — this deletes them too. Any menu item's recipe will
+        point at materials that no longer exist until you rebuild it against your new material list.{" "}
+        <strong>This cannot be undone.</strong>
+      </p>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border-2 border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.58_0.22_25/0.25)]"
+      >
+        Reset Entire Stock Inventory
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.58_0.22_25/0.6)]" onClick={(e) => e.stopPropagation()}>
+            {done ? (
+              <div className="p-6 text-center space-y-2">
+                <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Inventory Reset Complete</div>
+                <p className="text-sm text-muted-foreground">Reloading with a clean slate...</p>
+              </div>
+            ) : (
+              <>
+                <div className="p-5 space-y-4">
+                  <h3 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">This is permanent.</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Every raw material, batch, restock entry, and waste invoice will be deleted forever. Menu items,
+                    rooms, shifts, sessions, and accounts are untouched — but menu recipes will need rebuilding
+                    against whatever materials you add next.
+                  </p>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Type <span className="font-bold text-[oklch(0.58_0.22_25)]">{REQUIRED_PHRASE}</span> to confirm
+                    </label>
+                    <input
+                      value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      placeholder={REQUIRED_PHRASE}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Re-enter Your Admin Password</label>
+                    <input
+                      type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+                </div>
+                <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+                  <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+                  <button
+                    onClick={submit}
+                    disabled={!canSubmit || running}
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25)] text-white font-bold disabled:opacity-40"
+                  >
+                    {running ? "Wiping Inventory..." : "Permanently Reset"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StockTable() {

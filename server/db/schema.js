@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS Accounts (
 CREATE TABLE IF NOT EXISTS RawMaterials (
   id TEXT PRIMARY KEY,
   name TEXT, unit TEXT, minStockAlert REAL, unitCost REAL,
-  actualStock REAL, actualStockUpdatedAt INTEGER, actualStockUpdatedBy TEXT
+  actualStock REAL, actualStockUpdatedAt INTEGER, actualStockUpdatedBy TEXT,
+  openingStock REAL
 );
 
 CREATE TABLE IF NOT EXISTS Suppliers (
