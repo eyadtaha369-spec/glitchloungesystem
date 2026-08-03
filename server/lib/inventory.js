@@ -55,6 +55,44 @@ function bizSubmitWasteInvoice_(materialId, wastedQty, reason, note, username, s
   return { ok: true, invoice };
 }
 
+// "اعتماد كبداية شهر جديد" — Monthly Rollover. For EVERY material: takes
+// the current Actual Stock (physical count) if one has been entered,
+// otherwise falls back to the current System Balance; consolidates all
+// existing batches into ONE new batch representing that quantity (same
+// spirit as restock's carryover folding); sets that as the new,
+// permanently-locked Opening Stock for the new period; and clears the
+// Actual Count so it correctly shows "not yet counted this period"
+// until the next physical audit. Consolidating batches is what actually
+// resets the Purchases/In and Sales & Waste/Out counters — both are
+// DERIVED from the full batch history, so starting that history over
+// from one new batch is what makes them read zero for the new period.
+function bizRolloverInventory_() {
+  const materials = readObjects_("RawMaterials");
+  const batches = readObjects_("Batches");
+  const now = Date.now();
+  let count = 0;
+
+  materials.forEach((m) => {
+    const matBatches = batches.filter((b) => b.materialId === m.id);
+    const systemBalance = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
+    const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
+    const newOpening = actualStock !== null ? actualStock : systemBalance;
+
+    matBatches.forEach((b) => updateObjectById_("Batches", b.id, { qtyPurchased: 0, qtyRemaining: 0 }));
+    if (newOpening > 0) {
+      appendObject_("Batches", {
+        id: newId_("batch"), materialId: m.id, supplierId: null,
+        qtyPurchased: newOpening, qtyRemaining: newOpening, unitCost: m.unitCost,
+        purchasedAt: now, source: "openingStock",
+      });
+    }
+    updateObjectById_("RawMaterials", m.id, { openingStock: newOpening, actualStock: null, actualStockUpdatedAt: null, actualStockUpdatedBy: null });
+    count++;
+  });
+
+  return { ok: true, count };
+}
+
 function adjustStock_(materialId, deltaQty, reason, note, username) {
   const batches = readObjects_("Batches");
   const before = batches.filter((b) => b.materialId === materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
@@ -100,7 +138,7 @@ function bizRestockMaterial_(materialId, qtyAdded, unitCost, username) {
   appendObject_("Batches", { id: newId_("batch"), materialId, supplierId: null, qtyPurchased: newTotal, qtyRemaining: newTotal, unitCost: finalUnitCost, purchasedAt: now, source: "restock" });
 
   if (typeof unitCost === "number" && unitCost >= 0) {
-    updateObjectById_("RawMaterials", materialId, { unitCost });
+    updateObjectById_("RawMaterials", materialId, { unitCost, lastPurchaseCost: unitCost });
   }
 
   appendObject_("RestockLog", { id: newId_("restock"), ts: now, materialId, materialName: material.name, qtyAdded, carryoverAdded: carryover, newTotal, unitCost: finalUnitCost, performedBy: username });
@@ -108,4 +146,4 @@ function bizRestockMaterial_(materialId, qtyAdded, unitCost, username) {
   return { ok: true, materialName: material.name, qtyAdded, carryover, newTotal, unitCost: finalUnitCost };
 }
 
-module.exports = { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, WASTE_INVOICE_REASONS };
+module.exports = { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, WASTE_INVOICE_REASONS, bizRolloverInventory_ };

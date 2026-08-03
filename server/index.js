@@ -29,7 +29,7 @@ const {
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
-const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_ } = require("./lib/inventory");
+const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 
@@ -393,7 +393,10 @@ Object.assign(handlers, {
   addRawMaterial(body) {
     requireRole_(body.username, ["admin"]);
     const openingStock = Number(body.openingStock) || 0;
-    const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock };
+    const item = {
+      id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock,
+      category: body.category || "", storageLocation: body.storageLocation || "", lastPurchaseCost: Number(body.unitCost) || 0,
+    };
     appendObject_("RawMaterials", item);
     // Opening Stock is a permanent historical fact, but it also needs to
     // be REAL, trackable inventory — not just a number sitting separate
@@ -475,6 +478,15 @@ Object.assign(handlers, {
     requireRole_(body.username, ["admin", "cashier"]);
     return { items: readObjects_("WasteInvoices").sort((a, b) => b.ts - a.ts) };
   },
+  rolloverInventory(body) {
+    requireRole_(body.username, ["admin"]);
+    const result = bizRolloverInventory_();
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+      description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) — set Opening Stock to the current count for all " + result.count + " material(s), resetting this period's Purchases/Out counters to zero.",
+    });
+    return { ok: true, count: result.count, state: withStockView_(getState_()) };
+  },
   setActualStock(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const material = readObjects_("RawMaterials").find((m) => m.id === body.materialId);
@@ -513,6 +525,10 @@ Object.assign(handlers, {
     appendObject_("Ledger", entry);
     if (isAdmin) {
       appendObject_("Batches", { id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null, qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts, source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh" });
+      // "Most Recent Purchase Unit Cost" replaces average-cost logic —
+      // every approved purchase becomes the new reference cost, both for
+      // display and for future FIFO batch valuation defaults.
+      updateObjectById_("RawMaterials", body.materialId, { unitCost: Number(body.unitCost), lastPurchaseCost: Number(body.unitCost) });
     }
     logActivity_({
       actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,

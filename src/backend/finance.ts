@@ -10,10 +10,10 @@ export const getRawMaterialsFn = createServerFn({ method: "GET" }).handler(async
   return res.items;
 });
 export const addRawMaterialFn = createServerFn({ method: "POST" })
-  .validator((d: { name: string; unit: string; minStockAlert: number; unitCost?: number }) => d)
+  .validator((d: { name: string; unit: string; minStockAlert: number; unitCost?: number; openingStock?: number; category?: string; storageLocation?: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    return callAppsScript<{ ok: boolean; item: RawMaterial }>("addRawMaterial", { ...data, username: user.username });
+    return callAppsScript<{ ok: boolean; item: RawMaterial; state?: AppState }>("addRawMaterial", { ...data, username: user.username });
   });
 
 // Manual stock adjustment — Waste / Stock Count Correction / Opening

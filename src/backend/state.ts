@@ -254,6 +254,13 @@ export const resetInventoryFn = createServerFn({ method: "POST" })
     });
   });
 
+export const rolloverInventoryFn = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireAdmin();
+  return callAppsScript<{ ok: boolean; error?: string; count?: number; state: AppState }>("rolloverInventory", {
+    username: user.username,
+  });
+});
+
 // Sequential Kitchen Ticket numbering — resets to #1 each shift.
 export const nextKotNumberFn = createServerFn({ method: "POST" })
   .validator((d: { shiftId: string }) => d)

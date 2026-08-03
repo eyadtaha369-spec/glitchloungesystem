@@ -49,6 +49,7 @@ import {
   closeBusinessDayFn,
   resetForProductionFn,
   resetInventoryFn,
+  rolloverInventoryFn,
   getBusinessDaysFn,
   transferZoneFn,
   logSplitInterfaceOpenedFn,
@@ -152,11 +153,12 @@ interface StoreContextValue {
   closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
   resetForProduction: (password: string) => Promise<{ ok: boolean; error?: string }>;
   resetInventory: (password: string) => Promise<{ ok: boolean; error?: string }>;
+  rolloverInventory: () => Promise<{ ok: boolean; error?: string; count?: number }>;
   setFraudThreshold: (percent: number) => Promise<void>;
   setGeofenceConfig: (cfg: { enabled: boolean; lat: number; lng: number; radiusMeters: number }) => Promise<void>;
 
   // Raw materials / suppliers / recurring expense templates [admin CRUD]
-  addRawMaterial: (m: { name: string; unit: string; minStockAlert: number }) => Promise<void>;
+  addRawMaterial: (m: { name: string; unit: string; minStockAlert: number; unitCost?: number; openingStock?: number; category?: string; storageLocation?: string }) => Promise<void>;
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
   setAbsoluteStock: (materialId: string, targetQty: number, note?: string) => Promise<{ ok: boolean; error?: string; before?: number; after?: number; delta?: number }>;
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
@@ -585,7 +587,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addRawMaterial: StoreContextValue["addRawMaterial"] = async (m) => {
     return withPending("addRawMaterial", async () => {
       const res = await addRawMaterialFn({ data: m });
-      if (res.ok) setMaterials((prev) => [...prev, res.item]);
+      if (res.ok) {
+        setMaterials((prev) => [...prev, res.item]);
+        if (res.state) setAppState(res.state);
+      }
     });
   };
   const adjustStock: StoreContextValue["adjustStock"] = async (materialId, deltaQty, reason, note) => {
@@ -948,6 +953,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const rolloverInventory: StoreContextValue["rolloverInventory"] = async () => {
+    return withPending("rolloverInventory", async () => {
+      try {
+        const res = await rolloverInventoryFn();
+        if (res.ok) {
+          setAppState(res.state);
+          setMaterials(await getRawMaterialsFn());
+        }
+        return { ok: res.ok, error: res.error, count: res.count };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Rollover failed unexpectedly." };
+      }
+    });
+  };
   const setGeofenceConfig: StoreContextValue["setGeofenceConfig"] = async (cfg) => {
     return withPending("setGeofenceConfig", async () => {
       setAppState(await setGeofenceConfigFn({ data: cfg }));
@@ -980,7 +999,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory,
+    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,

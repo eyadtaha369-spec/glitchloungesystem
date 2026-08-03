@@ -171,7 +171,7 @@ function requireRole_(username, allowedRoles) {
 
 function sheetObjectHeaders_(name) {
   const map = {
-    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost", "actualStock", "actualStockUpdatedAt", "actualStockUpdatedBy", "openingStock"],
+    RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost", "actualStock", "actualStockUpdatedAt", "actualStockUpdatedBy", "openingStock", "category", "storageLocation", "lastPurchaseCost"],
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
@@ -1221,6 +1221,43 @@ function resetForProduction_(username, password) {
 // item recipes too: any menu item's ingredients will point at
 // materials that no longer exist until recipes are rebuilt against the
 // new material list.
+// "اعتماد كبداية شهر جديد" — Monthly Rollover. For EVERY material:
+// takes the current Actual Stock (physical count) if one has been
+// entered, otherwise falls back to the current System Balance;
+// consolidates all existing batches into ONE new batch representing
+// that quantity; sets that as the new, permanently-locked Opening
+// Stock for the new period; and clears the Actual Count so it
+// correctly shows "not yet counted this period" until the next
+// physical audit. Consolidating batches is what resets the
+// Purchases/In and Sales & Waste/Out counters, since both are DERIVED
+// from the full batch history.
+function bizRolloverInventory_() {
+  const materials = readObjects_("RawMaterials");
+  const batches = readObjects_("Batches");
+  const now = Date.now();
+  let count = 0;
+
+  materials.forEach(function (m) {
+    const matBatches = batches.filter(function (b) { return b.materialId === m.id; });
+    const systemBalance = matBatches.reduce(function (a, b) { return a + Number(b.qtyRemaining); }, 0);
+    const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
+    const newOpening = actualStock !== null ? actualStock : systemBalance;
+
+    matBatches.forEach(function (b) { updateObjectById_("Batches", b.id, { qtyPurchased: 0, qtyRemaining: 0 }); });
+    if (newOpening > 0) {
+      appendObject_("Batches", {
+        id: newId_("batch"), materialId: m.id, supplierId: null,
+        qtyPurchased: newOpening, qtyRemaining: newOpening, unitCost: m.unitCost,
+        purchasedAt: now, source: "openingStock",
+      });
+    }
+    updateObjectById_("RawMaterials", m.id, { openingStock: newOpening, actualStock: null, actualStockUpdatedAt: null, actualStockUpdatedBy: null });
+    count++;
+  });
+
+  return { ok: true, count: count };
+}
+
 function resetInventory_(username, password) {
   const auth = login_(username, password);
   if (!auth.ok || auth.role !== "admin") {
@@ -1497,7 +1534,7 @@ function bizRestockMaterial_(materialId, qtyAdded, unitCost, username) {
   });
 
   if (typeof unitCost === "number" && unitCost >= 0) {
-    updateObjectById_("RawMaterials", materialId, { unitCost: unitCost });
+    updateObjectById_("RawMaterials", materialId, { unitCost: unitCost, lastPurchaseCost: unitCost });
   }
 
   appendObject_("RestockLog", {
@@ -1554,6 +1591,7 @@ function computeStockView_(materials, batches) {
       variance: actualStock === null ? null : Math.round((actualStock - remaining) * 100) / 100,
       openingStock: openingStock, purchasesIn: purchasesIn, salesWasteOut: initialStock - remaining, systemBalance: remaining,
       actualCountValue: actualStock === null ? null : Math.round(actualStock * unitCost * 100) / 100,
+      category: m.category || "", storageLocation: m.storageLocation || "", lastPurchaseCost: Number(m.lastPurchaseCost) || unitCost,
     };
   });
 }
@@ -2090,6 +2128,16 @@ function doPost(e) {
         return json_({ ok: true, state: result.state });
       }
 
+      case "rolloverInventory": {
+        requireRole_(body.username, ["admin"]);
+        const rolloverResult = bizRolloverInventory_();
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+          description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) — set Opening Stock to the current count for all " + rolloverResult.count + " material(s), resetting this period's Purchases/Out counters to zero.",
+        });
+        return json_({ ok: true, count: rolloverResult.count, state: withStockView_(getState_()) });
+      }
+
       // ---- Raw materials / suppliers / recurring expenses CRUD (admin) ----
       case "getRawMaterials":
         requireRole_(body.username, ["admin", "cashier"]);
@@ -2260,7 +2308,10 @@ function doPost(e) {
       case "addRawMaterial": {
         requireRole_(body.username, ["admin"]);
         const openingStock = Number(body.openingStock) || 0;
-        const item = { id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock: openingStock };
+        const item = {
+          id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock: openingStock,
+          category: body.category || "", storageLocation: body.storageLocation || "", lastPurchaseCost: Number(body.unitCost) || 0,
+        };
         appendObject_("RawMaterials", item);
         // Opening Stock needs to be REAL, trackable inventory — one
         // initial batch backs it, tagged distinctly.
@@ -3016,6 +3067,9 @@ function handleSubmitPurchase_(body) {
         qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts,
         source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh",
       });
+      // "Most Recent Purchase Unit Cost" replaces average-cost logic —
+      // every approved purchase becomes the new reference cost.
+      updateObjectById_("RawMaterials", body.materialId, { unitCost: Number(body.unitCost), lastPurchaseCost: Number(body.unitCost) });
     }
 
     logActivity_({

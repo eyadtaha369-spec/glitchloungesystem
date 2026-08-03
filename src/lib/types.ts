@@ -34,6 +34,9 @@ export interface StockItem {
   salesWasteOut: number; // total consumed since Opening Stock was set (sales + waste, all sources) — equals `used`
   systemBalance: number; // Opening Stock + Purchases In - Sales & Waste Out, equals `remaining`
   actualCountValue: number | null; // actualStock * unitCost — distinct from totalValue, which uses systemBalance
+  category: string;
+  storageLocation: string;
+  lastPurchaseCost: number;
 }
 
 export interface RecipeIngredient {
@@ -245,6 +248,12 @@ export interface RawMaterial {
   // Set ONCE at creation, locked from editing permanently after — enforced
   // server-side, not just hidden in the UI.
   openingStock: number;
+  category: string;
+  storageLocation: string;
+  // "تكلفة آخر شراء" — replaces average-cost logic. Auto-updated by every
+  // approved purchase or restock, distinct from unitCost (which this
+  // keeps in sync with, but exists as its own explicit, always-current field).
+  lastPurchaseCost: number;
 }
 
 export interface RestockLogEntry {

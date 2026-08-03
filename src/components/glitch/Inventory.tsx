@@ -415,8 +415,7 @@ function InventoryResetPanel() {
 }
 
 function StockTable() {
-  const { state, adjustStock, setAbsoluteStock, restockMaterial, updateRawMaterial, setActualStock, submitWasteInvoice } = useStore();
-  const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
+  const { state, adjustStock, setAbsoluteStock, restockMaterial, updateRawMaterial, setActualStock, submitWasteInvoice, rolloverInventory } = useStore();
   const [restockTarget, setRestockTarget] = useState<{ id: string; name: string; unit: string; unitCost: number } | null>(null);
   const [wasteInvoiceTarget, setWasteInvoiceTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; remaining: number } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
@@ -428,8 +427,25 @@ function StockTable() {
   const [costInput, setCostInput] = useState("");
   const [search, setSearch] = useState("");
 
-  const totalInventoryValue = state.stock.reduce((a, s) => a + s.totalValue, 0);
+  // "Total Inventory Value = SUM(Current Actual Stock * Most Recent
+  // Purchase Unit Cost)" — falls back to systemBalance*unitCost per item
+  // when no physical count has been entered yet for that specific item,
+  // since a null actualCountValue would otherwise make it silently
+  // undercount rather than reflect the best available number.
+  const totalInventoryValue = state.stock.reduce((a, s) => a + (s.actualStock !== null ? s.actualStock : s.systemBalance) * s.lastPurchaseCost, 0);
   const filteredStock = state.stock.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const [rolloverConfirmOpen, setRolloverConfirmOpen] = useState(false);
+  const [rolloverRunning, setRolloverRunning] = useState(false);
+
+  const runRollover = async () => {
+    setRolloverRunning(true);
+    try {
+      await rolloverInventory();
+      setRolloverConfirmOpen(false);
+    } finally {
+      setRolloverRunning(false);
+    }
+  };
 
   return (
     <div className="glass rounded-2xl p-6">
@@ -440,11 +456,46 @@ function StockTable() {
             Computed from purchased batches (FIFO). Add materials on Setup, log real purchases on Procurement.
           </p>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Inventory Value</div>
-          <div className="text-xl font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(totalInventoryValue)}</div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setRolloverConfirmOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] text-xs font-bold uppercase tracking-wide hover:bg-[oklch(0.82_0.16_85/0.25)]"
+            title="اعتماد كبداية شهر جديد"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> اعتماد كبداية شهر جديد
+          </button>
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">قيمة المخزون (Total Stock Value)</div>
+            <div className="text-xl font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(totalInventoryValue)}</div>
+          </div>
         </div>
       </div>
+
+      {rolloverConfirmOpen && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !rolloverRunning && setRolloverConfirmOpen(false)}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.6)]" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 space-y-3">
+              <h3 className="text-lg font-bold text-[oklch(0.82_0.16_85)]">اعتماد كبداية شهر جديد</h3>
+              <p className="text-sm text-muted-foreground">
+                For every material: the current Actual Count (or system balance if none was entered) becomes the new,
+                locked Opening Balance. This period's Purchases/In and Sales &amp; Waste/Out counters reset to zero.
+                Current physical stock is unaffected — only the reporting period resets.
+              </p>
+              <p className="text-sm font-semibold text-[oklch(0.58_0.22_25)]">This cannot be undone.</p>
+            </div>
+            <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+              <button onClick={() => setRolloverConfirmOpen(false)} disabled={rolloverRunning} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+              <button
+                onClick={() => void runRollover()}
+                disabled={rolloverRunning}
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85)] text-black font-bold disabled:opacity-40"
+              >
+                {rolloverRunning ? "Rolling over..." : "Confirm Rollover"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="relative mb-4">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -474,83 +525,36 @@ function StockTable() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
-                <th className="text-left py-2 px-2">Item</th>
-                <th className="text-left py-2 px-2">Unit</th>
-                <th className="text-right py-2 px-2">Unit Cost</th>
-                <th className="text-right py-2 px-2">Remaining</th>
-                <th className="text-right py-2 px-2">Used Since Restock</th>
+                <th className="text-left py-2 px-2">Item<br /><span dir="rtl" className="normal-case font-normal opacity-70">الصنف</span></th>
+                <th className="text-left py-2 px-2">Category<br /><span dir="rtl" className="normal-case font-normal opacity-70">الفئة</span></th>
+                <th className="text-right py-2 px-2">Opening Balance<br /><span dir="rtl" className="normal-case font-normal opacity-70">رصيد بداية الفترة</span></th>
+                <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">الرصيد الفعلي</span></th>
+                <th className="text-right py-2 px-2">Min<br /><span dir="rtl" className="normal-case font-normal opacity-70">الحد الأدنى</span></th>
+                <th className="text-center py-2 px-2">Status<br /><span dir="rtl" className="normal-case font-normal opacity-70">الحالة</span></th>
+                <th className="text-right py-2 px-2">Last Purchase Cost<br /><span dir="rtl" className="normal-case font-normal opacity-70">تكلفة آخر شراء</span></th>
                 <th className="text-right py-2 px-2">Stock Value</th>
-                <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">المخزون الفعلي</span></th>
-                <th className="text-right py-2 px-2">Min</th>
-                <th className="py-2 px-2"></th>
+                <th className="text-left py-2 px-2">Location<br /><span dir="rtl" className="normal-case font-normal opacity-70">مكان التخزين</span></th>
+                <th className="py-2 px-2">Actions<br /><span dir="rtl" className="normal-case font-normal opacity-70">إجراءات</span></th>
               </tr>
             </thead>
             <tbody>
               {filteredStock.map((s) => {
                 const low = s.remaining < s.minStock || (s.initialStock > 0 && s.remaining < s.initialStock * 0.2);
+                const displayQty = s.actualStock !== null ? s.actualStock : s.systemBalance;
+                const status = displayQty <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.58_0.22_25)" }
+                  : displayQty < s.minStock ? { label: "قليل", labelEn: "Low", color: "oklch(0.82_0.16_85)" }
+                  : { label: "متوفر", labelEn: "Available", color: "oklch(0.78_0.2_155)" };
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">
-                      {editingUnitId === s.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            autoFocus value={unitInput}
-                            onChange={(e) => setUnitInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && unitInput.trim()) { void updateRawMaterial(s.id, { unit: unitInput.trim() }); setEditingUnitId(null); }
-                              if (e.key === "Escape") setEditingUnitId(null);
-                            }}
-                            className="w-16 bg-white/70 border border-black/10 rounded px-2 py-1 text-xs"
-                          />
-                          <button
-                            onClick={() => { if (unitInput.trim()) { void updateRawMaterial(s.id, { unit: unitInput.trim() }); setEditingUnitId(null); } }}
-                            className="text-[oklch(0.62_0.16_155)]"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setEditingUnitId(s.id); setUnitInput(s.unit); }}
-                          className="hover:underline decoration-dotted"
-                          title="Changing this only relabels the unit — existing recorded quantities are not converted"
-                        >
-                          {s.unit}
-                        </button>
-                      )}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono">
-                      {editingCostId === s.id ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <input
-                            autoFocus type="number" step="0.01" value={costInput}
-                            onChange={(e) => setCostInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") { void updateRawMaterial(s.id, { unitCost: parseFloat(costInput) || 0 }); setEditingCostId(null); }
-                              if (e.key === "Escape") setEditingCostId(null);
-                            }}
-                            className="w-20 bg-white/70 border border-black/10 rounded px-2 py-1 text-xs text-right"
-                          />
-                          <button onClick={() => { void updateRawMaterial(s.id, { unitCost: parseFloat(costInput) || 0 }); setEditingCostId(null); }} className="text-[oklch(0.78_0.2_155)]"><Check className="w-3.5 h-3.5" /></button>
-                        </div>
-                      ) : (
-                        <button onClick={() => { setEditingCostId(s.id); setCostInput(String(s.unitCost)); }} className="hover:underline decoration-dotted">
-                          {fmtMoney(s.unitCost)}
-                        </button>
-                      )}
-                    </td>
-                    <td className={`py-2 px-2 text-right font-mono font-bold ${low ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                      {s.remaining} {low && "⚠"}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.usedSinceRestock}</td>
-                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.totalValue)}</td>
+                    <td className="py-2 px-2 text-muted-foreground">{s.category || "—"}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock} {s.unit}</td>
                     <td className="py-2 px-2 text-right">
                       <button
                         onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
                         className="font-mono hover:underline decoration-dotted"
                       >
-                        {s.actualStock !== null ? `${s.actualStock} ${s.unit}` : <span className="text-muted-foreground">— set —</span>}
+                        {displayQty} {s.unit}
                       </button>
                       {s.variance !== null && s.variance !== 0 && (
                         <div className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${s.variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
@@ -558,7 +562,19 @@ function StockTable() {
                         </div>
                       )}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock} {s.unit}</td>
+                    <td className="py-2 px-2 text-center">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border"
+                        style={{ color: status.color, borderColor: status.color, backgroundColor: `color-mix(in oklch, ${status.color} 15%, transparent)` }}
+                        title={status.labelEn}
+                      >
+                        {status.label}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.lastPurchaseCost)}</td>
+                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(displayQty * s.lastPurchaseCost)}</td>
+                    <td className="py-2 px-2 text-muted-foreground">{s.storageLocation || "—"}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining })}
@@ -575,16 +591,16 @@ function StockTable() {
                         <History className="w-3.5 h-3.5 inline" />
                       </button>
                       <button
-                        onClick={() => setAdjustTarget({ id: s.id, name: s.name, unit: s.unit })}
+                        onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/8 text-muted-foreground hover:text-[#2b2416] mr-1.5"
-                        title="Waste / Correction / Opening Balance"
+                        title="Record a physical count (الجرد الفعلي)"
                       >
-                        Adjust
+                        Count
                       </button>
                       <button
                         onClick={() => setWasteInvoiceTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, remaining: s.remaining })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.58_0.22_25/0.15)] border border-[oklch(0.58_0.22_25/0.4)] text-[oklch(0.58_0.22_25)] hover:bg-[oklch(0.58_0.22_25/0.25)] mr-1.5"
-                        title="Waste Invoice — Spill, Expired, or Training"
+                        title="Waste Invoice — Spill, Expired, Training, or Preparation Error"
                       >
                         <AlertOctagon className="w-3.5 h-3.5 inline mr-1" />Waste Invoice
                       </button>
@@ -603,9 +619,6 @@ function StockTable() {
         </div>
       )}
 
-      {adjustTarget && (
-        <AdjustStockModal target={adjustTarget} adjustStock={adjustStock} onClose={() => setAdjustTarget(null)} />
-      )}
       {restockTarget && (
         <RestockModal target={restockTarget} currentRemaining={state.stock.find((s) => s.id === restockTarget.id)?.remaining ?? 0} restockMaterial={restockMaterial} onClose={() => setRestockTarget(null)} />
       )}

@@ -45,6 +45,9 @@ addColumnIfMissing_("Sessions", "timeDiscountLabel", "TEXT");
 addColumnIfMissing_("Sessions", "ordersDiscountAmount", "REAL");
 addColumnIfMissing_("Sessions", "ordersDiscountLabel", "TEXT");
 addColumnIfMissing_("RawMaterials", "openingStock", "REAL");
+addColumnIfMissing_("RawMaterials", "category", "TEXT");
+addColumnIfMissing_("RawMaterials", "storageLocation", "TEXT");
+addColumnIfMissing_("RawMaterials", "lastPurchaseCost", "REAL");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",

@@ -115,6 +115,7 @@ function computeStockView_(materials, batches) {
       variance: actualStock === null ? null : Math.round((actualStock - remaining) * 100) / 100,
       openingStock, purchasesIn, salesWasteOut, systemBalance: remaining,
       actualCountValue: actualStock === null ? null : Math.round(actualStock * unitCost * 100) / 100,
+      category: m.category || "", storageLocation: m.storageLocation || "", lastPurchaseCost: Number(m.lastPurchaseCost) || unitCost,
     };
   });
 }
