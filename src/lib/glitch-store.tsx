@@ -168,7 +168,7 @@ interface StoreContextValue {
   wasteInvoices: WasteInvoice[];
   refreshWasteInvoices: () => Promise<void>;
   importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
-  updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<void>;
+  updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<{ ok: boolean; error?: string }>;
   deleteRawMaterial: (id: string) => Promise<void>;
   addSupplier: (s: { name: string; contact: string; category: string }) => Promise<void>;
   updateSupplier: (id: string, patch: Partial<Supplier>) => Promise<void>;
@@ -667,22 +667,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const res = await updateRawMaterialFn({ data: { id, patch } });
       if (res.ok) {
         setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-        // StockTable (Inventory page) renders from appState.stock — the
-        // COMPUTED view — not from `materials`, so without this patch the
-        // edit would silently appear to do nothing there until some other
-        // action happened to force a full state refresh.
-        setAppState((prev) => ({
-          ...prev,
-          stock: prev.stock.map((s) => {
-            if (s.id !== id) return s;
-            const next = { ...s };
-            if (patch.unit !== undefined) next.unit = patch.unit;
-            if (patch.unitCost !== undefined) next.unitCost = patch.unitCost;
-            if (patch.minStockAlert !== undefined) next.minStock = patch.minStockAlert;
-            return next;
-          }),
-        }));
+        // The server is now the authority on stock after an edit — an
+        // Opening Stock change moves real inventory (new batch or FIFO
+        // consumption), which the client has no safe way to recompute
+        // itself. Use exactly what comes back instead of hand-patching
+        // individual computed fields.
+        if (res.state) setAppState(res.state);
       }
+      return { ok: res.ok, error: res.error };
     });
   };
   const deleteRawMaterial: StoreContextValue["deleteRawMaterial"] = async (id) => {

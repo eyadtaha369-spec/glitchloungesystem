@@ -418,7 +418,7 @@ function StockTable() {
   const { state, adjustStock, setAbsoluteStock, updateRawMaterial, setActualStock, rolloverInventory } = useStore();
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
-  const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string; lastPurchaseCost: number } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string; lastPurchaseCost: number; openingStock: number } | null>(null);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [unitInput, setUnitInput] = useState("");
@@ -579,7 +579,7 @@ function StockTable() {
                     <td className="py-2 px-2 text-muted-foreground">{s.storageLocation || "—"}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
-                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost })}
+                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.72_0.14_85/0.15)] border border-[oklch(0.72_0.14_85/0.4)] text-[oklch(0.72_0.14_85)] hover:bg-[oklch(0.72_0.14_85/0.25)] mr-1.5"
                         title="Edit this entry"
                       >
@@ -620,7 +620,7 @@ function StockTable() {
 }
 
 function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClose }: {
-  target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string; lastPurchaseCost: number };
+  target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string; lastPurchaseCost: number; openingStock: number };
   updateRawMaterial: ReturnType<typeof useStore>["updateRawMaterial"];
   setAbsoluteStock: ReturnType<typeof useStore>["setAbsoluteStock"];
   onClose: () => void;
@@ -633,6 +633,7 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
   const [category, setCategory] = useState(target.category);
   const [storageLocation, setStorageLocation] = useState(target.storageLocation);
   const [lastPurchaseCost, setLastPurchaseCost] = useState(String(target.lastPurchaseCost));
+  const [openingStock, setOpeningStock] = useState(String(target.openingStock));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -660,9 +661,11 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
       if (category.trim() !== target.category) patch.category = category.trim();
       if (storageLocation.trim() !== target.storageLocation) patch.storageLocation = storageLocation.trim();
       if ((parseFloat(lastPurchaseCost) || 0) !== target.lastPurchaseCost) patch.lastPurchaseCost = parseFloat(lastPurchaseCost) || 0;
+      if ((parseFloat(openingStock) || 0) !== target.openingStock) patch.openingStock = parseFloat(openingStock) || 0;
 
       if (Object.keys(patch).length > 0) {
-        await updateRawMaterial(target.id, patch);
+        const patchRes = await updateRawMaterial(target.id, patch);
+        if (!patchRes.ok) { setErr(patchRes.error ?? "Update failed"); return; }
       }
       // Always call this when the quantity field was touched, even if it
       // happens to match the stale preview — the server decides the real
@@ -690,6 +693,11 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
             <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Opening Balance (رصيد بداية الفترة)</label>
+              <input type="number" step="0.01" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              <p className="text-[10px] text-muted-foreground mt-1">Changing this moves real stock by the same amount — it's not just a label.</p>
+            </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Current Stock Quantity</label>
               <input type="number" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />

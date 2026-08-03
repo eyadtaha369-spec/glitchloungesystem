@@ -21,6 +21,7 @@ const { login_, roleForUsername_, requireRole_, getAccounts_, addAccount_, updat
 const {
   getState_, setState_, withStockView_,
   readSessions_, appendSessionRow_, readShifts_, readBusinessDays_,
+  consumeFifo_, writeBatchesBack_,
 } = require("./lib/state");
 const {
   bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_,
@@ -416,14 +417,41 @@ Object.assign(handlers, {
   updateRawMaterial(body) {
     requireRole_(body.username, ["admin"]);
     const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
-    // Opening Stock is locked from editing, permanently, once set at
-    // creation — enforced HERE, server-side, not just hidden in the UI,
-    // so it can't be bypassed by a direct API call either.
     const patch = Object.assign({}, body.patch);
-    delete patch.openingStock;
+
+    // Opening Stock is now editable, but it's not just a label — it's
+    // tied to real batches, and Purchases/In is DERIVED as
+    // (initialStock - openingStock). Changing the number alone without
+    // touching actual stock would silently break "System Balance =
+    // Opening + Purchases - Out". So: apply the delta as a REAL stock
+    // change (new batch if increasing, FIFO consumption if decreasing)
+    // — same mechanism as a manual stock correction — so the physical
+    // count and the ledger math move together, consistently.
+    if (before && typeof patch.openingStock === "number" && patch.openingStock !== before.openingStock) {
+      const newOpening = Number(patch.openingStock);
+      const delta = Math.round((newOpening - Number(before.openingStock || 0)) * 1e6) / 1e6;
+      if (delta !== 0) {
+        const batches = readObjects_("Batches");
+        if (delta > 0) {
+          appendObject_("Batches", {
+            id: newId_("batch"), materialId: body.id, supplierId: null,
+            qtyPurchased: delta, qtyRemaining: delta, unitCost: before.unitCost,
+            purchasedAt: Date.now(), source: "openingStock",
+          });
+        } else {
+          const remaining = batches.filter((b) => b.materialId === body.id).reduce((a, b) => a + Number(b.qtyRemaining), 0);
+          if (Math.abs(delta) > remaining + 1e-9) {
+            return { ok: false, error: `Can't lower Opening Balance by that much — only ${remaining} ${before.unit} of actual stock exists to remove.` };
+          }
+          const res = consumeFifo_(batches, body.id, Math.abs(delta));
+          writeBatchesBack_(batches, res.touched);
+        }
+      }
+    }
+
     const ok = updateObjectById_("RawMaterials", body.id, patch);
     if (ok) logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT", description: "Edited raw material '" + (before ? before.name : body.id) + "'", before, after: Object.assign({}, before, patch) });
-    return { ok };
+    return { ok, state: withStockView_(getState_()) };
   },
   deleteRawMaterial(body) {
     requireRole_(body.username, ["admin"]);

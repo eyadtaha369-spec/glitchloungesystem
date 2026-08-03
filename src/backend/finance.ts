@@ -83,7 +83,7 @@ export const updateRawMaterialFn = createServerFn({ method: "POST" })
   .validator((d: { id: string; patch: Partial<RawMaterial> }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    return callAppsScript<{ ok: boolean }>("updateRawMaterial", { ...data, username: user.username });
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("updateRawMaterial", { ...data, username: user.username });
   });
 export const deleteRawMaterialFn = createServerFn({ method: "POST" })
   .validator((d: { id: string }) => d)
