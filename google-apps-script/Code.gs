@@ -1579,7 +1579,7 @@ function computeStockView_(materials, batches) {
       unit: m.unit,
       initialStock: initialStock,
       used: initialStock - remaining,
-      minStock: m.minStockAlert,
+      minStock: Number(m.minStockAlert) || 0,
       unitCost: unitCost,
       remaining: remaining,
       totalValue: Math.round(remaining * unitCost * 100) / 100,
@@ -2307,10 +2307,10 @@ function doPost(e) {
 
       case "addRawMaterial": {
         requireRole_(body.username, ["admin"]);
-        const openingStock = Number(body.openingStock) || 0;
+        const openingStock = parseFloat(body.openingStock) || 0;
         const item = {
-          id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock: openingStock,
-          category: body.category || "", storageLocation: body.storageLocation || "", lastPurchaseCost: Number(body.unitCost) || 0,
+          id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: parseFloat(body.minStockAlert) || 0, unitCost: parseFloat(body.unitCost) || 0, openingStock: openingStock,
+          category: body.category || "", storageLocation: body.storageLocation || "", lastPurchaseCost: parseFloat(body.unitCost) || 0,
         };
         appendObject_("RawMaterials", item);
         // Opening Stock needs to be REAL, trackable inventory — one
@@ -2332,6 +2332,15 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
         const patch = Object.assign({}, body.patch);
+        // Normalize numeric fields at write time — strips trailing text
+        // like "10kg" down to 10 via parseFloat, rather than storing a
+        // bad string (or silently becoming 0 via Number()).
+        ["minStockAlert", "unitCost", "lastPurchaseCost"].forEach(function (field) {
+          if (patch[field] !== undefined) {
+            const n = parseFloat(patch[field]);
+            if (!isNaN(n)) patch[field] = n;
+          }
+        });
 
         // Opening Stock is now editable, but it's tied to real batches —
         // Purchases/In is DERIVED as (initialStock - openingStock).
@@ -2341,11 +2350,12 @@ function doPost(e) {
         // increasing, FIFO consumption if decreasing), same mechanism as
         // a manual stock correction, so the physical count and the
         // ledger math move together.
-        if (before && typeof patch.openingStock === "number" && patch.openingStock !== before.openingStock) {
+        if (before && patch.openingStock !== undefined && patch.openingStock !== null && patch.openingStock !== "") {
+          const newOpening = parseFloat(patch.openingStock);
+          if (!isNaN(newOpening) && newOpening !== Number(before.openingStock || 0)) {
           const lock = LockService.getScriptLock();
           lock.waitLock(30000);
           try {
-            const newOpening = Number(patch.openingStock);
             const delta = Math.round((newOpening - Number(before.openingStock || 0)) * 1e6) / 1e6;
             if (delta !== 0) {
               const batches = readObjects_("Batches");
@@ -2364,8 +2374,10 @@ function doPost(e) {
                 writeBatchesBack_(batches, res.touched);
               }
             }
+            patch.openingStock = newOpening;
           } finally {
             lock.releaseLock();
+          }
           }
         }
 

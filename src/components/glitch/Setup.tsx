@@ -408,10 +408,10 @@ function MaterialsPanel() {
         <div className="mb-4 p-4 rounded-lg bg-white/60 border border-black/8 grid grid-cols-1 md:grid-cols-4 gap-2">
           <input placeholder="Name (e.g. Coffee Beans)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="md:col-span-2 bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
           <input placeholder="Unit (e.g. g, kg, ml, L, pcs, box, علبة...)" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
-          <input type="number" placeholder="Min stock alert" value={form.minStockAlert} onChange={(e) => setForm({ ...form, minStockAlert: +e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
-          <input type="number" step="0.01" placeholder="Unit cost (EGP)" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: +e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+          <input type="number" placeholder="Min stock alert" value={form.minStockAlert} onChange={(e) => setForm({ ...form, minStockAlert: parseFloat(e.target.value) || 0 })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+          <input type="number" step="0.01" placeholder="Unit cost (EGP)" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: parseFloat(e.target.value) || 0 })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
           <div>
-            <input type="number" step="0.01" placeholder="Opening stock (رصيد بداية الفترة)" value={form.openingStock} onChange={(e) => setForm({ ...form, openingStock: +e.target.value })} className="w-full bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+            <input type="number" step="0.01" placeholder="Opening stock (رصيد بداية الفترة)" value={form.openingStock} onChange={(e) => setForm({ ...form, openingStock: parseFloat(e.target.value) || 0 })} className="w-full bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
             <p className="text-[10px] text-muted-foreground mt-1">One-time only — locked from editing once saved.</p>
           </div>
           <input placeholder="Category (الفئة)" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
@@ -440,7 +440,7 @@ function MaterialsPanel() {
                   <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
                   <div className="grid grid-cols-2 gap-2">
                     <input value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })} className="bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10" />
-                    <input type="number" value={editForm.minStockAlert} onChange={(e) => setEditForm({ ...editForm, minStockAlert: +e.target.value })} className="bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10" />
+                    <input type="number" value={editForm.minStockAlert} onChange={(e) => setEditForm({ ...editForm, minStockAlert: parseFloat(e.target.value) || 0 })} className="bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10" />
                   </div>
                   <div className="flex gap-2">
                     <button onClick={async () => { await updateRawMaterial(m.id, editForm); setEditingId(null); }} className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"><Save className="w-3 h-3" /> Save</button>

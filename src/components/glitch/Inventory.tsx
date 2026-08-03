@@ -538,7 +538,6 @@ function StockTable() {
             </thead>
             <tbody>
               {filteredStock.map((s) => {
-                const low = s.remaining < s.minStock || (s.initialStock > 0 && s.remaining < s.initialStock * 0.2);
                 const displayQty = s.actualStock !== null ? s.actualStock : s.systemBalance;
                 const status = displayQty <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.58_0.22_25)" }
                   : displayQty < s.minStock ? { label: "قليل", labelEn: "Low", color: "oklch(0.82_0.16_85)" }
@@ -547,7 +546,7 @@ function StockTable() {
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
                     <td className="py-2 px-2">
-                      <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 text-muted-foreground">{s.unit}</span>
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.72_0.14_85/0.5)] text-[#2b2416]">{s.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-muted-foreground">{s.category || "—"}</td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
@@ -558,11 +557,6 @@ function StockTable() {
                       >
                         {displayQty}
                       </button>
-                      {s.variance !== null && s.variance !== 0 && (
-                        <div className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${s.variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
-                          {s.variance < 0 ? `${Math.abs(s.variance)} Deficit عجز` : `+${s.variance} Surplus`}
-                        </div>
-                      )}
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
                     <td className="py-2 px-2 text-center">

@@ -108,7 +108,7 @@ function computeStockView_(materials, batches) {
     const salesWasteOut = initialStock - remaining;
     return {
       id: m.id, name: m.name, unit: m.unit, initialStock, used: initialStock - remaining,
-      minStock: m.minStockAlert, unitCost, remaining, totalValue: Math.round(remaining * unitCost * 100) / 100,
+      minStock: Number(m.minStockAlert) || 0, unitCost, remaining, totalValue: Math.round(remaining * unitCost * 100) / 100,
       usedSinceRestock: newest ? Number(newest.qtyPurchased) - Number(newest.qtyRemaining) : 0,
       lastRestockAt: newest ? Number(newest.purchasedAt) : null,
       actualStock, actualStockUpdatedAt: m.actualStockUpdatedAt || null, actualStockUpdatedBy: m.actualStockUpdatedBy || null,

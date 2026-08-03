@@ -393,10 +393,10 @@ Object.assign(handlers, {
   },
   addRawMaterial(body) {
     requireRole_(body.username, ["admin"]);
-    const openingStock = Number(body.openingStock) || 0;
+    const openingStock = parseFloat(body.openingStock) || 0;
     const item = {
-      id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: body.minStockAlert || 0, unitCost: Number(body.unitCost) || 0, openingStock,
-      category: body.category || "", storageLocation: body.storageLocation || "", lastPurchaseCost: Number(body.unitCost) || 0,
+      id: newId_("mat"), name: body.name, unit: body.unit, minStockAlert: parseFloat(body.minStockAlert) || 0, unitCost: parseFloat(body.unitCost) || 0, openingStock,
+      category: body.category || "", storageLocation: body.storageLocation || "", lastPurchaseCost: parseFloat(body.unitCost) || 0,
     };
     appendObject_("RawMaterials", item);
     // Opening Stock is a permanent historical fact, but it also needs to
@@ -418,6 +418,16 @@ Object.assign(handlers, {
     requireRole_(body.username, ["admin"]);
     const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
     const patch = Object.assign({}, body.patch);
+    // Normalize numeric fields at write time — strips trailing text like
+    // "10kg" down to 10 via parseFloat, rather than storing a bad string
+    // (or silently becoming 0 via Number()) that would need a read-time
+    // safety net to compensate for later.
+    ["minStockAlert", "unitCost", "lastPurchaseCost"].forEach((field) => {
+      if (patch[field] !== undefined) {
+        const n = parseFloat(patch[field]);
+        if (!isNaN(n)) patch[field] = n;
+      }
+    });
 
     // Opening Stock is now editable, but it's not just a label — it's
     // tied to real batches, and Purchases/In is DERIVED as
@@ -427,8 +437,9 @@ Object.assign(handlers, {
     // change (new batch if increasing, FIFO consumption if decreasing)
     // — same mechanism as a manual stock correction — so the physical
     // count and the ledger math move together, consistently.
-    if (before && typeof patch.openingStock === "number" && patch.openingStock !== before.openingStock) {
-      const newOpening = Number(patch.openingStock);
+    if (before && patch.openingStock !== undefined && patch.openingStock !== null && patch.openingStock !== "") {
+      const newOpening = parseFloat(patch.openingStock);
+      if (!isNaN(newOpening) && newOpening !== Number(before.openingStock || 0)) {
       const delta = Math.round((newOpening - Number(before.openingStock || 0)) * 1e6) / 1e6;
       if (delta !== 0) {
         const batches = readObjects_("Batches");
@@ -446,6 +457,8 @@ Object.assign(handlers, {
           const res = consumeFifo_(batches, body.id, Math.abs(delta));
           writeBatchesBack_(batches, res.touched);
         }
+      }
+      patch.openingStock = newOpening;
       }
     }
 
