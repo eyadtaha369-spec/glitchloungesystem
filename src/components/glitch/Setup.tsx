@@ -407,10 +407,7 @@ function MaterialsPanel() {
       {showAdd && (
         <div className="mb-4 p-4 rounded-lg bg-white/60 border border-black/8 grid grid-cols-1 md:grid-cols-4 gap-2">
           <input placeholder="Name (e.g. Coffee Beans)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="md:col-span-2 bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
-          <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10">
-            <option value="kg">kg</option><option value="g">g</option><option value="L">Liters</option>
-            <option value="ml">ml</option><option value="pcs">Pieces</option>
-          </select>
+          <input placeholder="Unit (e.g. g, kg, ml, L, pcs, box, علبة...)" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
           <input type="number" placeholder="Min stock alert" value={form.minStockAlert} onChange={(e) => setForm({ ...form, minStockAlert: +e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
           <input type="number" step="0.01" placeholder="Unit cost (EGP)" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: +e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
           <div>

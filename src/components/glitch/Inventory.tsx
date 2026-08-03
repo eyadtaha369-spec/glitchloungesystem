@@ -418,7 +418,7 @@ function StockTable() {
   const { state, adjustStock, setAbsoluteStock, updateRawMaterial, setActualStock, rolloverInventory } = useStore();
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
-  const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string } | null>(null);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [unitInput, setUnitInput] = useState("");
@@ -575,7 +575,7 @@ function StockTable() {
                     <td className="py-2 px-2 text-muted-foreground">{s.storageLocation || "—"}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
-                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining })}
+                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.72_0.14_85/0.15)] border border-[oklch(0.72_0.14_85/0.4)] text-[oklch(0.72_0.14_85)] hover:bg-[oklch(0.72_0.14_85/0.25)] mr-1.5"
                         title="Edit this entry"
                       >
@@ -616,7 +616,7 @@ function StockTable() {
 }
 
 function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClose }: {
-  target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number };
+  target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string };
   updateRawMaterial: ReturnType<typeof useStore>["updateRawMaterial"];
   setAbsoluteStock: ReturnType<typeof useStore>["setAbsoluteStock"];
   onClose: () => void;
@@ -626,6 +626,8 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
   const [unitCost, setUnitCost] = useState(String(target.unitCost));
   const [minStock, setMinStock] = useState(String(target.minStock));
   const [quantity, setQuantity] = useState(String(target.remaining));
+  const [category, setCategory] = useState(target.category);
+  const [storageLocation, setStorageLocation] = useState(target.storageLocation);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -650,6 +652,8 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
       if (unit.trim() !== target.unit) patch.unit = unit.trim();
       if ((parseFloat(unitCost) || 0) !== target.unitCost) patch.unitCost = parseFloat(unitCost) || 0;
       if ((parseFloat(minStock) || 0) !== target.minStock) patch.minStockAlert = parseFloat(minStock) || 0;
+      if (category.trim() !== target.category) patch.category = category.trim();
+      if (storageLocation.trim() !== target.storageLocation) patch.storageLocation = storageLocation.trim();
 
       if (Object.keys(patch).length > 0) {
         await updateRawMaterial(target.id, patch);
@@ -686,7 +690,7 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit of Measurement</label>
-              <input value={unit} onChange={(e) => setUnit(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g. g, kg, ml, L, pcs, box, علبة..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost</label>
@@ -695,6 +699,14 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Min Alert Threshold</label>
               <input type="number" step="0.01" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Category (الفئة)</label>
+              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Beverages, Dairy..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Storage Location (مكان التخزين)</label>
+              <input value={storageLocation} onChange={(e) => setStorageLocation(e.target.value)} placeholder="e.g. Shelf A2, Fridge 1..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
 
