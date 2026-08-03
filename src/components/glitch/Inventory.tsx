@@ -524,6 +524,7 @@ function StockTable() {
             <thead>
               <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Item<br /><span dir="rtl" className="normal-case font-normal opacity-70">الصنف</span></th>
+                <th className="text-left py-2 px-2">Unit<br /><span dir="rtl" className="normal-case font-normal opacity-70">الوحدة</span></th>
                 <th className="text-left py-2 px-2">Category<br /><span dir="rtl" className="normal-case font-normal opacity-70">الفئة</span></th>
                 <th className="text-right py-2 px-2">Opening Balance<br /><span dir="rtl" className="normal-case font-normal opacity-70">رصيد بداية الفترة</span></th>
                 <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">الرصيد الفعلي</span></th>
@@ -545,14 +546,17 @@ function StockTable() {
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
+                    <td className="py-2 px-2">
+                      <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 text-muted-foreground">{s.unit}</span>
+                    </td>
                     <td className="py-2 px-2 text-muted-foreground">{s.category || "—"}</td>
-                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock} {s.unit}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
                     <td className="py-2 px-2 text-right">
                       <button
                         onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
                         className="font-mono hover:underline decoration-dotted"
                       >
-                        {displayQty} {s.unit}
+                        {displayQty}
                       </button>
                       {s.variance !== null && s.variance !== 0 && (
                         <div className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${s.variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
@@ -560,7 +564,7 @@ function StockTable() {
                         </div>
                       )}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock} {s.unit}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
                     <td className="py-2 px-2 text-center">
                       <span
                         className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border"
