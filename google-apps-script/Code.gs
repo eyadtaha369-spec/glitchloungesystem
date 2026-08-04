@@ -1235,6 +1235,12 @@ function resetForProduction_(username, password) {
 function bizRolloverInventory_(username) {
   const materials = readObjects_("RawMaterials");
   const batches = readObjects_("Batches");
+
+  const missing = materials.filter(function (m) { return m.actualStock === null || m.actualStock === undefined || m.actualStock === ""; });
+  if (missing.length > 0) {
+    return { ok: false, error: "Enter Actual Stock for all materials before confirming the audit — missing: " + missing.map(function (m) { return m.name; }).join(", ") };
+  }
+
   const now = Date.now();
   const monthDate = new Date(now);
   const monthLabel = monthDate.getFullYear() + "-" + String(monthDate.getMonth() + 1).padStart(2, "0");
@@ -2148,6 +2154,7 @@ function doPost(e) {
       case "rolloverInventory": {
         requireRole_(body.username, ["admin"]);
         const rolloverResult = bizRolloverInventory_(body.username);
+        if (!rolloverResult.ok) return json_({ ok: false, error: rolloverResult.error });
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
           description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) for " + rolloverResult.month + " — archived a snapshot and set Opening Stock to the current count for all " + rolloverResult.count + " material(s), resetting this period's Purchases/Out counters to zero.",

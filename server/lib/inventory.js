@@ -69,6 +69,16 @@ function bizSubmitWasteInvoice_(materialId, wastedQty, reason, note, username, s
 function bizRolloverInventory_(username) {
   const materials = readObjects_("RawMaterials");
   const batches = readObjects_("Batches");
+
+  // Require a real physical count for every material before allowing
+  // the period to close — otherwise the "new Opening Balance" for
+  // whatever's missing would silently fall back to the system's own
+  // calculated number, defeating the entire point of a physical audit.
+  const missing = materials.filter((m) => m.actualStock === null || m.actualStock === undefined || m.actualStock === "");
+  if (missing.length > 0) {
+    return { ok: false, error: "Enter Actual Stock for all materials before confirming the audit — missing: " + missing.map((m) => m.name).join(", ") };
+  }
+
   const now = Date.now();
   const monthLabel = (function () {
     const d = new Date(now);

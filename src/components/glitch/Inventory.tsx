@@ -556,11 +556,14 @@ function StockTable() {
   const filteredStock = state.stock.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()));
   const [rolloverConfirmOpen, setRolloverConfirmOpen] = useState(false);
   const [rolloverRunning, setRolloverRunning] = useState(false);
+  const [rolloverErr, setRolloverErr] = useState<string | null>(null);
 
   const runRollover = async () => {
     setRolloverRunning(true);
+    setRolloverErr(null);
     try {
-      await rolloverInventory();
+      const res = await rolloverInventory();
+      if (!res.ok) { setRolloverErr(res.error ?? "Rollover failed"); return; }
       setRolloverConfirmOpen(false);
     } finally {
       setRolloverRunning(false);
@@ -580,9 +583,9 @@ function StockTable() {
           <button
             onClick={() => setRolloverConfirmOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] text-xs font-bold uppercase tracking-wide hover:bg-[oklch(0.82_0.16_85/0.25)]"
-            title="اعتماد كبداية شهر جديد"
+            title="اعتماد الجرد وبداية فترة جديدة"
           >
-            <RotateCcw className="w-3.5 h-3.5" /> اعتماد كبداية شهر جديد
+            <RotateCcw className="w-3.5 h-3.5" /> اعتماد الجرد وبداية فترة جديدة
           </button>
           <div className="text-right">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">قيمة المخزون (Total Stock Value)</div>
@@ -595,13 +598,15 @@ function StockTable() {
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !rolloverRunning && setRolloverConfirmOpen(false)}>
           <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.6)]" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 space-y-3">
-              <h3 className="text-lg font-bold text-[oklch(0.82_0.16_85)]">اعتماد كبداية شهر جديد</h3>
+              <h3 className="text-lg font-bold text-[oklch(0.82_0.16_85)]">اعتماد الجرد وبداية فترة جديدة</h3>
               <p className="text-sm text-muted-foreground">
-                For every material: the current Actual Count (or system balance if none was entered) becomes the new,
-                locked Opening Balance. This period's Purchases/In and Sales &amp; Waste/Out counters reset to zero.
-                Current physical stock is unaffected — only the reporting period resets.
+                Requires a real physical count (Actual Stock) entered for every single material first — this won't
+                proceed until all of them are filled in. For each one, that count becomes the new, locked Opening
+                Balance. This period's full audit (Opening, Remaining, Actual, Variance) is permanently archived
+                before anything resets, and Purchases/Out counters return to zero for the new period.
               </p>
               <p className="text-sm font-semibold text-[oklch(0.58_0.22_25)]">This cannot be undone.</p>
+              {rolloverErr && <p className="text-sm text-[oklch(0.58_0.22_25)] bg-[oklch(0.58_0.22_25/0.1)] rounded-lg p-3">{rolloverErr}</p>}
             </div>
             <div className="p-4 border-t border-black/8 flex justify-end gap-2">
               <button onClick={() => setRolloverConfirmOpen(false)} disabled={rolloverRunning} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
@@ -647,22 +652,30 @@ function StockTable() {
               <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                 <th className="text-left py-2 px-2">Item<br /><span dir="rtl" className="normal-case font-normal opacity-70">الصنف</span></th>
                 <th className="text-left py-2 px-2">Unit<br /><span dir="rtl" className="normal-case font-normal opacity-70">الوحدة</span></th>
-                <th className="text-left py-2 px-2">Category<br /><span dir="rtl" className="normal-case font-normal opacity-70">الفئة</span></th>
                 <th className="text-right py-2 px-2">Opening Balance<br /><span dir="rtl" className="normal-case font-normal opacity-70">رصيد بداية الفترة</span></th>
-                <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">الرصيد الفعلي</span></th>
+                <th className="text-right py-2 px-2">Remaining<br /><span dir="rtl" className="normal-case font-normal opacity-70">المتبقي الدفتري</span></th>
+                <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">الجرد الفعلي</span></th>
+                <th className="text-right py-2 px-2">Variance Qty<br /><span dir="rtl" className="normal-case font-normal opacity-70">عجز/زيادة كمية</span></th>
+                <th className="text-right py-2 px-2">Variance Value<br /><span dir="rtl" className="normal-case font-normal opacity-70">عجز/زيادة فلوس</span></th>
                 <th className="text-right py-2 px-2">Min<br /><span dir="rtl" className="normal-case font-normal opacity-70">الحد الأدنى</span></th>
                 <th className="text-center py-2 px-2">Status<br /><span dir="rtl" className="normal-case font-normal opacity-70">الحالة</span></th>
                 <th className="text-right py-2 px-2">Last Purchase Cost<br /><span dir="rtl" className="normal-case font-normal opacity-70">تكلفة آخر شراء</span></th>
-                <th className="text-right py-2 px-2">Stock Value</th>
-                <th className="text-left py-2 px-2">Location<br /><span dir="rtl" className="normal-case font-normal opacity-70">مكان التخزين</span></th>
+                <th className="text-right py-2 px-2">Stock Value<br /><span dir="rtl" className="normal-case font-normal opacity-70">قيمة المخزون</span></th>
                 <th className="py-2 px-2">Actions<br /><span dir="rtl" className="normal-case font-normal opacity-70">إجراءات</span></th>
               </tr>
             </thead>
             <tbody>
               {filteredStock.map((s) => {
-                const displayQty = s.actualStock !== null ? s.actualStock : s.systemBalance;
-                const status = displayQty <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.58_0.22_25)" }
-                  : displayQty < s.minStock ? { label: "قليل", labelEn: "Low", color: "oklch(0.82_0.16_85)" }
+                // Actual Stock is a PURE manual-entry field — it must
+                // never silently show the system's own calculated number
+                // as if it were a real physical count. Status and Stock
+                // Value both compare/derive from Remaining (the
+                // calculated figure), not from whatever's in Actual Stock.
+                const hasActualCount = s.actualStock !== null;
+                const varianceQty = hasActualCount ? Math.round((s.actualStock! - s.systemBalance) * 100) / 100 : null;
+                const varianceValue = varianceQty !== null ? Math.round(varianceQty * s.lastPurchaseCost * 100) / 100 : null;
+                const status = s.systemBalance <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.58_0.22_25)" }
+                  : s.systemBalance < s.minStock ? { label: "قليل", labelEn: "Low", color: "oklch(0.82_0.16_85)" }
                   : { label: "متوفر", labelEn: "Available", color: "oklch(0.78_0.2_155)" };
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
@@ -670,15 +683,21 @@ function StockTable() {
                     <td className="py-2 px-2">
                       <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.72_0.14_85/0.5)] text-[#2b2416]">{s.unit}</span>
                     </td>
-                    <td className="py-2 px-2 text-muted-foreground">{s.category || "—"}</td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
+                    <td className="py-2 px-2 text-right font-mono font-bold">{s.systemBalance}</td>
                     <td className="py-2 px-2 text-right">
                       <button
                         onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
                         className="font-mono hover:underline decoration-dotted"
                       >
-                        {displayQty}
+                        {hasActualCount ? s.actualStock : <span className="text-muted-foreground">— enter —</span>}
                       </button>
+                    </td>
+                    <td className={`py-2 px-2 text-right font-mono ${varianceQty === null ? "text-muted-foreground" : varianceQty < 0 ? "text-[oklch(0.58_0.22_25)]" : varianceQty > 0 ? "text-[oklch(0.62_0.16_155)]" : "text-muted-foreground"}`}>
+                      {varianceQty === null ? "—" : varianceQty > 0 ? `+${varianceQty}` : varianceQty}
+                    </td>
+                    <td className={`py-2 px-2 text-right font-mono ${varianceValue === null ? "text-muted-foreground" : varianceValue < 0 ? "text-[oklch(0.58_0.22_25)]" : varianceValue > 0 ? "text-[oklch(0.62_0.16_155)]" : "text-muted-foreground"}`}>
+                      {varianceValue === null ? "—" : varianceValue > 0 ? `+${fmtMoney(varianceValue)}` : fmtMoney(varianceValue)}
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
                     <td className="py-2 px-2 text-center">
@@ -691,8 +710,7 @@ function StockTable() {
                       </span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.lastPurchaseCost)}</td>
-                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(displayQty * s.lastPurchaseCost)}</td>
-                    <td className="py-2 px-2 text-muted-foreground">{s.storageLocation || "—"}</td>
+                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.systemBalance * s.lastPurchaseCost)}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}
