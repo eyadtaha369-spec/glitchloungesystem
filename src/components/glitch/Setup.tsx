@@ -421,26 +421,27 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !submitting && onClose()}>
-      <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto glass-strong rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.5)]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-black/8">
-          <h3 className="text-lg font-bold text-[oklch(0.7_0.19_260)]">Bulk Import Materials</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
-        </div>
+    <div className="fixed inset-0 z-[300] flex flex-col bg-[#f5f0e6]">
+      {/* Pinned header — never scrolls, always visible */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-black/10 bg-white/60 backdrop-blur-md shrink-0">
+        <h3 className="text-xl font-bold text-[oklch(0.7_0.19_260)]">Bulk Import Materials</h3>
+        <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416] p-1"><X className="w-5 h-5" /></button>
+      </div>
 
-        {result ? (
-          <div className="p-5 space-y-3">
-            <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Imported {result.added} material(s)</div>
-            {result.skipped.length > 0 && (
-              <div className="text-sm text-muted-foreground">
-                Skipped {result.skipped.length} already-existing material(s) by name: {result.skipped.join(", ")}
-              </div>
-            )}
-            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold">Done</button>
-          </div>
-        ) : (
-          <>
-            <div className="p-5 space-y-3">
+      {/* Only this middle section scrolls — header and footer stay put */}
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="max-w-3xl mx-auto">
+          {result ? (
+            <div className="space-y-3">
+              <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Imported {result.added} material(s)</div>
+              {result.skipped.length > 0 && (
+                <div className="text-sm text-muted-foreground">
+                  Skipped {result.skipped.length} already-existing material(s) by name: {result.skipped.join(", ")}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Paste directly from Excel — select your data (including these 5 columns, no header row) and paste
                 below. One material per line: <strong>Name, Unit, Opening Stock, Unit Cost, Min Stock Alert</strong>.
@@ -451,16 +452,16 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
                 value={raw}
                 onChange={(e) => setRaw(e.target.value)}
                 placeholder={"بلو كيراساو سولو\tكيلو\t1.35\t170\t1\nشيري سولو\tكيلو\t1.05\t170\t1"}
-                rows={8}
+                rows={10}
                 className="w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
                 dir="auto"
               />
               {parsedRows.length > 0 && (
                 <div>
                   <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1.5">Preview — {parsedRows.length} row(s)</div>
-                  <div className="max-h-48 overflow-y-auto rounded-lg border border-black/10">
+                  <div className="rounded-lg border border-black/10">
                     <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-white/90">
+                      <thead className="bg-white/90">
                         <tr className="text-left text-muted-foreground uppercase tracking-widest">
                           <th className="px-2 py-1.5">Name</th><th className="px-2 py-1.5">Unit</th>
                           <th className="px-2 py-1.5 text-right">Opening</th><th className="px-2 py-1.5 text-right">Cost</th>
@@ -484,18 +485,28 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
               )}
               {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
             </div>
-            <div className="p-4 border-t border-black/8 flex justify-end gap-2">
-              <button onClick={onClose} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          )}
+        </div>
+      </div>
+
+      {/* Pinned footer — always visible and reachable regardless of window size or content length */}
+      <div className="px-6 py-4 border-t border-black/10 bg-white/60 backdrop-blur-md shrink-0 flex justify-center">
+        <div className="w-full max-w-3xl flex justify-end gap-2">
+          {result ? (
+            <button onClick={onClose} className="px-5 py-2.5 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold">Done</button>
+          ) : (
+            <>
+              <button onClick={onClose} disabled={submitting} className="px-5 py-2.5 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
               <button
                 onClick={() => void submit()}
                 disabled={submitting || parsedRows.length === 0}
-                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-bold disabled:opacity-40"
+                className="px-5 py-2.5 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-bold disabled:opacity-40"
               >
                 {submitting ? "Importing..." : `Import ${parsedRows.length} Material(s)`}
               </button>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
