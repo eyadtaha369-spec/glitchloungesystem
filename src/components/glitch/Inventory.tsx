@@ -116,6 +116,7 @@ export function InventoryPage() {
       <InventoryResetPanel />
 
       {/* Recipes / Menu */}
+      <RecipeMatchCheck />
       <RecipeManager onAdd={addMenuItem} onUpdate={updateMenuItem} onDelete={deleteMenuItem} />
 
       {/* Today's sales */}
@@ -1081,6 +1082,70 @@ function MaterialHistoryModal({ target, onClose }: { target: { id: string; name:
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RecipeMatchCheck() {
+  const { state } = useStore();
+
+  // Directly answers "does the recipe match the stock inventory" —
+  // computed from data already loaded, no extra fetch needed. Two
+  // distinct failure modes: a menu item with NO recipe at all (selling
+  // it deducts nothing from stock, silently), and a recipe pointing at
+  // a stockId that no material currently has (a broken/stale link —
+  // can happen if a material was renamed via bulk import and the old
+  // one deleted, or never existed with that id to begin with).
+  const validStockIds = useMemo(() => new Set(state.stock.map((s) => s.id)), [state.stock]);
+  const { noRecipe, brokenLinks } = useMemo(() => {
+    const noRecipe: MenuItem[] = [];
+    const brokenLinks: { item: MenuItem; missingIds: string[] }[] = [];
+    state.menu.forEach((m) => {
+      if (!m.ingredients || m.ingredients.length === 0) { noRecipe.push(m); return; }
+      const missing = m.ingredients.filter((i) => !validStockIds.has(i.stockId)).map((i) => i.stockId);
+      if (missing.length > 0) brokenLinks.push({ item: m, missingIds: Array.from(new Set(missing)) });
+    });
+    return { noRecipe, brokenLinks };
+  }, [state.menu, validStockIds]);
+
+  const allGood = noRecipe.length === 0 && brokenLinks.length === 0;
+
+  return (
+    <div className={`glass rounded-2xl p-6 border-2 ${allGood ? "border-[oklch(0.62_0.16_155/0.4)]" : "border-[oklch(0.82_0.16_85/0.5)]"}`}>
+      <div className="flex items-center gap-2 mb-2">
+        {allGood ? <Check className="w-5 h-5 text-[oklch(0.62_0.16_155)]" /> : <AlertOctagon className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />}
+        <h2 className="text-lg font-semibold">Recipe ↔ Inventory Match Check</h2>
+      </div>
+      {allGood ? (
+        <p className="text-sm text-muted-foreground">
+          Every menu item's recipe correctly links to a material that currently exists in Stock Inventory —
+          checked {state.menu.length} menu item(s) against {state.stock.length} material(s).
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {noRecipe.length > 0 && (
+            <div>
+              <div className="text-sm font-bold text-[oklch(0.82_0.16_85)] mb-1">
+                {noRecipe.length} menu item(s) with no recipe at all — selling these deducts nothing from stock:
+              </div>
+              <div className="text-sm text-muted-foreground">{noRecipe.map((m) => m.name).join(", ")}</div>
+            </div>
+          )}
+          {brokenLinks.length > 0 && (
+            <div>
+              <div className="text-sm font-bold text-[oklch(0.58_0.22_25)] mb-1">
+                {brokenLinks.length} menu item(s) reference a material that no longer exists — their recipe needs rebuilding:
+              </div>
+              <ul className="text-sm text-muted-foreground list-disc list-inside">
+                {brokenLinks.map(({ item }) => (
+                  <li key={item.id}>{item.name}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Fix these in Menu &amp; Recipes below by re-selecting the correct material for each ingredient.</p>
+        </div>
+      )}
     </div>
   );
 }
