@@ -52,7 +52,7 @@ addColumnIfMissing_("RawMaterials", "lastPurchaseCost", "REAL");
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
-  "RestockLog", "BusinessDays", "WasteInvoices",
+  "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots",
 ];
 
 function assertTable(table) {

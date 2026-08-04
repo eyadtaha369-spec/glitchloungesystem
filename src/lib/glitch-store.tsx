@@ -22,6 +22,7 @@ import type {
   BusinessDay,
   WasteInvoice,
   WasteInvoiceReason,
+  InventorySnapshot,
 } from "./types";
 import { loginFn, logoutFn, sessionFn } from "@/backend/auth";
 import { getAccountsFn, addAccountFn, updateAccountFn, deleteAccountFn } from "@/backend/accounts";
@@ -50,6 +51,8 @@ import {
   resetForProductionFn,
   resetInventoryFn,
   rolloverInventoryFn,
+  getInventorySnapshotsFn,
+  getInventorySnapshotMonthsFn,
   getBusinessDaysFn,
   transferZoneFn,
   logSplitInterfaceOpenedFn,
@@ -75,7 +78,7 @@ export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
   MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
-  WasteInvoice, WasteInvoiceReason,
+  WasteInvoice, WasteInvoiceReason, InventorySnapshot,
 } from "./types";
 export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
@@ -153,7 +156,10 @@ interface StoreContextValue {
   closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
   resetForProduction: (password: string) => Promise<{ ok: boolean; error?: string }>;
   resetInventory: (password: string) => Promise<{ ok: boolean; error?: string }>;
-  rolloverInventory: () => Promise<{ ok: boolean; error?: string; count?: number }>;
+  rolloverInventory: () => Promise<{ ok: boolean; error?: string; count?: number; month?: string }>;
+  inventorySnapshotMonths: string[];
+  refreshInventorySnapshotMonths: () => Promise<void>;
+  getInventorySnapshotsForMonth: (month: string) => Promise<InventorySnapshot[]>;
   setFraudThreshold: (percent: number) => Promise<void>;
   setGeofenceConfig: (cfg: { enabled: boolean; lat: number; lng: number; radiusMeters: number }) => Promise<void>;
 
@@ -241,6 +247,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [staffOrders, setStaffOrders] = useState<StaffOrder[]>([]);
   const [restockLog, setRestockLog] = useState<RestockLogEntry[]>([]);
   const [wasteInvoices, setWasteInvoices] = useState<WasteInvoice[]>([]);
+  const [inventorySnapshotMonths, setInventorySnapshotMonths] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -952,12 +959,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           setAppState(res.state);
           setMaterials(await getRawMaterialsFn());
+          setInventorySnapshotMonths(await getInventorySnapshotMonthsFn());
         }
-        return { ok: res.ok, error: res.error, count: res.count };
+        return { ok: res.ok, error: res.error, count: res.count, month: res.month };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Rollover failed unexpectedly." };
       }
     });
+  };
+  const refreshInventorySnapshotMonths: StoreContextValue["refreshInventorySnapshotMonths"] = async () => {
+    setInventorySnapshotMonths(await getInventorySnapshotMonthsFn());
+  };
+  const getInventorySnapshotsForMonth: StoreContextValue["getInventorySnapshotsForMonth"] = async (month) => {
+    return getInventorySnapshotsFn({ data: { month } });
   };
   const setGeofenceConfig: StoreContextValue["setGeofenceConfig"] = async (cfg) => {
     return withPending("setGeofenceConfig", async () => {
@@ -991,7 +1005,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     state, ready, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory,
+    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,

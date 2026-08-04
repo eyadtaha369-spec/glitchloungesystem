@@ -292,6 +292,27 @@ export interface WasteInvoice {
   shiftId: string | null;
 }
 
+// Captured at Monthly Rollover time, for a specific ended period —
+// "month" is "YYYY-MM". A permanent, read-only record: nothing after
+// creation ever edits these rows.
+export interface InventorySnapshot {
+  id: string;
+  month: string;
+  archivedAt: number;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  category: string;
+  openingBalance: number;
+  purchasesIn: number;
+  salesWasteOut: number;
+  finalSystemBalance: number;
+  finalActualCount: number | null;
+  unitCost: number;
+  totalValue: number;
+  archivedBy: string | null;
+}
+
 export interface Supplier {
   id: string;
   name: string;

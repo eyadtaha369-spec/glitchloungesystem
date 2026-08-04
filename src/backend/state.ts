@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay } from "@/lib/types";
+import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -256,9 +256,23 @@ export const resetInventoryFn = createServerFn({ method: "POST" })
 
 export const rolloverInventoryFn = createServerFn({ method: "POST" }).handler(async () => {
   const user = await requireAdmin();
-  return callAppsScript<{ ok: boolean; error?: string; count?: number; state: AppState }>("rolloverInventory", {
+  return callAppsScript<{ ok: boolean; error?: string; count?: number; month?: string; state: AppState }>("rolloverInventory", {
     username: user.username,
   });
+});
+
+export const getInventorySnapshotsFn = createServerFn({ method: "POST" })
+  .validator((d: { month?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    const res = await callAppsScript<{ items: InventorySnapshot[] }>("getInventorySnapshots", { ...data, username: user.username });
+    return res.items;
+  });
+
+export const getInventorySnapshotMonthsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const res = await callAppsScript<{ months: string[] }>("getInventorySnapshotMonths", { username: user.username });
+  return res.months;
 });
 
 // Sequential Kitchen Ticket numbering — resets to #1 each shift.

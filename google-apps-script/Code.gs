@@ -183,6 +183,7 @@ function sheetObjectHeaders_(name) {
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
     WasteInvoices: ["id", "invoiceNumber", "ts", "materialId", "materialName", "unit", "wastedQty", "reason", "reasonLabel", "note", "unitCost", "totalCost", "loggedBy", "shiftId"],
+    InventorySnapshots: ["id", "month", "archivedAt", "materialId", "materialName", "unit", "category", "openingBalance", "purchasesIn", "salesWasteOut", "finalSystemBalance", "finalActualCount", "unitCost", "totalValue", "archivedBy"],
     BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy"],
   };
   return map[name];
@@ -1231,17 +1232,33 @@ function resetForProduction_(username, password) {
 // physical audit. Consolidating batches is what resets the
 // Purchases/In and Sales & Waste/Out counters, since both are DERIVED
 // from the full batch history.
-function bizRolloverInventory_() {
+function bizRolloverInventory_(username) {
   const materials = readObjects_("RawMaterials");
   const batches = readObjects_("Batches");
   const now = Date.now();
+  const monthDate = new Date(now);
+  const monthLabel = monthDate.getFullYear() + "-" + String(monthDate.getMonth() + 1).padStart(2, "0");
   let count = 0;
 
   materials.forEach(function (m) {
     const matBatches = batches.filter(function (b) { return b.materialId === m.id; });
+    const initialStock = matBatches.reduce(function (a, b) { return a + Number(b.qtyPurchased); }, 0);
     const systemBalance = matBatches.reduce(function (a, b) { return a + Number(b.qtyRemaining); }, 0);
     const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
     const newOpening = actualStock !== null ? actualStock : systemBalance;
+
+    // Snapshot the period that's ENDING, before the reset below wipes it.
+    const openingStock = Number(m.openingStock) || 0;
+    const purchasesIn = Math.round((initialStock - openingStock) * 1e6) / 1e6;
+    const salesWasteOut = initialStock - systemBalance;
+    const unitCost = Number(m.unitCost) || 0;
+    appendObject_("InventorySnapshots", {
+      id: newId_("snap"), month: monthLabel, archivedAt: now, materialId: m.id, materialName: m.name,
+      unit: m.unit, category: m.category || "", openingBalance: openingStock, purchasesIn: purchasesIn,
+      salesWasteOut: salesWasteOut, finalSystemBalance: systemBalance, finalActualCount: actualStock,
+      unitCost: unitCost, totalValue: Math.round((actualStock !== null ? actualStock : systemBalance) * unitCost * 100) / 100,
+      archivedBy: username || null,
+    });
 
     matBatches.forEach(function (b) { updateObjectById_("Batches", b.id, { qtyPurchased: 0, qtyRemaining: 0 }); });
     if (newOpening > 0) {
@@ -1255,7 +1272,7 @@ function bizRolloverInventory_() {
     count++;
   });
 
-  return { ok: true, count: count };
+  return { ok: true, count: count, month: monthLabel };
 }
 
 function resetInventory_(username, password) {
@@ -2130,12 +2147,25 @@ function doPost(e) {
 
       case "rolloverInventory": {
         requireRole_(body.username, ["admin"]);
-        const rolloverResult = bizRolloverInventory_();
+        const rolloverResult = bizRolloverInventory_(body.username);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
-          description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) — set Opening Stock to the current count for all " + rolloverResult.count + " material(s), resetting this period's Purchases/Out counters to zero.",
+          description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) for " + rolloverResult.month + " — archived a snapshot and set Opening Stock to the current count for all " + rolloverResult.count + " material(s), resetting this period's Purchases/Out counters to zero.",
         });
-        return json_({ ok: true, count: rolloverResult.count, state: withStockView_(getState_()) });
+        return json_({ ok: true, count: rolloverResult.count, month: rolloverResult.month, state: withStockView_(getState_()) });
+      }
+
+      case "getInventorySnapshots": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const allSnapshots = readObjects_("InventorySnapshots");
+        const filteredSnapshots = body.month ? allSnapshots.filter(function (s) { return s.month === body.month; }) : allSnapshots;
+        return json_({ items: filteredSnapshots.sort(function (a, b) { return a.materialName.localeCompare(b.materialName); }) });
+      }
+
+      case "getInventorySnapshotMonths": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const months = Array.from(new Set(readObjects_("InventorySnapshots").map(function (s) { return s.month; }))).sort().reverse();
+        return json_({ months: months });
       }
 
       // ---- Raw materials / suppliers / recurring expenses CRUD (admin) ----

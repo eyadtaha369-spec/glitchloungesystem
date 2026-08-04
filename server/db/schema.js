@@ -106,6 +106,14 @@ CREATE TABLE IF NOT EXISTS WasteInvoices (
   unitCost REAL, totalCost REAL, loggedBy TEXT, shiftId TEXT
 );
 
+CREATE TABLE IF NOT EXISTS InventorySnapshots (
+  id TEXT PRIMARY KEY,
+  month TEXT, archivedAt INTEGER, materialId TEXT, materialName TEXT,
+  unit TEXT, category TEXT, openingBalance REAL, purchasesIn REAL,
+  salesWasteOut REAL, finalSystemBalance REAL, finalActualCount REAL,
+  unitCost REAL, totalValue REAL, archivedBy TEXT
+);
+
 CREATE TABLE IF NOT EXISTS BusinessDays (
   id TEXT PRIMARY KEY,
   label TEXT, openedAt INTEGER, closedAt INTEGER, totalRevenue REAL,

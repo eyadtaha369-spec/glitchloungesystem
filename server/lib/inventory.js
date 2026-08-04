@@ -66,17 +66,39 @@ function bizSubmitWasteInvoice_(materialId, wastedQty, reason, note, username, s
 // resets the Purchases/In and Sales & Waste/Out counters — both are
 // DERIVED from the full batch history, so starting that history over
 // from one new batch is what makes them read zero for the new period.
-function bizRolloverInventory_() {
+function bizRolloverInventory_(username) {
   const materials = readObjects_("RawMaterials");
   const batches = readObjects_("Batches");
   const now = Date.now();
+  const monthLabel = (function () {
+    const d = new Date(now);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  })();
   let count = 0;
 
   materials.forEach((m) => {
     const matBatches = batches.filter((b) => b.materialId === m.id);
+    const initialStock = matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0);
     const systemBalance = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
     const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
     const newOpening = actualStock !== null ? actualStock : systemBalance;
+
+    // Snapshot the period that's ENDING — captured BEFORE the reset
+    // below, since consolidating batches is what makes Purchases/In and
+    // Sales&Waste/Out correctly read zero for the new period. Without
+    // this snapshot, that history would just be gone the moment the
+    // rollover ran, with no way to look back at a past month.
+    const openingStock = Number(m.openingStock) || 0;
+    const purchasesIn = Math.round((initialStock - openingStock) * 1e6) / 1e6;
+    const salesWasteOut = initialStock - systemBalance;
+    const unitCost = Number(m.unitCost) || 0;
+    appendObject_("InventorySnapshots", {
+      id: newId_("snap"), month: monthLabel, archivedAt: now, materialId: m.id, materialName: m.name,
+      unit: m.unit, category: m.category || "", openingBalance: openingStock, purchasesIn, salesWasteOut,
+      finalSystemBalance: systemBalance, finalActualCount: actualStock, unitCost,
+      totalValue: Math.round((actualStock !== null ? actualStock : systemBalance) * unitCost * 100) / 100,
+      archivedBy: username || null,
+    });
 
     matBatches.forEach((b) => updateObjectById_("Batches", b.id, { qtyPurchased: 0, qtyRemaining: 0 }));
     if (newOpening > 0) {
@@ -90,7 +112,7 @@ function bizRolloverInventory_() {
     count++;
   });
 
-  return { ok: true, count };
+  return { ok: true, count, month: monthLabel };
 }
 
 function adjustStock_(materialId, deltaQty, reason, note, username) {

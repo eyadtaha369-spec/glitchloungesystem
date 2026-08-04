@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason } from "@/lib/glitch-store";
+import { useEffect, useMemo, useState } from "react";
+import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
 
@@ -112,7 +112,7 @@ export function InventoryPage() {
 
       {/* Stock inventory */}
       <InventoryAuditReportButton />
-      <StockTable />
+      <InventorySection />
       <InventoryResetPanel />
 
       {/* Recipes / Menu */}
@@ -408,6 +408,128 @@ function InventoryResetPanel() {
               </>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InventorySection() {
+  const { inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth } = useStore();
+  const [selectedMonth, setSelectedMonth] = useState<string>("current");
+  const [archiveRows, setArchiveRows] = useState<InventorySnapshot[] | null>(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+
+  useEffect(() => {
+    void refreshInventorySnapshotMonths();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (selectedMonth === "current") { setArchiveRows(null); return; }
+    setArchiveLoading(true);
+    getInventorySnapshotsForMonth(selectedMonth).then((rows) => { setArchiveRows(rows); setArchiveLoading(false); });
+  }, [selectedMonth, getInventorySnapshotsForMonth]);
+
+  const monthLabel = (m: string) => {
+    const [y, mm] = m.split("-").map(Number);
+    return new Date(y, mm - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  };
+
+  return (
+    <div>
+      {inventorySnapshotMonths.length > 0 && (
+        <div className="flex items-center gap-3 mb-3">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">
+            Select Month <span dir="rtl" className="opacity-70">اختر الشهر</span>
+          </label>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="bg-white/70 border border-black/10 rounded-lg px-3 py-1.5 text-sm"
+          >
+            <option value="current">Current (Live)</option>
+            {inventorySnapshotMonths.map((m) => (
+              <option key={m} value={m}>{monthLabel(m)}</option>
+            ))}
+          </select>
+          {selectedMonth !== "current" && (
+            <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)]">
+              Read-Only Archive
+            </span>
+          )}
+        </div>
+      )}
+      {selectedMonth === "current" ? (
+        <StockTable />
+      ) : (
+        <ArchiveStockTable month={selectedMonth} label={monthLabel(selectedMonth)} rows={archiveRows} loading={archiveLoading} />
+      )}
+    </div>
+  );
+}
+
+function ArchiveStockTable({ month, label, rows, loading }: { month: string; label: string; rows: InventorySnapshot[] | null; loading: boolean }) {
+  const totalValue = (rows || []).reduce((a, r) => a + r.totalValue, 0);
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Stock Inventory — {label}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Exact snapshot archived at the moment this period's Monthly Rollover ran — permanent, never edited after the fact.
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Stock Value ({label})</div>
+          <div className="text-xl font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(totalValue)}</div>
+        </div>
+      </div>
+      {loading ? (
+        <div className="text-sm text-muted-foreground font-mono">Loading archive...</div>
+      ) : !rows || rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">No snapshot data for {label}.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
+                <th className="text-left py-2 px-2">Item<br /><span dir="rtl" className="normal-case font-normal opacity-70">الصنف</span></th>
+                <th className="text-left py-2 px-2">Unit<br /><span dir="rtl" className="normal-case font-normal opacity-70">الوحدة</span></th>
+                <th className="text-left py-2 px-2">Category<br /><span dir="rtl" className="normal-case font-normal opacity-70">الفئة</span></th>
+                <th className="text-right py-2 px-2">Opening Balance<br /><span dir="rtl" className="normal-case font-normal opacity-70">رصيد بداية الفترة</span></th>
+                <th className="text-right py-2 px-2">Purchases<br /><span dir="rtl" className="normal-case font-normal opacity-70">المشتريات</span></th>
+                <th className="text-right py-2 px-2">Sales &amp; Waste<br /><span dir="rtl" className="normal-case font-normal opacity-70">المبيعات والهالك</span></th>
+                <th className="text-right py-2 px-2">System Balance<br /><span dir="rtl" className="normal-case font-normal opacity-70">الرصيد الدفتري</span></th>
+                <th className="text-right py-2 px-2">Actual Count<br /><span dir="rtl" className="normal-case font-normal opacity-70">الجرد الفعلي</span></th>
+                <th className="text-right py-2 px-2">Variance<br /><span dir="rtl" className="normal-case font-normal opacity-70">العجز / الزيادة</span></th>
+                <th className="text-right py-2 px-2">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const variance = r.finalActualCount !== null ? Math.round((r.finalActualCount - r.finalSystemBalance) * 100) / 100 : null;
+                return (
+                  <tr key={r.id} className="border-b border-black/8">
+                    <td className="py-2 px-2 font-semibold">{r.materialName}</td>
+                    <td className="py-2 px-2">
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.72_0.14_85/0.5)] text-[#2b2416]">{r.unit}</span>
+                    </td>
+                    <td className="py-2 px-2 text-muted-foreground">{r.category || "—"}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{r.openingBalance}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{r.purchasesIn}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.58_0.22_25)]">-{r.salesWasteOut}</td>
+                    <td className="py-2 px-2 text-right font-mono font-bold">{r.finalSystemBalance}</td>
+                    <td className="py-2 px-2 text-right font-mono">{r.finalActualCount !== null ? r.finalActualCount : "—"}</td>
+                    <td className={`py-2 px-2 text-right font-mono font-bold ${variance === null ? "text-muted-foreground" : variance < 0 ? "text-[oklch(0.58_0.22_25)]" : variance > 0 ? "text-[oklch(0.62_0.16_155)]" : "text-muted-foreground"}`}>
+                      {variance === null ? "—" : variance === 0 ? "0" : variance > 0 ? `+${variance}` : variance}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(r.totalValue)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

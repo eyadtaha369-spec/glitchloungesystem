@@ -521,12 +521,23 @@ Object.assign(handlers, {
   },
   rolloverInventory(body) {
     requireRole_(body.username, ["admin"]);
-    const result = bizRolloverInventory_();
+    const result = bizRolloverInventory_(body.username);
     logActivity_({
       actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
-      description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) — set Opening Stock to the current count for all " + result.count + " material(s), resetting this period's Purchases/Out counters to zero.",
+      description: body.username + " ran the Monthly Rollover (اعتماد كبداية شهر جديد) for " + result.month + " — archived a snapshot and set Opening Stock to the current count for all " + result.count + " material(s), resetting this period's Purchases/Out counters to zero.",
     });
-    return { ok: true, count: result.count, state: withStockView_(getState_()) };
+    return { ok: true, count: result.count, month: result.month, state: withStockView_(getState_()) };
+  },
+  getInventorySnapshots(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const all = readObjects_("InventorySnapshots");
+    const items = body.month ? all.filter((s) => s.month === body.month) : all;
+    return { items: items.sort((a, b) => a.materialName.localeCompare(b.materialName)) };
+  },
+  getInventorySnapshotMonths(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const months = Array.from(new Set(readObjects_("InventorySnapshots").map((s) => s.month))).sort().reverse();
+    return { months };
   },
   setActualStock(body) {
     requireRole_(body.username, ["admin", "cashier"]);
