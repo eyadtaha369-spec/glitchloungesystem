@@ -59,7 +59,7 @@ import {
   splitBillFn,
 } from "@/backend/state";
 import {
-  getRawMaterialsFn, addRawMaterialFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
+  getRawMaterialsFn, addRawMaterialFn, bulkAddRawMaterialsFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
   restockMaterialFn, getRestockLogFn, setActualStockFn, submitWasteInvoiceFn, getWasteInvoicesFn,
   importMenuCatalogFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
@@ -165,6 +165,7 @@ interface StoreContextValue {
 
   // Raw materials / suppliers / recurring expense templates [admin CRUD]
   addRawMaterial: (m: { name: string; unit: string; minStockAlert: number; unitCost?: number; openingStock?: number; category?: string; storageLocation?: string }) => Promise<void>;
+  bulkAddRawMaterials: (rows: { name: string; unit: string; openingStock?: number; unitCost?: number; minStockAlert?: number; category?: string }[]) => Promise<{ ok: boolean; added: number; skipped: string[] }>;
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
   setAbsoluteStock: (materialId: string, targetQty: number, note?: string) => Promise<{ ok: boolean; error?: string; before?: number; after?: number; delta?: number }>;
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
@@ -600,6 +601,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const bulkAddRawMaterials: StoreContextValue["bulkAddRawMaterials"] = async (rows) => {
+    return withPending("bulkAddRawMaterials", async () => {
+      const res = await bulkAddRawMaterialsFn({ data: { rows } });
+      if (res.ok) {
+        setMaterials(await getRawMaterialsFn());
+        setAppState(res.state);
+      }
+      return { ok: res.ok, added: res.added, skipped: res.skipped };
+    });
+  };
   const adjustStock: StoreContextValue["adjustStock"] = async (materialId, deltaQty, reason, note) => {
     return withPending(`adjustStock:${materialId}`, async () => {
       const res = await adjustStockFn({ data: { materialId, deltaQty, reason, note } });
@@ -1006,7 +1017,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
-    addRawMaterial, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
+    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,

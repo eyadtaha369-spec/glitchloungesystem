@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
 import { getPreferredPrinter, setPreferredPrinter } from "@/lib/print";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon, Printer, Copy, Check, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon, Printer, Copy, Check, RefreshCw, Upload } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -380,9 +380,131 @@ function GeofencePanel() {
   );
 }
 
+function BulkImportModal({ onClose }: { onClose: () => void }) {
+  const { bulkAddRawMaterials } = useStore();
+  const [raw, setRaw] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ added: number; skipped: string[] } | null>(null);
+
+  // Expects tab-separated data, one material per line — exactly what
+  // Excel produces when you select a range and paste: Name, Unit,
+  // Opening Stock, Unit Cost, Min Stock Alert. Also tolerates commas
+  // (CSV) as a fallback delimiter.
+  const parsedRows = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const cells = line.includes("\t") ? line.split("\t") : line.split(",");
+      return {
+        name: (cells[0] || "").trim(),
+        unit: (cells[1] || "").trim(),
+        openingStock: parseFloat(cells[2]) || 0,
+        unitCost: parseFloat(cells[3]) || 0,
+        minStockAlert: parseFloat(cells[4]) || 0,
+      };
+    })
+    .filter((r) => r.name);
+
+  const submit = async () => {
+    if (parsedRows.length === 0) { setErr("Paste at least one row with a name."); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await bulkAddRawMaterials(parsedRows);
+      if (!res.ok) { setErr("Import failed."); return; }
+      setResult({ added: res.added, skipped: res.skipped });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto glass-strong rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.5)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-black/8">
+          <h3 className="text-lg font-bold text-[oklch(0.7_0.19_260)]">Bulk Import Materials</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+
+        {result ? (
+          <div className="p-5 space-y-3">
+            <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Imported {result.added} material(s)</div>
+            {result.skipped.length > 0 && (
+              <div className="text-sm text-muted-foreground">
+                Skipped {result.skipped.length} already-existing material(s) by name: {result.skipped.join(", ")}
+              </div>
+            )}
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-semibold">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Paste directly from Excel — select your data (including these 5 columns, no header row) and paste
+                below. One material per line: <strong>Name, Unit, Opening Stock, Unit Cost, Min Stock Alert</strong>.
+                Materials already in your list (matched by name) are skipped automatically, so it's safe to paste the
+                same sheet again later.
+              </p>
+              <textarea
+                value={raw}
+                onChange={(e) => setRaw(e.target.value)}
+                placeholder={"بلو كيراساو سولو\tكيلو\t1.35\t170\t1\nشيري سولو\tكيلو\t1.05\t170\t1"}
+                rows={8}
+                className="w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                dir="auto"
+              />
+              {parsedRows.length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1.5">Preview — {parsedRows.length} row(s)</div>
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-black/10">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-white/90">
+                        <tr className="text-left text-muted-foreground uppercase tracking-widest">
+                          <th className="px-2 py-1.5">Name</th><th className="px-2 py-1.5">Unit</th>
+                          <th className="px-2 py-1.5 text-right">Opening</th><th className="px-2 py-1.5 text-right">Cost</th>
+                          <th className="px-2 py-1.5 text-right">Min</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parsedRows.map((r, i) => (
+                          <tr key={i} className="border-t border-black/5">
+                            <td className="px-2 py-1" dir="auto">{r.name}</td>
+                            <td className="px-2 py-1">{r.unit}</td>
+                            <td className="px-2 py-1 text-right font-mono">{r.openingStock}</td>
+                            <td className="px-2 py-1 text-right font-mono">{r.unitCost}</td>
+                            <td className="px-2 py-1 text-right font-mono">{r.minStockAlert}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+            </div>
+            <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+              <button onClick={onClose} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+              <button
+                onClick={() => void submit()}
+                disabled={submitting || parsedRows.length === 0}
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] font-bold disabled:opacity-40"
+              >
+                {submitting ? "Importing..." : `Import ${parsedRows.length} Material(s)`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MaterialsPanel() {
   const { state, addRawMaterial, updateRawMaterial, deleteRawMaterial } = useStore();
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [form, setForm] = useState({ name: "", unit: "kg", minStockAlert: 0, unitCost: 0, openingStock: 0, category: "", storageLocation: "" });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: "", unit: "", minStockAlert: 0 });
@@ -399,10 +521,16 @@ function MaterialsPanel() {
           <Boxes className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
           <h2 className="text-lg font-semibold">Raw Material Profiles</h2>
         </div>
-        <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
-          <Plus className="w-4 h-4" /> Add Material
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowBulkImport(true)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)] hover:bg-[oklch(0.7_0.19_260/0.25)]">
+            <Upload className="w-4 h-4" /> Bulk Import
+          </button>
+          <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
+            <Plus className="w-4 h-4" /> Add Material
+          </button>
+        </div>
       </div>
+      {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}
 
       {showAdd && (
         <div className="mb-4 p-4 rounded-lg bg-white/60 border border-black/8 grid grid-cols-1 md:grid-cols-4 gap-2">

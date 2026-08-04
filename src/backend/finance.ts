@@ -16,6 +16,13 @@ export const addRawMaterialFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; item: RawMaterial; state?: AppState }>("addRawMaterial", { ...data, username: user.username });
   });
 
+export const bulkAddRawMaterialsFn = createServerFn({ method: "POST" })
+  .validator((d: { rows: { name: string; unit: string; openingStock?: number; unitCost?: number; minStockAlert?: number; category?: string }[] }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; added: number; skipped: string[]; state: AppState }>("bulkAddRawMaterials", { ...data, username: user.username });
+  });
+
 // Manual stock adjustment — Waste / Stock Count Correction / Opening
 // Balance. Fully audited server-side (activity log + ledger for waste).
 export const adjustStockFn = createServerFn({ method: "POST" })

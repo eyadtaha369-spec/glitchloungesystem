@@ -2365,6 +2365,48 @@ function doPost(e) {
         });
         return json_({ ok: true, item: item, state: withStockView_(getState_()) });
       }
+
+      case "bulkAddRawMaterials": {
+        requireRole_(body.username, ["admin"]);
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const existing = readObjects_("RawMaterials");
+        const existingNames = {};
+        existing.forEach(function (m) { existingNames[m.name.trim().toLowerCase()] = true; });
+        const bulkNow = Date.now();
+        let added = 0;
+        const skipped = [];
+
+        rows.forEach(function (r) {
+          const name = (r.name || "").trim();
+          if (!name) return;
+          if (existingNames[name.toLowerCase()]) { skipped.push(name); return; }
+          const openingStock = parseFloat(r.openingStock) || 0;
+          const unitCost = parseFloat(r.unitCost) || 0;
+          const item = {
+            id: newId_("mat"), name: name, unit: (r.unit || "").trim(), minStockAlert: parseFloat(r.minStockAlert) || 0,
+            unitCost: unitCost, openingStock: openingStock, category: (r.category || "").trim(), storageLocation: "", lastPurchaseCost: unitCost,
+          };
+          appendObject_("RawMaterials", item);
+          if (openingStock > 0) {
+            appendObject_("Batches", {
+              id: newId_("batch"), materialId: item.id, supplierId: null,
+              qtyPurchased: openingStock, qtyRemaining: openingStock, unitCost: unitCost,
+              purchasedAt: bulkNow, source: "openingStock",
+            });
+          }
+          existingNames[name.toLowerCase()] = true;
+          added++;
+        });
+
+        if (added > 0) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
+            description: body.username + " bulk-imported " + added + " raw material(s)" + (skipped.length > 0 ? " (" + skipped.length + " skipped as duplicates)" : ""),
+          });
+        }
+        return json_({ ok: true, added: added, skipped: skipped, state: withStockView_(getState_()) });
+      }
+
       case "updateRawMaterial": {
         requireRole_(body.username, ["admin"]);
         const before = readObjects_("RawMaterials").find((m) => m.id === body.id);

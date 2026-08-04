@@ -414,6 +414,45 @@ Object.assign(handlers, {
     logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT", description: "Added raw material '" + body.name + "'" + (openingStock > 0 ? " with opening stock of " + openingStock + " " + body.unit : ""), after: item });
     return { ok: true, item, state: withStockView_(getState_()) };
   },
+  bulkAddRawMaterials(body) {
+    requireRole_(body.username, ["admin"]);
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const existing = readObjects_("RawMaterials");
+    const existingNames = new Set(existing.map((m) => m.name.trim().toLowerCase()));
+    const now = Date.now();
+    let added = 0;
+    const skipped = [];
+
+    rows.forEach((r) => {
+      const name = (r.name || "").trim();
+      if (!name) return;
+      if (existingNames.has(name.toLowerCase())) { skipped.push(name); return; }
+      const openingStock = parseFloat(r.openingStock) || 0;
+      const unitCost = parseFloat(r.unitCost) || 0;
+      const item = {
+        id: newId_("mat"), name, unit: (r.unit || "").trim(), minStockAlert: parseFloat(r.minStockAlert) || 0,
+        unitCost, openingStock, category: (r.category || "").trim(), storageLocation: "", lastPurchaseCost: unitCost,
+      };
+      appendObject_("RawMaterials", item);
+      if (openingStock > 0) {
+        appendObject_("Batches", {
+          id: newId_("batch"), materialId: item.id, supplierId: null,
+          qtyPurchased: openingStock, qtyRemaining: openingStock, unitCost,
+          purchasedAt: now, source: "openingStock",
+        });
+      }
+      existingNames.add(name.toLowerCase());
+      added++;
+    });
+
+    if (added > 0) {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
+        description: body.username + " bulk-imported " + added + " raw material(s)" + (skipped.length > 0 ? " (" + skipped.length + " skipped as duplicates)" : ""),
+      });
+    }
+    return { ok: true, added, skipped, state: withStockView_(getState_()) };
+  },
   updateRawMaterial(body) {
     requireRole_(body.username, ["admin"]);
     const before = readObjects_("RawMaterials").find((m) => m.id === body.id);
