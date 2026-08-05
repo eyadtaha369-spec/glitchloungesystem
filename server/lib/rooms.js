@@ -1,5 +1,5 @@
 const { pushActivity_ } = require("./util");
-const { materialRemaining_, materialReserved_, consumeFifo_ } = require("./state");
+const { materialRemaining_, materialReserved_, consumeFifo_, restoreFifo_ } = require("./state");
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
 
@@ -45,23 +45,38 @@ function bizStartRoom_(state, roomId, rateMode) {
   return { ok: true, state };
 }
 
+// Once consumption happens immediately at order time (below), nothing
+// stays "reserved but not yet consumed" — every active order's
+// ingredients are already reflected in materialRemaining_ the moment
+// they're added. So this only needs to check what's actually left,
+// not track reservations across other active rooms separately.
 function bizCanFulfill_(state, batches, menuItemId, addQty) {
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return false;
   return item.ingredients.every((ing) => {
     const remaining = materialRemaining_(batches, ing.stockId);
-    const reserved = materialReserved_(state.rooms, state.menu, ing.stockId);
-    return remaining - reserved - ing.qty * addQty >= -1e-9;
+    return remaining - ing.qty * addQty >= -1e-9;
   });
 }
 
 function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
-  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state };
+  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state, touchedBatchIds: [], newBatches: [] };
   const item = state.menu.find((m) => m.id === menuItemId);
-  if (!item) return { ok: false, error: "Item not found", state };
+  if (!item) return { ok: false, error: "Item not found", state, touchedBatchIds: [], newBatches: [] };
   if (!bizCanFulfill_(state, batches, menuItemId, qty)) {
-    return { ok: false, error: "Insufficient stock for " + item.name + "!", state };
+    return { ok: false, error: "Insufficient stock for " + item.name + "!", state, touchedBatchIds: [], newBatches: [] };
   }
+  // Consumed the moment the order is placed — this app's "Print
+  // Kitchen" step happens as part of the same add-order action, so
+  // this is the point ingredients are actually put to use, not
+  // whenever the customer eventually pays.
+  let cogsDelta = 0;
+  const touchedBatchIds = [];
+  item.ingredients.forEach((ing) => {
+    const res = consumeFifo_(batches, ing.stockId, ing.qty * qty);
+    cogsDelta += res.cost;
+    touchedBatchIds.push(...res.touched);
+  });
   const room = state.rooms.find((r) => r.id === roomId);
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
@@ -69,32 +84,62 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     const newOrders = existing
       ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
       : r.orders.concat([{ menuItemId, name: item.name, qty, price: item.price }]);
-    return Object.assign({}, r, { orders: newOrders });
+    return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
-  return { ok: true, state };
+  return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), newBatches: [] };
 }
 
 function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
   const room = state.rooms.find((r) => r.id === roomId);
-  if (!room) return { ok: false, error: "Room not found", state };
+  if (!room) return { ok: false, error: "Room not found", state, touchedBatchIds: [], newBatches: [] };
   const line = room.orders.find((o) => o.menuItemId === menuItemId);
-  if (!line) return { ok: false, error: "Item not on this check", state };
+  if (!line) return { ok: false, error: "Item not on this check", state, touchedBatchIds: [], newBatches: [] };
   const item = state.menu.find((m) => m.id === menuItemId);
   const newQty = Math.max(0, Math.floor(qty));
   const delta = newQty - line.qty;
   if (delta > 0 && item && !bizCanFulfill_(state, batches, menuItemId, delta)) {
-    return { ok: false, error: "Insufficient stock to increase " + item.name, state };
+    return { ok: false, error: "Insufficient stock to increase " + item.name, state, touchedBatchIds: [], newBatches: [] };
+  }
+  // Ingredients were already consumed when this line was first added
+  // (or last increased) — an increase consumes the extra now; a
+  // decrease restores exactly the delta being removed, so a mistaken
+  // "5x Latte" corrected down to "1x Latte" doesn't leave 4 lattes'
+  // worth of milk and coffee silently gone from stock forever.
+  let cogsDelta = 0;
+  const touchedBatchIds = [];
+  const newBatches = [];
+  if (item && delta !== 0) {
+    const now = Date.now();
+    item.ingredients.forEach((ing) => {
+      const ingQty = ing.qty * Math.abs(delta);
+      if (delta > 0) {
+        const res = consumeFifo_(batches, ing.stockId, ingQty);
+        cogsDelta += res.cost;
+        touchedBatchIds.push(...res.touched);
+      } else {
+        // state doesn't carry a materials list directly (that's a
+        // separate table) — use the most recent batch's cost as a
+        // reasonable basis for what's being credited back instead of
+        // requiring a lookup that doesn't exist on this object.
+        const matBatches = batches.filter((b) => b.materialId === ing.stockId);
+        const newest = matBatches.reduce((a, b) => (!a || Number(b.purchasedAt) > Number(a.purchasedAt) ? b : a), null);
+        const unitCost = newest ? Number(newest.unitCost) : 0;
+        const res = restoreFifo_(batches, ing.stockId, ingQty, unitCost, now, "orderReduced");
+        cogsDelta -= ingQty * unitCost;
+        if (res.newBatch) newBatches.push(res.newBatch);
+      }
+    });
   }
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
     const orders = newQty <= 0
       ? r.orders.filter((o) => o.menuItemId !== menuItemId)
       : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
-    return Object.assign({}, r, { orders });
+    return Object.assign({}, r, { orders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, room.name + ": " + (newQty <= 0 ? "removed " + line.name : "set " + line.name + " to x" + newQty));
-  return { ok: true, state };
+  return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), newBatches };
 }
 
 function bizSetOrderLineNote_(state, roomId, menuItemId, notes) {
@@ -206,17 +251,13 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     if (method === "mixed_cash_visa") visaAmount = s; else instapayAmount = s;
   }
 
-  let cogs = 0;
+  // Ingredients were already consumed as each order line was added
+  // (or increased) — NOT re-consumed here. cogsAccrued is the running
+  // total built up across every add/increase/decrease on this room
+  // since it started, kept in exact sync with the actual FIFO
+  // consumption that already happened.
+  const cogs = room.cogsAccrued || 0;
   const touchedBatchIds = [];
-  room.orders.forEach((o) => {
-    const item = state.menu.find((m) => m.id === o.menuItemId);
-    if (!item) return;
-    item.ingredients.forEach((ing) => {
-      const res = consumeFifo_(batches, ing.stockId, ing.qty * o.qty);
-      cogs += res.cost;
-      touchedBatchIds.push(...res.touched);
-    });
-  });
 
   state.orderCounter = (state.orderCounter || 0) + 1;
   const session = {
@@ -226,7 +267,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     splitBill: !!splitBill, paymentMethod: method,
     cashAmount, visaAmount, instapayAmount, shiftId: state.activeShiftId || null,
   };
-  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r));
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0 }) : r));
   const paymentLabel = method === "mixed_cash_visa" ? "Cash " + cashAmount.toFixed(2) + " EGP + Visa " + visaAmount.toFixed(2) + " EGP"
     : method === "mixed_cash_instapay" ? "Cash " + cashAmount.toFixed(2) + " EGP + InstaPay " + instapayAmount.toFixed(2) + " EGP"
     : method;

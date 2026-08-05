@@ -76,6 +76,22 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
   }
   return { cost, touched, shortfall: Math.max(0, remaining) };
 }
+// Counterpart to consumeFifo_ — adds stock BACK (an order line's
+// quantity was reduced, or a void reason means nothing was actually
+// wasted). True FIFO reversal would need to know exactly which batch
+// layer(s) the original consumption drew from, which isn't retained
+// across the add -> reduce/void lifecycle — so this creates one new
+// batch for the restored quantity at the material's current cost,
+// tagged distinctly for the audit trail. Slightly less precise than a
+// literal reversal, but never wrong in either direction: the quantity
+// restored is always exactly what's being credited back.
+function restoreFifo_(batches, materialId, qty, unitCost, now, source) {
+  if (qty <= 1e-9) return { touched: [] };
+  const id = "batch-restore-" + now + "-" + Math.random().toString(36).slice(2, 7);
+  const batch = { id, materialId, supplierId: null, qtyPurchased: qty, qtyRemaining: qty, unitCost: unitCost || 0, purchasedAt: now, source: source || "orderRestore" };
+  batches.push(batch);
+  return { touched: [id], newBatch: batch };
+}
 function writeBatchesBack_(batches, touchedBatchIds) {
   touchedBatchIds.forEach((id) => {
     const b = batches.find((x) => x.id === id);
@@ -169,6 +185,6 @@ function withStockView_(state) {
 module.exports = {
   getState_, setState_, withStockView_, computeStockView_,
   readSessions_, appendSessionRow_, readShifts_, readBusinessDays_,
-  materialRemaining_, materialReserved_, consumeFifo_, writeBatchesBack_,
+  materialRemaining_, materialReserved_, consumeFifo_, restoreFifo_, writeBatchesBack_,
   pendingVoidCountForShift_,
 };

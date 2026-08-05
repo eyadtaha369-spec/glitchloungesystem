@@ -465,23 +465,36 @@ function materialReserved_(rooms, menu, materialId) {
   return total;
 }
 
+// Once consumption happens immediately at order time (below), nothing
+// stays "reserved but not yet consumed" — every active order's
+// ingredients are already reflected in materialRemaining_ the moment
+// they're added.
 function bizCanFulfill_(state, batches, menuItemId, addQty) {
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return false;
   return item.ingredients.every((ing) => {
     const remaining = materialRemaining_(batches, ing.stockId);
-    const reserved = materialReserved_(state.rooms, state.menu, ing.stockId);
-    return remaining - reserved - ing.qty * addQty >= -1e-9;
+    return remaining - ing.qty * addQty >= -1e-9;
   });
 }
 
 function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
-  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state: state };
+  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state: state, touchedBatchIds: [], newBatches: [] };
   const item = state.menu.find((m) => m.id === menuItemId);
-  if (!item) return { ok: false, error: "Item not found", state: state };
+  if (!item) return { ok: false, error: "Item not found", state: state, touchedBatchIds: [], newBatches: [] };
   if (!bizCanFulfill_(state, batches, menuItemId, qty)) {
-    return { ok: false, error: "Insufficient stock for " + item.name + "!", state: state };
+    return { ok: false, error: "Insufficient stock for " + item.name + "!", state: state, touchedBatchIds: [], newBatches: [] };
   }
+  // Consumed the moment the order is placed — "Print Kitchen" happens
+  // as part of this same action, not whenever the customer eventually
+  // pays.
+  let cogsDelta = 0;
+  const touchedBatchIds = [];
+  item.ingredients.forEach(function (ing) {
+    const res = consumeFifo_(batches, ing.stockId, ing.qty * qty);
+    cogsDelta += res.cost;
+    touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+  });
   const room = state.rooms.find((r) => r.id === roomId);
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
@@ -489,26 +502,50 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     const newOrders = existing
       ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
       : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price }]);
-    return Object.assign({}, r, { orders: newOrders });
+    return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
-  return { ok: true, state: state };
+  return { ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), newBatches: [] };
 }
 
-// Sets an order line to an EXACT qty (0 removes it). Increasing re-checks
-// availability against reservations; decreasing is always allowed since
-// nothing was ever deducted from batches yet.
+// Sets an order line to an EXACT qty (0 removes it). Ingredients were
+// already consumed when this line was first added (or last increased)
+// — an increase consumes the extra now; a decrease RESTORES exactly
+// the delta being removed via a new batch, so a corrected quantity
+// doesn't leave stock silently gone forever.
 function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
   const room = state.rooms.find((r) => r.id === roomId);
-  if (!room) return { ok: false, error: "Room not found", state: state };
+  if (!room) return { ok: false, error: "Room not found", state: state, touchedBatchIds: [], newBatches: [] };
   const line = room.orders.find((o) => o.menuItemId === menuItemId);
-  if (!line) return { ok: false, error: "Item not on this check", state: state };
+  if (!line) return { ok: false, error: "Item not on this check", state: state, touchedBatchIds: [], newBatches: [] };
   const item = state.menu.find((m) => m.id === menuItemId);
   const newQty = Math.max(0, Math.floor(qty));
   const delta = newQty - line.qty;
 
   if (delta > 0 && item && !bizCanFulfill_(state, batches, menuItemId, delta)) {
-    return { ok: false, error: "Insufficient stock to increase " + item.name, state: state };
+    return { ok: false, error: "Insufficient stock to increase " + item.name, state: state, touchedBatchIds: [], newBatches: [] };
+  }
+
+  let cogsDelta = 0;
+  const touchedBatchIds = [];
+  const newBatches = [];
+  if (item && delta !== 0) {
+    const now = Date.now();
+    item.ingredients.forEach(function (ing) {
+      const ingQty = ing.qty * Math.abs(delta);
+      if (delta > 0) {
+        const res = consumeFifo_(batches, ing.stockId, ingQty);
+        cogsDelta += res.cost;
+        touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+      } else {
+        const matBatches = batches.filter(function (b) { return b.materialId === ing.stockId; });
+        const newest = matBatches.reduce(function (a, b) { return (!a || b.purchasedAt > a.purchasedAt) ? b : a; }, null);
+        const unitCost = newest ? newest.unitCost : 0;
+        const res = restoreFifo_(batches, ing.stockId, ingQty, unitCost, now, "orderReduced");
+        cogsDelta -= ingQty * unitCost;
+        if (res.newBatch) newBatches.push(res.newBatch);
+      }
+    });
   }
 
   state.rooms = state.rooms.map((r) => {
@@ -516,14 +553,14 @@ function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
     const orders = newQty <= 0
       ? r.orders.filter((o) => o.menuItemId !== menuItemId)
       : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
-    return Object.assign({}, r, { orders: orders });
+    return Object.assign({}, r, { orders: orders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
 
   pushActivity_(
     state,
     room.name + ": " + (newQty <= 0 ? "removed " + line.name : "set " + line.name + " to x" + newQty),
   );
-  return { ok: true, state: state };
+  return { ok: true, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), newBatches: newBatches };
 }
 
 // Sets/clears the barista prep note on a specific order line (e.g. "Extra
@@ -563,6 +600,18 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
     touched.push(b.id);
   }
   return { cost: cost, shortfall: remaining, touched: touched };
+}
+
+// Counterpart to consumeFifo_ — adds stock BACK. See the matching
+// comment in the local server's state.js for the full reasoning: true
+// FIFO reversal isn't retained across the add -> reduce/void lifecycle,
+// so this creates one new batch at the material's current cost instead.
+function restoreFifo_(batches, materialId, qty, unitCost, now, source) {
+  if (qty <= 1e-9) return { touched: [] };
+  const id = "batch-restore-" + now + "-" + Math.random().toString(36).slice(2, 7);
+  const batch = { id: id, materialId: materialId, supplierId: null, qtyPurchased: qty, qtyRemaining: qty, unitCost: unitCost || 0, purchasedAt: now, source: source || "orderRestore" };
+  batches.push(batch);
+  return { touched: [id], newBatch: batch };
 }
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
@@ -739,18 +788,12 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     if (method === "mixed_cash_visa") visaAmount = s; else instapayAmount = s;
   }
 
-  // FIFO-consume ingredients for everything ordered, computing real COGS.
-  let cogs = 0;
+  // Ingredients were already consumed as each order line was added (or
+  // increased) — NOT re-consumed here. cogsAccrued is the running total
+  // built up across every add/increase/decrease on this room, kept in
+  // exact sync with the actual FIFO consumption that already happened.
+  const cogs = room.cogsAccrued || 0;
   const touchedBatchIds = [];
-  room.orders.forEach((o) => {
-    const item = state.menu.find((m) => m.id === o.menuItemId);
-    if (!item) return;
-    item.ingredients.forEach((ing) => {
-      const res = consumeFifo_(batches, ing.stockId, ing.qty * o.qty);
-      cogs += res.cost;
-      touchedBatchIds.push(...res.touched);
-    });
-  });
 
   state.orderCounter = (state.orderCounter || 0) + 1;
   const session = {
@@ -780,7 +823,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     shiftId: state.activeShiftId || null,
   };
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [] }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0 }) : r
   );
   // NOTE: the session is NOT added to state.sessions here anymore — it's
   // persisted directly to the dedicated Sessions sheet by the "endRoom"
@@ -910,12 +953,19 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
       const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
       splitOrders.push(Object.assign({}, line, { qty: req.qty }));
       splitTotal += req.qty * line.price;
+      // Ingredients were already consumed when this item was originally
+      // ordered — NOT consumed again here. Compute what portion of the
+      // room's already-accrued cost belongs to what's being split off,
+      // so it can be carved out of cogsAccrued rather than double-
+      // counted when the rest of the room eventually checks out.
       const menuItem = state.menu.find((m) => m.id === req.menuItemId);
       if (menuItem) {
         menuItem.ingredients.forEach((ing) => {
-          const res = consumeFifo_(batches, ing.stockId, ing.qty * req.qty);
-          cogs += res.cost;
-          touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+          const ingQty = ing.qty * req.qty;
+          const matBatches = batches.filter(function (b) { return b.materialId === ing.stockId; });
+          const newest = matBatches.reduce(function (a, b) { return (!a || b.purchasedAt > a.purchasedAt) ? b : a; }, null);
+          const unitCost = newest ? newest.unitCost : 0;
+          cogs += ingQty * unitCost;
         });
       }
     });
@@ -929,7 +979,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
         const newQty = o.qty - ex.qty;
         return newQty <= 0 ? null : Object.assign({}, o, { qty: newQty });
       }).filter((o) => o !== null);
-      return Object.assign({}, r, { orders: orders });
+      return Object.assign({}, r, { orders: orders, cogsAccrued: (r.cogsAccrued || 0) - cogs });
     });
   } else if (mode === "amount") {
     const amt = Number(customAmount) || 0;
@@ -1035,12 +1085,51 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
 // order, and — if the reason requires it — consumes ingredients via FIFO
 // right now, since they were physically used making the item. Returns the
 // touched batch ids so only those get written back.
+// Ingredients are now consumed the moment an order is placed (not at
+// checkout), so by the time a void happens, they're ALREADY gone from
+// stock either way. What differs by reason is whether to RESTORE that
+// stock: wrongInput means it was caught before anything was actually
+// made, so the ingredients were never really used — give them back.
+// The other three reasons mean the item genuinely was made — stock
+// correctly stays consumed, same net effect as before just reached by
+// not restoring rather than by consuming now. The waste report still
+// needs the cost figure for those reasons even without touching
+// batches, computed the same way as everywhere else.
 function applyVoid_(state, batches, req) {
   const room = state.rooms.find((r) => r.id === req.roomId);
-  if (!room) return { ok: false, error: "Room not found", state: state, touchedBatchIds: [] };
+  if (!room) return { ok: false, error: "Room not found", state: state, touchedBatchIds: [], newBatches: [] };
   const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
   if (!line || line.qty < req.qty) {
-    return { ok: false, error: "Item is no longer on the order as requested (checked out or already modified)", state: state, touchedBatchIds: [] };
+    return { ok: false, error: "Item is no longer on the order as requested (checked out or already modified)", state: state, touchedBatchIds: [], newBatches: [] };
+  }
+
+  const reasonCfg = VOID_REASONS[req.reason];
+  let cogsDelta = 0;
+  let reportedWasteCost = 0;
+  const touchedBatchIds = [];
+  const newBatches = [];
+  const item = state.menu.find((m) => m.id === req.menuItemId);
+  if (reasonCfg && !reasonCfg.deductsInventory) {
+    if (item) {
+      const now = Date.now();
+      item.ingredients.forEach(function (ing) {
+        const ingQty = ing.qty * req.qty;
+        const matBatches = batches.filter(function (b) { return b.materialId === ing.stockId; });
+        const newest = matBatches.reduce(function (a, b) { return (!a || b.purchasedAt > a.purchasedAt) ? b : a; }, null);
+        const unitCost = newest ? newest.unitCost : 0;
+        const res = restoreFifo_(batches, ing.stockId, ingQty, unitCost, now, "voidRestore");
+        cogsDelta -= ingQty * unitCost;
+        if (res.newBatch) newBatches.push(res.newBatch);
+      });
+    }
+  } else if (reasonCfg && reasonCfg.deductsInventory && item) {
+    item.ingredients.forEach(function (ing) {
+      const ingQty = ing.qty * req.qty;
+      const matBatches = batches.filter(function (b) { return b.materialId === ing.stockId; });
+      const newest = matBatches.reduce(function (a, b) { return (!a || b.purchasedAt > a.purchasedAt) ? b : a; }, null);
+      const unitCost = newest ? newest.unitCost : 0;
+      reportedWasteCost += ingQty * unitCost;
+    });
   }
 
   state.rooms = state.rooms.map((r) => {
@@ -1049,25 +1138,11 @@ function applyVoid_(state, batches, req) {
     const orders = newQty <= 0
       ? r.orders.filter((o) => o.menuItemId !== req.menuItemId)
       : r.orders.map((o) => (o.menuItemId === req.menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
-    return Object.assign({}, r, { orders: orders });
+    return Object.assign({}, r, { orders: orders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
 
-  const reasonCfg = VOID_REASONS[req.reason];
-  let cogs = 0;
-  const touchedBatchIds = [];
-  if (reasonCfg && reasonCfg.deductsInventory) {
-    const item = state.menu.find((m) => m.id === req.menuItemId);
-    if (item) {
-      item.ingredients.forEach((ing) => {
-        const res = consumeFifo_(batches, ing.stockId, ing.qty * req.qty);
-        cogs += res.cost;
-        touchedBatchIds.push.apply(touchedBatchIds, res.touched);
-      });
-    }
-  }
-
   pushActivity_(state, "VOID (" + (reasonCfg ? reasonCfg.label : req.reason) + "): " + req.qty + "x " + req.itemName + " — " + room.name);
-  return { ok: true, state: state, cogs: cogs, touchedBatchIds: Array.from(new Set(touchedBatchIds)) };
+  return { ok: true, state: state, cogs: reportedWasteCost > 0 ? reportedWasteCost : -cogsDelta, touchedBatchIds: Array.from(new Set(touchedBatchIds)), newBatches: newBatches };
 }
 
 function writeBatchesBack_(batches, touchedBatchIds) {
@@ -1913,6 +1988,11 @@ function doPost(e) {
         const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
         if (result.ok) {
           setState_(result.state);
+          result.touchedBatchIds.forEach(function (id) {
+            const b = batches.find(function (x) { return x.id === id; });
+            if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+          });
+          (result.newBatches || []).forEach(function (nb) { appendObject_("Batches", nb); });
           const roomAfter = result.state.rooms.find((r) => r.id === body.roomId);
           const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId) : null;
           logActivity_({
@@ -1933,6 +2013,11 @@ function doPost(e) {
         const result = bizSetOrderLineQty_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
         if (result.ok) {
           setState_(result.state);
+          result.touchedBatchIds.forEach(function (id) {
+            const b = batches.find(function (x) { return x.id === id; });
+            if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+          });
+          (result.newBatches || []).forEach(function (nb) { appendObject_("Batches", nb); });
           logActivity_({
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_QTY_CHANGED",
             location: roomBefore ? roomBefore.name : body.roomId, shiftId: result.state.activeShiftId,
@@ -2685,6 +2770,7 @@ function doPost(e) {
             req.applied = true;
             setState_(result.state);
             writeBatchesBack_(batches, result.touchedBatchIds);
+            (result.newBatches || []).forEach(function (nb) { appendObject_("Batches", nb); });
             const reasonCfg = VOID_REASONS[body.reason];
             if (routeUnapproved) {
               // Always posted, even for reasons that wouldn't normally
@@ -2752,6 +2838,7 @@ function doPost(e) {
         }
         setState_(result.state);
         writeBatchesBack_(batches, result.touchedBatchIds);
+        (result.newBatches || []).forEach(function (nb) { appendObject_("Batches", nb); });
         updateObjectById_("VoidRequests", req.id, {
           status: "approved", approvedBy: body.username, approvedAt: Date.now(),
           cogs: result.cogs, applied: true, applyError: null,

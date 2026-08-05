@@ -84,12 +84,21 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
       const line = room.orders.find((o) => o.menuItemId === req.menuItemId);
       splitOrders.push(Object.assign({}, line, { qty: reqQty }));
       splitTotal += reqQty * line.price;
+      // Ingredients were already consumed when this item was originally
+      // ordered — NOT consumed again here (that would double-deduct).
+      // Just compute what portion of the room's already-accrued cost
+      // belongs to what's being split off, using the same "latest batch
+      // cost" estimate as everywhere else, so it can be carved out of
+      // cogsAccrued and correctly attributed to this split session
+      // instead of double-counted when the rest of the room checks out.
       const menuItem = state.menu.find((m) => m.id === req.menuItemId);
       if (menuItem) {
         menuItem.ingredients.forEach((ing) => {
-          const res = consumeFifo_(batches, ing.stockId, ing.qty * reqQty);
-          cogs += res.cost;
-          touchedBatchIds.push(...res.touched);
+          const ingQty = ing.qty * reqQty;
+          const matBatches = batches.filter((b) => b.materialId === ing.stockId);
+          const newest = matBatches.reduce((a, b) => (!a || Number(b.purchasedAt) > Number(a.purchasedAt) ? b : a), null);
+          const unitCost = newest ? Number(newest.unitCost) : 0;
+          cogs += ingQty * unitCost;
         });
       }
     });
@@ -101,7 +110,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
         const newQty = o.qty - Number(ex.qty);
         return newQty <= 0 ? null : Object.assign({}, o, { qty: newQty });
       }).filter((o) => o !== null);
-      return Object.assign({}, r, { orders });
+      return Object.assign({}, r, { orders, cogsAccrued: (r.cogsAccrued || 0) - cogs });
     });
   } else if (mode === "amount") {
     const amt = Number(customAmount) || 0;

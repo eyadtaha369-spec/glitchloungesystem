@@ -168,6 +168,8 @@ const handlers = {
     const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
     if (result.ok) {
       setState_(result.state);
+      writeBatchesBack_(batches, result.touchedBatchIds);
+      (result.newBatches || []).forEach((b) => appendObject_("Batches", b));
       const roomAfter = result.state.rooms.find((r) => r.id === body.roomId);
       const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId) : null;
       logActivity_({
@@ -189,6 +191,8 @@ const handlers = {
     const result = bizSetOrderLineQty_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
     if (result.ok) {
       setState_(result.state);
+      writeBatchesBack_(batches, result.touchedBatchIds);
+      (result.newBatches || []).forEach((b) => appendObject_("Batches", b));
       logActivity_({
         actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_QTY_CHANGED",
         location: roomBefore ? roomBefore.name : body.roomId, shiftId: result.state.activeShiftId,
@@ -763,6 +767,7 @@ Object.assign(handlers, {
           const b = batches.find((x) => x.id === id);
           if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
         });
+        (result.newBatches || []).forEach((b) => appendObject_("Batches", b));
         const reasonCfg = VOID_REASONS[body.reason];
         if (routeUnapproved) {
           appendObject_("Ledger", { id: newId_("ledg"), ts: req.ts, amount: result.cogs, direction: "outflow", type: "manualAdjustment", category: "Unapproved Void — Pending Reconciliation", description: req.qty + "x " + req.itemName + " — " + room.name, supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null, paidFromDrawer: false, shiftId: state.activeShiftId, materialId: null, qty: null, unitCost: null, paymentSource: null });
@@ -803,6 +808,7 @@ Object.assign(handlers, {
       const b = batches.find((x) => x.id === id);
       if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
     });
+    (result.newBatches || []).forEach((b) => appendObject_("Batches", b));
     updateObjectById_("VoidRequests", req.id, { status: "approved", approvedBy: body.username, approvedAt: Date.now(), cogs: result.cogs, applied: true, applyError: null });
     const reasonCfg = VOID_REASONS[req.reason];
     if (reasonCfg && reasonCfg.deductsInventory && result.cogs > 0) {
