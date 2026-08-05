@@ -175,7 +175,7 @@ function sheetObjectHeaders_(name) {
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
-    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
@@ -1636,6 +1636,9 @@ function doPost(e) {
   if (body.action === "submitPurchase") {
     return handleSubmitPurchase_(body);
   }
+  if (body.action === "submitExpense") {
+    return handleSubmitExpense_(body);
+  }
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -2566,6 +2569,29 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_({ items: readObjects_("Ledger").filter((l) => l.status === "pending") });
 
+      case "getUnpaidExpenses":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readObjects_("Ledger").filter((l) => l.paymentStatus === "unpaid" && l.status === "approved").sort((a, b) => b.ts - a.ts) });
+
+      case "settleExpense": {
+        const settleRole = requireRole_(body.username, ["admin", "cashier"]);
+        const validSettleSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+        if (validSettleSources.indexOf(body.paymentSource) === -1) {
+          return json_({ ok: false, error: "Select a payment source." });
+        }
+        const settleEntry = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
+        if (!settleEntry) return json_({ ok: false, error: "Entry not found." });
+        if (settleEntry.paymentStatus !== "unpaid") return json_({ ok: false, error: "This entry is not marked unpaid." });
+        const settlePatch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: body.paymentSource === "cash_drawer" };
+        updateObjectById_("Ledger", body.ledgerId, settlePatch);
+        logActivity_({
+          actorUsername: body.username, actorRole: settleRole, actionType: "EXPENSE_LOGGED", shiftId: settleEntry.shiftId,
+          description: body.username + " settled a debt: " + settleEntry.description + " — " + settleEntry.amount.toFixed(2) + " EGP now paid via " + body.paymentSource,
+          before: { paymentStatus: "unpaid" }, after: settlePatch,
+        });
+        return json_({ ok: true });
+      }
+
       case "approvePurchase": {
         requireRole_(body.username, ["admin"]);
         const ledger = readObjects_("Ledger");
@@ -2841,6 +2867,15 @@ function doPost(e) {
         });
       }
 
+      case "repairMenuRecipes": {
+        requireRole_(body.username, ["admin"]);
+        const repairResult = repairMenuRecipes_(body.username);
+        return json_({
+          ok: true, materialsCreated: repairResult.materialsCreated, itemsFixed: repairResult.itemsFixed,
+          stillUnresolved: repairResult.stillUnresolved, state: repairResult.state,
+        });
+      }
+
       default:
         return json_({ error: "Unknown action" });
     }
@@ -3056,6 +3091,169 @@ function slugify_(name) {
 // duplicates anything — an existing item with a matching name gets its
 // price/category/ingredients updated in place (same id, so past sessions
 // referencing it stay intact); anything new gets appended.
+function repairMenuRecipeMaterials_() {
+  // Genuinely missing materials — referenced by a recipe but not found
+  // under any Arabic name currently in RawMaterials. Verified via price
+  // matching + exact-quantity recipe alignment against 80 confirmed
+  // recipe pairs (94 English catalog recipes vs 88 Arabic source
+  // recipes), not guessed — see conversation for the full derivation.
+  return [
+    ["توبينج ميكس بيري", "kg", 2, 160],
+    ["توبينج خوخ", "kg", 2, 160],
+    ["توبينج جوز الهند", "kg", 2, 160],
+    ["كومبوت اناناس", "kg", 2, 160],
+    ["صوص كيندر", "kg", 1, 165]
+  ];
+}
+
+function repairMenuRecipeLinks_() {
+  // Every English-named menu item's ingredients, translated to the
+  // Arabic material names actually in use — resolves the "recipe
+  // references a material that no longer exists" break caused by the
+  // live inventory being bulk-imported under Arabic names while the
+  // menu catalog was built under English ones.
+  return {
+    "Mix Berry Smoothie": [["توبينج ميكس بيري", 0.03], ["تلج", 1.0]],
+    "Peach Smoothie": [["توبينج خوخ", 0.03], ["تلج", 1.0]],
+    "Pina Colada": [["توبينج جوز الهند", 0.01], ["كومبوت اناناس", 0.05], ["سيرب بلوكراساو", 0.005]],
+    "Classic Mojito": [["سيرب موهيتو", 0.01], ["سيرب سويت اند ساور", 0.01], ["كان", 1.0], ["ليمون قطع", 1.0], ["نعناع فريش", 0.5]],
+    "Peach Mojito": [["توبينج خوخ", 0.02], ["سيرب موهيتو", 0.01], ["كان", 1.0], ["ليمون قطع", 1.0], ["نعناع فريش", 0.5]],
+    "Kinder Shake": [["ايس كريم", 0.21], ["صوص كيندر", 0.03], ["لبن", 0.15]],
+    "Redbull": [["ريدبول", 1.0]],
+    "Milk": [["لبن", 0.05]],
+    "Honey": [["عسل", 0.02]],
+    "Nuts": [["مكسرات", 0.02]],
+    "Ice Cream": [["ايس كريم", 0.05]],
+    "Espresso Shot": [["اسبريسو", 0.009]],
+    "Espresso": [["اسبريسو", 0.007]],
+    "Espresso Double": [["اسبريسو", 0.014]],
+    "Macchiato": [["اسبريسو", 0.007], ["لبن", 0.02]],
+    "Macchiato Double": [["اسبريسو", 0.014], ["لبن", 0.04]],
+    "Cappuccino": [["اسبريسو", 0.014], ["لبن", 0.15], ["سكر", 0.01]],
+    "Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.01]],
+    "Spanish Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["حليب مكثف", 0.03]],
+    "Mocha": [["اسبريسو", 0.007], ["لبن", 0.15], ["صوص شوكليت", 0.03]],
+    "Cortado": [["لبن", 0.1], ["اسبريسو", 0.014], ["سكر", 0.01]],
+    "Nescafe": [["نسكافيه", 0.005], ["لبن", 0.15]],
+    "Hazelnut Coffee": [["بن تركي", 0.01], ["سيرب بندق", 0.03], ["لبن", 0.1]],
+    "Nutella Coffee": [["بن تركي", 0.01], ["لبن", 0.1], ["سما نوتيلا", 0.05]],
+    "French Coffee": [["بن تركي", 0.01], ["لبن", 0.1], ["سكر", 0.01]],
+    "Turkish Coffee": [["بن تركي", 0.015], ["سكر", 0.01]],
+    "Turkish Coffee Double": [["بن تركي", 0.025], ["سكر", 0.01]],
+    "Classic Frappe": [["بودر فانيليا", 0.03], ["اسبريسو", 0.007], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
+    "Nutella Frappe": [["بودر فانيليا", 0.03], ["سما نوتيلا", 0.04], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
+    "Lotus Frappe": [["بودر فانيليا", 0.03], ["سما لوتس", 0.04], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
+    "Caramel Frappe": [["بودر فانيليا", 0.03], ["اسبريسو", 0.007], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07], ["صوص كراميل", 0.03]],
+    "Hazelnut Frappe": [["بودر فانيليا", 0.03], ["سما فسدق", 0.03], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
+    "Iced Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02]],
+    "Iced Spanish Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02], ["حليب مكثف", 0.02]],
+    "Iced Mocha": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02], ["صوص شوكليت", 0.02]],
+    "Iced Cappuccino": [["نسكافيه", 0.005], ["لبن", 0.15], ["سكر", 0.02]],
+    "Vanilla Shake": [["ايس كريم", 0.21], ["لبن", 0.1]],
+    "Chocolate Shake": [["صوص شوكليت", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Mango Shake": [["مانجو فروزين", 0.1], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Strawberry Shake": [["توبينج فراوله", 0.025], ["ايس كريم", 0.21], ["لبن", 0.1]],
+    "Mix Berry Shake": [["توبينج بيري", 0.015], ["توبينج راس بيري", 0.015], ["ايس كريم", 0.21], ["لبن", 0.1]],
+    "Passion Fruit Shake": [["توبينج باشون فروت", 0.025], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Oreo Shake": [["اوريو", 1.0], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Nutella Shake": [["سما نوتيلا", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Lotus Shake": [["لبن", 0.03], ["ايس كريم", 0.21]],
+    "Pistachio Shake": [["سما فسدق", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Caramel Shake": [["صوص كراميل", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
+    "Mango": [["مانجو فريش", 0.25]],
+    "Strawberry": [["فراوله فروزين", 0.2], ["سكر", 0.03], ["لبن", 0.15]],
+    "Guava": [["جوافه فروزين", 0.2], ["لبن", 0.15], ["سكر", 0.03]],
+    "Banana": [["موز", 0.15], ["لبن", 0.15], ["سكر", 0.03]],
+    "Kiwi": [["كيوي فروزين", 0.2], ["سكر", 0.03]],
+    "Watermelon": [["بطيخ فروزين", 0.25], ["سكر", 0.02]],
+    "Pomegranate": [["رمان فروزين", 0.25], ["سكر", 0.02]],
+    "Lemon": [["ليمون", 0.06], ["سكر", 0.04], ["تلج", 1.0], ["لبن", 0.02]],
+    "Lemon Mint": [["ليمون", 0.06], ["نعناع سيرب", 0.04], ["سكر", 0.1], ["تلج", 1.0], ["لبن", 0.025]],
+    "Date": [["بلح فروزين", 0.2], ["سكر", 0.01], ["لبن", 0.15]],
+    "Avocado": [["افوكادو فروزين", 0.12], ["لبن", 0.15], ["ايس كريم", 0.07]],
+    "Classic Yogurt": [["زبادي", 2.0], ["سكر", 0.02], ["لبن", 0.1]],
+    "Watermelon Mint": [["بطيخ فروزين", 0.25], ["نعناع فريش", 1.0], ["تلج", 1.0], ["سكر", 0.02]],
+    "Passion Fruit Smoothie": [["توبينج باشون فروت", 0.04], ["تلج", 1.0], ["سكر", 0.02]],
+    "Mango Smoothie": [["مانجو فروزين", 0.1], ["سكر", 0.03], ["توبينج مانجو", 0.02]],
+    "Strawberry Smoothie": [["فراوله فروزين", 0.2], ["سكر", 0.02], ["توبينج فراوله", 0.02]],
+    "Lemon Mint Smoothie": [["ليمون", 0.075], ["سكر", 0.04], ["تلج", 1.0], ["لبن", 0.02]],
+    "Mix Berry Mojito": [["كان", 1.0], ["سيرب موهيتو", 0.01], ["نعناع فريش", 0.5], ["ليمون قطع", 1.0], ["توبينج بيري", 0.01], ["توبينج راس بيري", 0.01]],
+    "Strawberry Mojito": [["كان", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["توبينج فراوله", 0.02], ["نعناع فريش", 0.5]],
+    "Passion Fruit Mojito": [["كان", 1.0], ["سيرب موهيتو", 0.01], ["نعناع فريش", 0.5], ["توبينج باشون فروت", 0.02], ["ليمون قطع", 1.0]],
+    "Blue Sky Mojito": [["كان", 1.0], ["سيرب موهيتو", 0.01], ["ليمون قطع", 1.0], ["سيرب بلوكراساو", 0.01], ["توبينج بيري", 0.02], ["نعناع فريش", 0.5]],
+    "Mango Mojito": [["كان", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["توبينج مانجو", 0.02], ["تلج", 1.0], ["نعناع فريش", 0.5]],
+    "Cherry Mojito": [["كان", 1.0], ["تلج", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["سيرب شيري", 0.02], ["نعناع فريش", 0.5]],
+    "Red Bull Mojito": [["ريدبول", 1.0], ["ليمون قطع", 1.0], ["اكسترا توبينج", 0.02], ["نعناع فريش", 0.5], ["سيرب موهيتو", 0.01]],
+    "Molten Cake": [["مولتن كيك", 1.0], ["ايس كريم", 0.07], ["سما نوتيلا", 0.02], ["سما وايت", 0.01]],
+    "Cheesecake": [["تشيز كيك", 1.0], ["سما فسدق", 0.02], ["سما وايت", 0.01]],
+    "Brownies": [["براونيز", 1.0], ["ايس كريم", 0.07], ["صوص شوكليت", 0.02]],
+    "Waffle Nutella": [["سما نوتيلا", 0.05], ["ايس كريم", 0.07], ["عجينه وافل", 1.0], ["سما وايت", 0.01]],
+    "Waffle Four Seasons": [["سما لوتس", 0.05], ["ايس كريم", 0.07], ["عجينه وافل", 1.0], ["سما وايت", 0.01]],
+    "Berry Bomb": [["توبينج بيري", 0.02], ["توبينج راس بيري", 0.02], ["جهينه اناناس", 0.15], ["سيرب بلوكراساو", 0.02]],
+    "Classic Cocktail": [["مانجو فروزين", 0.1], ["فراوله فروزين", 0.1], ["جوافه فروزين", 0.1], ["تلج", 1.0], ["سكر", 0.02]],
+    "Mix Power": [["افوكادو فروزين", 0.06], ["بلح فروزين", 0.1], ["مكسرات", 0.015], ["عسل", 0.03], ["لبن", 0.15], ["سكر", 0.02]],
+    "Mango Dream": [["مانجو فروزين", 0.1], ["خوخ فروزين", 0.1], ["ايس كريم", 0.07], ["توبينج باشون فروت", 0.025]],
+    "Zabadooo": [["زبادي", 1.0], ["مانجو فروزين", 0.1], ["فواكهه قطع", 1.0], ["سكر", 0.02], ["تلج", 1.0]],
+    "Glitch Cocktail": [["زبادي", 1.0], ["مانجو فروزين", 0.1], ["ايس كريم", 0.14], ["موز", 0.1], ["عسل", 0.02], ["لبن", 0.1]],
+    "Twist": [["مانجو فروزين", 0.1], ["كيوي فروزين", 0.1], ["ايس كريم", 0.07], ["سكر", 0.02]],
+    "Classic Tea": [["شاي باكت", 1.0], ["سكر", 0.05]],
+    "Golden Tea": [["شاي سايب", 0.005], ["نعناع فريش", 0.5], ["سكر", 0.05], ["قرنفل", 0.005]],
+    "Flavored Tea": [["شاي نكهات", 1.0], ["سكر", 0.05]],
+    "Milk Tea": [["شاي باكت", 1.0], ["سكر", 0.05], ["لبن", 0.05]],
+    "Flavored Milk Tea": [["شاي نكهات", 1.0], ["لبن", 0.05], ["سكر", 0.05]],
+    "Hot Cider": [["جهينه تفاح", 0.15], ["قرفه عيدان", 0.01], ["سكر", 0.01]],
+    "Herbal Tea": [["اعشاب باكت", 1.0], ["سكر", 0.05]],
+    "Hot Chocolate": [["لبن", 0.1], ["بودر شوكليت", 0.03]],
+    "Hot Chocolate Nutella": [["لبن", 0.1], ["بودر شوكليت", 0.03], ["سما نوتيلا", 0.02]],
+    "Herbal Cocktail": [["اعشاب باكت", 2.0], ["قرفه عيدان", 0.01], ["عسل", 0.02], ["نعناع فريش", 0.5], ["ليمون قطع", 1.0]],
+    "Sahlab": [["سحلب بودر", 0.025], ["لبن", 0.15], ["مكسرات", 0.02], ["سكر", 0.02]]
+  };
+}
+
+function repairMenuRecipes_(username) {
+  const existingMaterials = readObjects_("RawMaterials");
+  const materialIdByName = {};
+  existingMaterials.forEach(function (m) { materialIdByName[m.name.trim().toLowerCase()] = m.id; });
+
+  let materialsCreated = 0;
+  repairMenuRecipeMaterials_().forEach(function (row) {
+    const name = row[0], unit = row[1], minStockAlert = row[2], unitCost = row[3];
+    const key = name.trim().toLowerCase();
+    if (materialIdByName[key]) return; // already exists — never duplicate
+    const id = newId_("mat");
+    appendObject_("RawMaterials", { id: id, name: name, unit: unit, minStockAlert: minStockAlert, unitCost: unitCost, openingStock: 0, category: "", storageLocation: "", lastPurchaseCost: unitCost });
+    materialIdByName[key] = id;
+    materialsCreated++;
+  });
+
+  const recipeMap = repairMenuRecipeLinks_();
+  const state = getState_();
+  let itemsFixed = 0;
+  const stillUnresolved = [];
+
+  state.menu = state.menu.map(function (item) {
+    const recipeRows = recipeMap[item.name];
+    if (!recipeRows) return item; // menu item not covered by this repair, leave untouched
+    const ingredients = [];
+    recipeRows.forEach(function (row) {
+      const matName = row[0], qty = row[1];
+      const id = materialIdByName[matName.trim().toLowerCase()];
+      if (!id) { stillUnresolved.push(item.name + " -> " + matName); return; }
+      ingredients.push({ stockId: id, qty: qty });
+    });
+    itemsFixed++;
+    return Object.assign({}, item, { ingredients: ingredients });
+  });
+  setState_(state);
+
+  logActivity_({
+    actorUsername: username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
+    description: username + " repaired menu recipe links — created " + materialsCreated + " missing material(s), rebuilt " + itemsFixed + " menu item recipe(s) to reference current inventory.",
+  });
+
+  return { ok: true, materialsCreated: materialsCreated, itemsFixed: itemsFixed, stillUnresolved: stillUnresolved, state: withStockView_(getState_()) };
+}
+
 function importMenuCatalog_() {
   const existingMaterials = readObjects_("RawMaterials");
   const materialIdByName = {};
@@ -3132,6 +3330,61 @@ function withStockView_(state) {
 // (inventory + ledger effective immediately). Cashier submissions are
 // `pending` and have NO effect until an admin approves them. A receipt
 // photo is mandatory either way.
+function handleSubmitExpense_(body) {
+  if (!body.secret || body.secret !== getSecret_()) return json_({ error: "forbidden" });
+  let role;
+  try {
+    role = requireRole_(body.username, ["admin", "cashier"]);
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+  if (!body.itemName || !body.amount) {
+    return json_({ ok: false, error: "Item/expense description and amount are required." });
+  }
+  const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
+  let paymentSource = null;
+  if (paymentStatus === "paid") {
+    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    if (validSources.indexOf(body.paymentSource) === -1) {
+      return json_({ ok: false, error: "Select a payment source." });
+    }
+    paymentSource = body.paymentSource;
+  }
+
+  let receiptUrl = null;
+  if (body.receiptBase64) {
+    try {
+      receiptUrl = uploadReceipt_(body.receiptBase64, body.receiptMimeType, "receipt-" + Date.now() + ".jpg");
+    } catch (err) {
+      return json_({ ok: false, error: "Receipt upload failed: " + String(err) });
+    }
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const isAdmin = role === "admin";
+    const amount = Number(body.amount);
+    const entry = {
+      id: newId_("ledg"), ts: Date.now(), amount: amount, direction: "outflow", type: "midShiftPurchase",
+      category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
+      supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
+      receiptUrl: receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
+      shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
+      paymentSource: paymentSource, paymentStatus: paymentStatus,
+    };
+    appendObject_("Ledger", entry);
+    logActivity_({
+      actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
+      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " expense: " + body.itemName + " for " + amount.toFixed(2) + " EGP (" + paymentStatus + ")",
+      after: { status: entry.status, amount: amount, itemName: body.itemName, paymentStatus: paymentStatus },
+    });
+    return json_({ ok: true, status: entry.status, entry: entry });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function handleSubmitPurchase_(body) {
   if (!body.secret || body.secret !== getSecret_()) return json_({ error: "forbidden" });
   let role;

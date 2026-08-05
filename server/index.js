@@ -31,6 +31,7 @@ const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
+const { repairMenuRecipes_ } = require("./lib/recipe-repair");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 
@@ -568,6 +569,11 @@ Object.assign(handlers, {
     });
     return { ok: true, count: result.count, month: result.month, state: withStockView_(getState_()) };
   },
+  repairMenuRecipes(body) {
+    requireRole_(body.username, ["admin"]);
+    const result = repairMenuRecipes_(readObjects_, appendObject_, newId_, getState_, setState_, withStockView_, logActivity_, body.username);
+    return { ok: true, materialsCreated: result.materialsCreated, itemsFixed: result.itemsFixed, stillUnresolved: result.stillUnresolved, state: result.state };
+  },
   getInventorySnapshots(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const all = readObjects_("InventorySnapshots");
@@ -628,6 +634,61 @@ Object.assign(handlers, {
       after: { status: entry.status, amount, materialId: body.materialId, qty: body.qty },
     });
     return { ok: true, status: entry.status, entry };
+  },
+  submitExpense(body) {
+    const role = requireRole_(body.username, ["admin", "cashier"]);
+    if (!body.itemName || !body.amount) return { ok: false, error: "Item/expense description and amount are required." };
+    const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
+    // Unpaid: no money has left anything yet, so there's genuinely no
+    // payment source to record — paidFromDrawer stays false, which is
+    // also exactly what already keeps this out of the active shift's
+    // expected-cash calculation (that logic already filters on
+    // paidFromDrawer, so an unpaid expense is automatically excluded
+    // without needing any special-case handling there).
+    let paymentSource = null;
+    if (paymentStatus === "paid") {
+      const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+      if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
+      paymentSource = body.paymentSource;
+    }
+    const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
+    const isAdmin = role === "admin";
+    const amount = Number(body.amount);
+    const entry = {
+      id: newId_("ledg"), ts: Date.now(), amount, direction: "outflow", type: "midShiftPurchase",
+      category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
+      supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
+      receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
+      shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
+      paymentSource, paymentStatus,
+    };
+    appendObject_("Ledger", entry);
+    logActivity_({
+      actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
+      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " expense: " + body.itemName + " for " + amount.toFixed(2) + " EGP (" + paymentStatus + ")",
+      after: { status: entry.status, amount, itemName: body.itemName, paymentStatus },
+    });
+    return { ok: true, status: entry.status, entry };
+  },
+  getUnpaidExpenses(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    return { items: readObjects_("Ledger").filter((l) => l.paymentStatus === "unpaid" && l.status === "approved").sort((a, b) => b.ts - a.ts) };
+  },
+  settleExpense(body) {
+    const role = requireRole_(body.username, ["admin", "cashier"]);
+    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
+    const entry = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
+    if (!entry) return { ok: false, error: "Entry not found." };
+    if (entry.paymentStatus !== "unpaid") return { ok: false, error: "This entry is not marked unpaid." };
+    const patch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: body.paymentSource === "cash_drawer" };
+    updateObjectById_("Ledger", body.ledgerId, patch);
+    logActivity_({
+      actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
+      description: body.username + " settled a debt: " + entry.description + " — " + entry.amount.toFixed(2) + " EGP now paid via " + body.paymentSource,
+      before: { paymentStatus: "unpaid" }, after: patch,
+    });
+    return { ok: true };
   },
   getPendingApprovals(body) {
     requireRole_(body.username, ["admin"]);

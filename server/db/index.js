@@ -48,6 +48,7 @@ addColumnIfMissing_("RawMaterials", "openingStock", "REAL");
 addColumnIfMissing_("RawMaterials", "category", "TEXT");
 addColumnIfMissing_("RawMaterials", "storageLocation", "TEXT");
 addColumnIfMissing_("RawMaterials", "lastPurchaseCost", "REAL");
+addColumnIfMissing_("Ledger", "paymentStatus", "TEXT");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",

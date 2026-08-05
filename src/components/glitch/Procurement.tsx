@@ -6,7 +6,7 @@ import { Camera, CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Lan
 const TYPE_LABEL: Record<string, string> = {
   stockedBatch: "Stocked Batch (bulk delivery)",
   dailyFresh: "Daily Fresh Sheet (perishables)",
-  midShiftPurchase: "Mid-Shift Purchase",
+  midShiftPurchase: "Expenses",
 };
 
 const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
@@ -59,11 +59,40 @@ export function ProcurementPage() {
 }
 
 function SubmitPurchaseForm() {
+  const [tab, setTab] = useState<"dailyFresh" | "stockedBatch" | "expenses">("dailyFresh");
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Package className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+        <h2 className="text-lg font-semibold">Log a Purchase</h2>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
+        {([["dailyFresh", TYPE_LABEL.dailyFresh], ["stockedBatch", TYPE_LABEL.stockedBatch], ["expenses", "Expenses"]] as const).map(([t, label]) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`text-xs py-2.5 px-3 rounded-lg border transition ${
+              tab === t
+                ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[#2b2416]"
+                : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "expenses" ? <ExpenseSubmitForm /> : <MaterialPurchaseForm purchaseType={tab} />}
+    </div>
+  );
+}
+
+function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "stockedBatch" }) {
   const { state, activeShift, submitPurchase } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [purchaseType, setPurchaseType] = useState<"dailyFresh" | "midShiftPurchase" | "stockedBatch">("dailyFresh");
   const [materialId, setMaterialId] = useState("");
   const [qty, setQty] = useState("");
   const [unitCost, setUnitCost] = useState("");
@@ -122,28 +151,7 @@ function SubmitPurchaseForm() {
   };
 
   return (
-    <div className="glass rounded-2xl p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Package className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-        <h2 className="text-lg font-semibold">Log a Purchase</h2>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
-        {(["dailyFresh", "midShiftPurchase", "stockedBatch"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setPurchaseType(t)}
-            className={`text-xs py-2.5 px-3 rounded-lg border transition ${
-              purchaseType === t
-                ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[#2b2416]"
-                : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
-            }`}
-          >
-            {TYPE_LABEL[t]}
-          </button>
-        ))}
-      </div>
-
+    <div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Material</label>
@@ -214,6 +222,193 @@ function SubmitPurchaseForm() {
 
       <div className="mt-4">
         <label className="text-xs uppercase tracking-widest text-muted-foreground">Receipt Photo (required)</label>
+        <div className="mt-2 flex items-center gap-4">
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-sm"
+          >
+            <Camera className="w-4 h-4" /> {receiptFile ? "Change Photo" : "Attach Photo"}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+          {receiptPreview && <img src={receiptPreview} alt="Receipt preview" className="h-16 w-16 object-cover rounded-lg border border-black/10" />}
+        </div>
+      </div>
+
+      {result && (
+        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)]"}`}>
+          {result.text}
+        </div>
+      )}
+
+      <button
+        onClick={submit}
+        disabled={submitting}
+        className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
+      >
+        {submitting ? "Submitting..." : isAdmin ? "Submit & Approve" : "Submit for Approval"}
+      </button>
+    </div>
+  );
+}
+
+// Genuinely separate from material purchases — free-text item/category
+// (not tied to Raw Materials), no inventory or batch interaction, and a
+// Paid/Unpaid toggle that conditionally shows Payment Source (unpaid
+// means no money has moved yet, so there's nothing to pick a source for).
+function ExpenseSubmitForm() {
+  const { state, activeShift, submitExpense } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [itemName, setItemName] = useState("");
+  const [category, setCategory] = useState("");
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
+  const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const onFile = (f: File | null) => {
+    setReceiptFile(f);
+    if (f) setReceiptPreview(URL.createObjectURL(f));
+    else setReceiptPreview(null);
+  };
+
+  const reset = () => {
+    setItemName(""); setCategory(""); setAmount(""); setNotes(""); setSupplierId(""); setPaymentStatus("paid"); setPaymentSource("");
+    onFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const submit = async () => {
+    setResult(null);
+    if (!itemName || !amount) { setResult({ kind: "err", text: "Item/expense description and amount are required." }); return; }
+    if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
+    setSubmitting(true);
+    try {
+      const res = await submitExpense({
+        itemName,
+        category: category || undefined,
+        amount: parseFloat(amount),
+        notes: notes || undefined,
+        supplierId: supplierId || undefined,
+        paymentStatus,
+        paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
+        receiptFile,
+      });
+      if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
+      setResult({
+        kind: "ok",
+        text: res.status === "approved"
+          ? paymentStatus === "unpaid"
+            ? `Logged — ${fmtMoney(parseFloat(amount))} recorded as unpaid, showing on the Unpaid Expenses page until settled.`
+            : `Approved instantly — ${fmtMoney(parseFloat(amount))} recorded.`
+          : `Submitted for admin approval — ${fmtMoney(parseFloat(amount))} is pending, no effect yet.`,
+      });
+      reset();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Item / Expense Name</label>
+          <input value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="e.g. Printer paper, delivery fee, repairs..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Category (optional)</label>
+          <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Office Supplies, Maintenance..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount (EGP)</label>
+          <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier (optional)</label>
+          <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
+            <option value="">None</option>
+            {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div className="md:col-span-2">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Notes (optional)</label>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Status / حالة الدفع</label>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => setPaymentStatus("paid")}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                paymentStatus === "paid"
+                  ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.6)] text-[oklch(0.78_0.2_155)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Paid
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPaymentStatus("unpaid"); setPaymentSource(""); }}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                paymentStatus === "unpaid"
+                  ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[oklch(0.82_0.16_85)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Unpaid (Debt)
+            </button>
+          </div>
+        </div>
+
+        {paymentStatus === "paid" ? (
+          <div className="md:col-span-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Source / طريقة الدفع (required)</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-1">
+              {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => {
+                const Icon = PAYMENT_SOURCE_ICONS[src];
+                return (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setPaymentSource(src)}
+                    className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
+                      paymentSource === src
+                        ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold"
+                        : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" /> {PAYMENT_SOURCE_LABELS[src]}
+                  </button>
+                );
+              })}
+            </div>
+            {paymentSource === "cash_drawer" && (
+              <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">Deducts from the active shift's expected cash.</p>
+            )}
+            {!activeShift && paymentSource === "cash_drawer" && (
+              <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+            )}
+          </div>
+        ) : (
+          <div className="md:col-span-2 text-xs text-muted-foreground bg-black/5 border border-black/8 rounded-lg p-3">
+            No money has left the drawer or safe yet — this won't affect any shift's cash total until it's settled on the
+            <strong> Unpaid Expenses</strong> page.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Receipt Photo (optional)</label>
         <div className="mt-2 flex items-center gap-4">
           <button
             onClick={() => fileRef.current?.click()}

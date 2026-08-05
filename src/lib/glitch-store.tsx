@@ -62,10 +62,12 @@ import {
   getRawMaterialsFn, addRawMaterialFn, bulkAddRawMaterialsFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
   restockMaterialFn, getRestockLogFn, setActualStockFn, submitWasteInvoiceFn, getWasteInvoicesFn,
   importMenuCatalogFn,
+  repairMenuRecipesFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
   logRecurringExpensePaymentFn,
   submitPurchaseFn,
+  submitExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
@@ -175,6 +177,7 @@ interface StoreContextValue {
   wasteInvoices: WasteInvoice[];
   refreshWasteInvoices: () => Promise<void>;
   importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
+  repairMenuRecipes: () => Promise<{ ok: boolean; materialsCreated: number; itemsFixed: number; stillUnresolved: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<{ ok: boolean; error?: string }>;
   deleteRawMaterial: (id: string) => Promise<void>;
   addSupplier: (s: { name: string; contact: string; category: string }) => Promise<void>;
@@ -197,6 +200,19 @@ interface StoreContextValue {
     paymentSource: PaymentSource;
     receiptFile: File;
   }) => Promise<{ ok: boolean; error?: string; status?: string }>;
+  submitExpense: (p: {
+    itemName: string;
+    category?: string;
+    amount: number;
+    notes?: string;
+    supplierId?: string;
+    paymentStatus: "paid" | "unpaid";
+    paymentSource?: PaymentSource;
+    receiptFile?: File | null;
+  }) => Promise<{ ok: boolean; error?: string; status?: string }>;
+  unpaidExpenses: LedgerEntry[];
+  refreshUnpaidExpenses: () => Promise<void>;
+  settleExpense: (ledgerId: string, paymentSource: PaymentSource) => Promise<{ ok: boolean; error?: string }>;
   approvePurchase: (ledgerId: string) => Promise<void>;
   rejectPurchase: (ledgerId: string, reason?: string) => Promise<void>;
   refreshLedger: () => Promise<void>;
@@ -242,6 +258,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [unpaidExpenses, setUnpaidExpenses] = useState<LedgerEntry[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<LedgerEntry[]>([]);
   const [voidRequests, setVoidRequests] = useState<VoidRequest[]>([]);
   const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
@@ -680,6 +697,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       };
     });
   };
+  const repairMenuRecipes: StoreContextValue["repairMenuRecipes"] = async () => {
+    return withPending("repairMenuRecipes", async () => {
+      const res = await repairMenuRecipesFn();
+      if (res.ok) {
+        setAppState(res.state);
+        setMaterials(await getRawMaterialsFn());
+      }
+      return { ok: res.ok, materialsCreated: res.materialsCreated, itemsFixed: res.itemsFixed, stillUnresolved: res.stillUnresolved };
+    });
+  };
   const updateRawMaterial: StoreContextValue["updateRawMaterial"] = async (id, patch) => {
     return withPending(`updateRawMaterial:${id}`, async () => {
       const res = await updateRawMaterialFn({ data: { id, patch } });
@@ -781,6 +808,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (currentUser?.role === "admin") setAppState(await getStateFn());
       }
       return { ok: res.ok, error: res.error, status: res.status };
+    });
+  };
+  const submitExpense: StoreContextValue["submitExpense"] = async (p) => {
+    return withPending("submitExpense", async () => {
+      const receiptBase64 = p.receiptFile ? await fileToBase64(p.receiptFile) : undefined;
+      const res = await submitExpenseFn({
+        data: {
+          itemName: p.itemName,
+          category: p.category,
+          amount: p.amount,
+          notes: p.notes,
+          supplierId: p.supplierId,
+          paymentStatus: p.paymentStatus,
+          paymentSource: p.paymentStatus === "paid" ? p.paymentSource : undefined,
+          shiftId: appState.activeShiftId,
+          receiptBase64,
+          receiptMimeType: p.receiptFile?.type || undefined,
+        },
+      });
+      if (res.ok) {
+        await refreshLedger();
+        if (currentUser?.role === "admin") setAppState(await getStateFn());
+        if (res.status === "approved" && p.paymentStatus === "unpaid") await refreshUnpaidExpenses();
+      }
+      return { ok: res.ok, error: res.error, status: res.status };
+    });
+  };
+  const refreshUnpaidExpenses: StoreContextValue["refreshUnpaidExpenses"] = async () => {
+    setUnpaidExpenses(await getUnpaidExpensesFn());
+  };
+  const settleExpense: StoreContextValue["settleExpense"] = async (ledgerId, paymentSource) => {
+    return withPending(`settleExpense:${ledgerId}`, async () => {
+      const res = await settleExpenseFn({ data: { ledgerId, paymentSource } });
+      if (res.ok) {
+        setUnpaidExpenses((prev) => prev.filter((e) => e.id !== ledgerId));
+        await refreshLedger();
+      }
+      return { ok: res.ok, error: res.error };
     });
   };
   const approvePurchase: StoreContextValue["approvePurchase"] = async (ledgerId) => {
@@ -1017,11 +1082,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
-    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog,
+    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog, repairMenuRecipes,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };

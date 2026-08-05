@@ -14,6 +14,7 @@ export function SetupPage() {
         </p>
       </div>
       <MenuImportPanel />
+      <RecipeRepairPanel />
       <PrinterSetupPanel />
       <GeofencePanel />
       <MaterialsPanel />
@@ -301,6 +302,60 @@ function MenuImportPanel() {
             <div className="text-[oklch(0.82_0.16_85)] text-xs mt-2">
               No recipe was provided for these — they won't deduct stock until you add ingredients on the Inventory page:{" "}
               {result.itemsWithoutRecipe.join(", ")}.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecipeRepairPanel() {
+  const { repairMenuRecipes } = useStore();
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ materialsCreated: number; itemsFixed: number; stillUnresolved: string[] } | null>(null);
+
+  const run = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await repairMenuRecipes();
+      setResult(res);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.58_0.22_25/0.4)]">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Repair Menu Recipe Links</h2>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+            Fixes recipes built when the menu catalog used English material names, now that Inventory uses Arabic
+            names — rebuilds every affected menu item's recipe to point at the correct current material, creating
+            only the handful of materials that were genuinely missing (verified via price + exact-quantity matching
+            against the original recipe book, not guessed). Safe to run more than once — never creates a duplicate
+            material, and any menu item not covered by this repair is left untouched.
+          </p>
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="shrink-0 px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border border-[oklch(0.58_0.22_25/0.5)] text-[oklch(0.58_0.22_25)] text-sm font-semibold disabled:opacity-60"
+        >
+          {running ? "Repairing..." : "Run Repair"}
+        </button>
+      </div>
+      {result && (
+        <div className="mt-4 p-4 rounded-lg bg-white/60 border border-black/8 text-sm space-y-1">
+          <div className="text-[oklch(0.78_0.2_155)]">
+            {result.materialsCreated} new raw material{result.materialsCreated === 1 ? "" : "s"} created ·{" "}
+            {result.itemsFixed} menu item recipe{result.itemsFixed === 1 ? "" : "s"} rebuilt
+          </div>
+          {result.stillUnresolved.length > 0 && (
+            <div className="text-[oklch(0.58_0.22_25)] text-xs mt-2">
+              Couldn't resolve these — check spelling against Inventory manually: {result.stillUnresolved.join(", ")}.
             </div>
           )}
         </div>

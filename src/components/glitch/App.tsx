@@ -10,6 +10,7 @@ import { InventoryPage } from "./Inventory";
 import { UsersPage } from "./Users";
 import { ReportsPage } from "./Reports";
 import { ProcurementPage } from "./Procurement";
+import { UnpaidExpensesPage } from "./UnpaidExpenses";
 import { SetupPage } from "./Setup";
 import { VoidsPage } from "./Voids";
 import { AuditLogPage } from "./AuditLog";
@@ -60,6 +61,7 @@ function Shell() {
             : view === "lounge" ? <LoungePage />
             : view === "inventory" ? <InventoryPage />
             : view === "procurement" ? <ProcurementPage />
+            : view === "unpaidExpenses" ? <UnpaidExpensesPage />
             : view === "setup" ? <SetupPage />
             : view === "reports" ? <ReportsPage />
             : view === "voids" ? <VoidsPage />

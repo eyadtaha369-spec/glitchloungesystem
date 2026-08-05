@@ -375,6 +375,10 @@ export interface LedgerEntry {
   materialId: string | null;
   qty: number | null;
   unitCost: number | null;
+  // "paid" for everything except an unpaid/debt Expense entry — that
+  // one case is what keeps paidFromDrawer false and paymentSource null
+  // until it's settled via settleExpense.
+  paymentStatus: "paid" | "unpaid";
 }
 
 // ---------- Void workflow (anti-collusion) ----------

@@ -181,6 +181,40 @@ export const submitPurchaseFn = createServerFn({ method: "POST" })
     });
   });
 
+export const submitExpenseFn = createServerFn({ method: "POST" })
+  .validator((d: {
+    itemName: string;
+    category?: string;
+    amount: number;
+    notes?: string;
+    supplierId?: string;
+    paymentStatus: "paid" | "unpaid";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    shiftId?: string | null;
+    receiptBase64?: string;
+    receiptMimeType?: string;
+  }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; status?: string; entry?: LedgerEntry }>("submitExpense", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+export const getUnpaidExpensesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const res = await callAppsScript<{ items: LedgerEntry[] }>("getUnpaidExpenses", { username: user.username });
+  return res.items;
+});
+
+export const settleExpenseFn = createServerFn({ method: "POST" })
+  .validator((d: { ledgerId: string; paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer" }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string }>("settleExpense", { ...data, username: user.username });
+  });
+
 // ---------- Ledger / approvals (admin) ----------
 export const getLedgerFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireAdmin();
@@ -213,4 +247,11 @@ export const importMenuCatalogFn = createServerFn({ method: "POST" }).handler(as
     ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number;
     itemsWithoutRecipe: string[]; state: AppState;
   }>("importMenuCatalog", { username: user.username });
+});
+
+export const repairMenuRecipesFn = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireAdmin();
+  return callAppsScript<{
+    ok: boolean; materialsCreated: number; itemsFixed: number; stillUnresolved: string[]; state: AppState;
+  }>("repairMenuRecipes", { username: user.username });
 });

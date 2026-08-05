@@ -40,6 +40,7 @@ export const translations = {
     lounge: { en: "Lounge", ar: "الصالة" },
     inventory: { en: "Inventory", ar: "المخزون" },
     procurement: { en: "Procurement", ar: "المشتريات" },
+    unpaidExpenses: { en: "Unpaid Expenses", ar: "المصروفات والمشتريات الآجلة" },
     staffOrders: { en: "Staff Orders", ar: "طلبات الموظفين" },
     voidLedger: { en: "Void Ledger", ar: "سجل الإلغاءات" },
     auditTrail: { en: "Audit Trail", ar: "سجل التدقيق" },

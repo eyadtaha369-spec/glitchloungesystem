@@ -1,16 +1,17 @@
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
 
-export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit";
+export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit";
 
 const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
   { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { id: "rooms", labelKey: "nav.rooms", icon: Gamepad2 },
   { id: "lounge", labelKey: "nav.lounge", icon: Sofa },
   { id: "procurement", labelKey: "nav.procurement", icon: ShoppingCart },
+  { id: "unpaidExpenses", labelKey: "nav.unpaidExpenses", icon: Receipt },
   { id: "staffOrders", labelKey: "nav.staffOrders", icon: UserCog },
   { id: "inventory", labelKey: "nav.inventory", icon: Package, adminOnly: true },
   { id: "voids", labelKey: "nav.voidLedger", icon: ShieldAlert, adminOnly: true },
