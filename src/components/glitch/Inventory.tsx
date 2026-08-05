@@ -1168,9 +1168,16 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [editPrice, setEditPrice] = useState(0);
   const [editCategory, setEditCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [editIngs, setEditIngs] = useState<{ stockId: string; qty: number }[]>([]);
+  const [editErr, setEditErr] = useState<string | null>(null);
 
   const save = () => {
     if (!id || !name) return;
+    const incomplete = ings.filter((i) => (i.stockId && !(i.qty > 0)) || (!i.stockId && i.qty > 0));
+    if (incomplete.length > 0) {
+      setEditErr(`${incomplete.length} ingredient row${incomplete.length === 1 ? " has" : "s have"} a quantity but no material selected (or vice versa) — fix or remove ${incomplete.length === 1 ? "it" : "them"} before saving, or it will silently not be included.`);
+      return;
+    }
+    setEditErr(null);
     onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0) });
     setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setShowForm(false);
   };
@@ -1181,9 +1188,21 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     setEditPrice(m.price);
     setEditCategory(m.category ?? MENU_CATEGORIES[0]);
     setEditIngs(m.ingredients.map((i) => ({ ...i })));
+    setEditErr(null);
   };
   const saveEdit = () => {
     if (!editingId || !editName) return;
+    // Previously, an ingredient row with a quantity typed in but no
+    // material actually selected (still on the "select stock..."
+    // placeholder) was silently dropped on save — the recipe would save
+    // as if that ingredient never existed, with no warning at all. Block
+    // the save and say so plainly instead.
+    const incomplete = editIngs.filter((i) => (i.stockId && !(i.qty > 0)) || (!i.stockId && i.qty > 0));
+    if (incomplete.length > 0) {
+      setEditErr(`${incomplete.length} ingredient row${incomplete.length === 1 ? " has" : "s have"} a quantity but no material selected (or vice versa) — fix or remove ${incomplete.length === 1 ? "it" : "them"} before saving, or it will silently not be included.`);
+      return;
+    }
+    setEditErr(null);
     onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0) });
     setEditingId(null);
   };
@@ -1209,18 +1228,22 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
           </div>
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Ingredients</div>
-            {ings.map((ing, idx) => (
-              <div key={idx} className="grid grid-cols-3 gap-2">
-                <select value={ing.stockId} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10">
-                  <option value="">select stock...</option>
-                  {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
-                </select>
-                <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
-                <button onClick={() => setIngs(ings.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
-              </div>
-            ))}
+            {ings.map((ing, idx) => {
+              const incomplete = (ing.stockId && !(ing.qty > 0)) || (!ing.stockId && ing.qty > 0);
+              return (
+                <div key={idx} className={`grid grid-cols-3 gap-2 ${incomplete ? "ring-2 ring-[oklch(0.75_0.22_25)] rounded" : ""}`}>
+                  <select value={ing.stockId} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10">
+                    <option value="">select stock...</option>
+                    {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
+                  </select>
+                  <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
+                  <button onClick={() => setIngs(ings.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
+                </div>
+              );
+            })}
             <button onClick={() => setIngs([...ings, { stockId: "", qty: 0 }])} className="text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10">+ Ingredient</button>
           </div>
+          {editErr && <div className="text-xs text-[oklch(0.75_0.22_25)] bg-[oklch(0.75_0.22_25/0.1)] rounded-lg p-2">{editErr}</div>}
           <button onClick={save} className="py-2 px-4 rounded bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-sm">Save Menu Item</button>
         </div>
       )}
@@ -1238,21 +1261,25 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                 </select>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>
-                  {editIngs.map((ing, idx) => (
-                    <div key={idx} className="grid grid-cols-3 gap-1.5">
-                      <select value={ing.stockId} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10">
-                        <option value="">select stock...</option>
-                        {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
-                      </select>
-                      <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10" />
-                      <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
-                    </div>
-                  ))}
+                  {editIngs.map((ing, idx) => {
+                    const incomplete = (ing.stockId && !(ing.qty > 0)) || (!ing.stockId && ing.qty > 0);
+                    return (
+                      <div key={idx} className={`grid grid-cols-3 gap-1.5 ${incomplete ? "ring-2 ring-[oklch(0.75_0.22_25)] rounded" : ""}`}>
+                        <select value={ing.stockId} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10">
+                          <option value="">select stock...</option>
+                          {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
+                        </select>
+                        <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10" />
+                        <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
+                      </div>
+                    );
+                  })}
                   <button onClick={() => setEditIngs([...editIngs, { stockId: "", qty: 0 }])} className="text-xs px-2 py-1 rounded bg-black/5 border border-black/10">+ Ingredient</button>
                 </div>
+                {editErr && <div className="text-xs text-[oklch(0.75_0.22_25)] bg-[oklch(0.75_0.22_25/0.1)] rounded-lg p-2">{editErr}</div>}
                 <div className="flex items-center gap-2 pt-1">
                   <button onClick={saveEdit} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"><Save className="w-3.5 h-3.5" /> Save</button>
-                  <button onClick={() => setEditingId(null)} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-black/5 border border-black/10"><X className="w-3.5 h-3.5" /> Cancel</button>
+                  <button onClick={() => { setEditingId(null); setEditErr(null); }} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-black/5 border border-black/10"><X className="w-3.5 h-3.5" /> Cancel</button>
                 </div>
               </div>
             );
