@@ -11,7 +11,7 @@ function microTs(ts: number) {
 
 const RISK_STYLE: Record<AuditRiskLevel, string> = {
   green: "bg-[oklch(0.78_0.2_155/0.12)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]",
-  yellow: "bg-[oklch(0.82_0.16_85/0.12)] border-[oklch(0.82_0.16_85/0.4)] text-[oklch(0.82_0.16_85)]",
+  yellow: "bg-black/12 border-black/40 text-white",
   red: "bg-[oklch(0.62_0.24_25/0.12)] border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)]",
 };
 

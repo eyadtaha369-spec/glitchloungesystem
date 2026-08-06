@@ -514,7 +514,7 @@ function ArchiveStockTable({ month, label, rows, loading }: { month: string; lab
                   <tr key={r.id} className="border-b border-black/8">
                     <td className="py-2 px-2 font-semibold">{r.materialName}</td>
                     <td className="py-2 px-2">
-                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.82_0.16_85/0.5)] text-[#2b2416]">{r.unit}</span>
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/25 border border-black/50 text-[#2b2416]">{r.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-muted-foreground">{r.category || "—"}</td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{r.openingBalance}</td>
@@ -583,7 +583,7 @@ function StockTable() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => setRolloverConfirmOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] text-xs font-bold uppercase tracking-wide hover:bg-[oklch(0.82_0.16_85/0.25)]"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black/15 border border-black/50 text-white text-xs font-bold uppercase tracking-wide hover:bg-black/25"
             title="اعتماد الجرد وبداية فترة جديدة"
           >
             <RotateCcw className="w-3.5 h-3.5" /> اعتماد الجرد وبداية فترة جديدة
@@ -597,9 +597,9 @@ function StockTable() {
 
       {rolloverConfirmOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !rolloverRunning && setRolloverConfirmOpen(false)}>
-          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.6)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-black/60" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 space-y-3">
-              <h3 className="text-lg font-bold text-[oklch(0.82_0.16_85)]">اعتماد الجرد وبداية فترة جديدة</h3>
+              <h3 className="text-lg font-bold text-black">اعتماد الجرد وبداية فترة جديدة</h3>
               <p className="text-sm text-muted-foreground">
                 Requires a real physical count (Actual Stock) entered for every single material first — this won't
                 proceed until all of them are filled in. For each one, that count becomes the new, locked Opening
@@ -614,7 +614,7 @@ function StockTable() {
               <button
                 onClick={() => void runRollover()}
                 disabled={rolloverRunning}
-                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85)] text-black font-bold disabled:opacity-40"
+                className="px-4 py-2 rounded-lg text-sm bg-black text-white font-bold disabled:opacity-40"
               >
                 {rolloverRunning ? "Rolling over..." : "Confirm Rollover"}
               </button>
@@ -676,13 +676,13 @@ function StockTable() {
                 const varianceQty = hasActualCount ? Math.round((s.actualStock! - s.systemBalance) * 100) / 100 : null;
                 const varianceValue = varianceQty !== null ? Math.round(varianceQty * s.lastPurchaseCost * 100) / 100 : null;
                 const status = s.systemBalance <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.62_0.24_25)" }
-                  : s.systemBalance < s.minStock ? { label: "قليل", labelEn: "Low", color: "oklch(0.82_0.16_85)" }
+                  : s.systemBalance < s.minStock ? { label: "قليل", labelEn: "Low", color: "#000000" }
                   : { label: "متوفر", labelEn: "Available", color: "oklch(0.78_0.2_155)" };
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
                     <td className="py-2 px-2">
-                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.82_0.16_85/0.5)] text-[#2b2416]">{s.unit}</span>
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/25 border border-black/50 text-[#2b2416]">{s.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{s.systemBalance}</td>
@@ -715,7 +715,7 @@ function StockTable() {
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}
-                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.4)] text-[oklch(0.82_0.16_85)] hover:bg-[oklch(0.82_0.16_85/0.25)] mr-1.5"
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/15 border border-black/40 text-white hover:bg-black/25 mr-1.5"
                         title="Edit this entry"
                       >
                         <Pencil className="w-3.5 h-3.5 inline mr-1" />Edit
@@ -817,9 +817,9 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-black/50" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/8">
-          <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">Edit Inventory Entry</div>
+          <div className="font-mono uppercase tracking-widest text-xs text-black">Edit Inventory Entry</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
@@ -884,7 +884,7 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
           <button
             onClick={submit}
             disabled={submitting}
-            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold disabled:opacity-60"
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-[#2b2416] font-bold disabled:opacity-60"
           >
             {submitting ? "Saving..." : "Save Changes"}
           </button>
@@ -956,7 +956,7 @@ function ActualStockModal({ target, setActualStock, onClose }: {
               <button
                 onClick={() => setConfirming(true)}
                 disabled={!valid}
-                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.82_0.16_85/0.6)] font-semibold disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-sm bg-black/25 border border-black/60 font-semibold disabled:opacity-50"
               >
                 Continue
               </button>
@@ -983,7 +983,7 @@ function ActualStockModal({ target, setActualStock, onClose }: {
               <button
                 onClick={confirmAndSave}
                 disabled={submitting}
-                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-[#2b2416] font-bold disabled:opacity-60"
               >
                 {submitting ? "Saving..." : "Confirm & Save"}
               </button>
@@ -1111,9 +1111,9 @@ function RecipeMatchCheck() {
   const allGood = noRecipe.length === 0 && brokenLinks.length === 0;
 
   return (
-    <div className={`glass rounded-2xl p-6 border-2 ${allGood ? "border-[oklch(0.78_0.2_155/0.4)]" : "border-[oklch(0.82_0.16_85/0.5)]"}`}>
+    <div className={`glass rounded-2xl p-6 border-2 ${allGood ? "border-[oklch(0.78_0.2_155/0.4)]" : "border-black/50"}`}>
       <div className="flex items-center gap-2 mb-2">
-        {allGood ? <Check className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> : <AlertOctagon className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />}
+        {allGood ? <Check className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> : <AlertOctagon className="w-5 h-5 text-black" />}
         <h2 className="text-lg font-semibold">Recipe ↔ Inventory Match Check</h2>
       </div>
       {allGood ? (
@@ -1125,7 +1125,7 @@ function RecipeMatchCheck() {
         <div className="space-y-3">
           {noRecipe.length > 0 && (
             <div>
-              <div className="text-sm font-bold text-[oklch(0.82_0.16_85)] mb-1">
+              <div className="text-sm font-bold text-black mb-1">
                 {noRecipe.length} menu item(s) with no recipe at all — selling these deducts nothing from stock:
               </div>
               <div className="text-sm text-muted-foreground">{noRecipe.map((m) => m.name).join(", ")}</div>

@@ -250,9 +250,9 @@ function PrinterSetupPanel() {
   };
 
   return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.4)]">
+    <div className="glass rounded-2xl p-6 border border-black/40">
       <div className="flex items-center gap-2 mb-2">
-        <Printer className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+        <Printer className="w-5 h-5 text-black" />
         <h2 className="text-lg font-semibold">Thermal Printer Setup — One-Click Printing</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
@@ -287,7 +287,7 @@ function PrinterSetupPanel() {
               <button
                 onClick={() => choosePrinter("")}
                 className={`w-full flex items-center justify-between text-start text-xs px-3 py-2.5 rounded-lg border ${
-                  selected === "" ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
+                  selected === "" ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
                 }`}
               >
                 <span>System Default</span>
@@ -298,7 +298,7 @@ function PrinterSetupPanel() {
                   key={p.name}
                   onClick={() => choosePrinter(p.name)}
                   className={`w-full flex items-center justify-between text-start text-xs px-3 py-2.5 rounded-lg border ${
-                    selected === p.name ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
+                    selected === p.name ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
                   }`}
                 >
                   <span>{p.displayName || p.name}{p.isDefault ? " (Windows default)" : ""}</span>
@@ -344,7 +344,7 @@ function PrinterSetupPanel() {
           </div>
         </div>
 
-        <div className="rounded-lg bg-[oklch(0.82_0.16_85/0.1)] border border-[oklch(0.82_0.16_85/0.3)] p-3 text-xs text-muted-foreground">
+        <div className="rounded-lg bg-black/10 border border-black/30 p-3 text-xs text-muted-foreground">
           <strong className="text-foreground">Then, in that window, print once manually</strong> (Ctrl/Cmd+P) and set your
           80mm thermal printer as the default destination — kiosk mode always prints to whatever is currently set as
           default, silently, from then on. Also make sure "Margins" is set to "None" and paper size to your printer's
@@ -505,7 +505,7 @@ function MaterialsPanel() {
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Boxes className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+          <Boxes className="w-5 h-5 text-black" />
           <h2 className="text-lg font-semibold">Raw Material Profiles</h2>
         </div>
         <div className="flex items-center gap-2">

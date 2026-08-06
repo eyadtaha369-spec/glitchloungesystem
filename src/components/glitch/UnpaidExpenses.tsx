@@ -34,12 +34,12 @@ export function UnpaidExpensesPage() {
         </p>
       </div>
 
-      <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.4)]">
+      <div className="glass rounded-2xl p-6 border border-black/40">
         <div className="flex items-center gap-2 mb-1">
-          <Receipt className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+          <Receipt className="w-5 h-5 text-black" />
           <div className="text-xs uppercase tracking-widest text-muted-foreground">Total Owed</div>
         </div>
-        <div className="text-3xl font-mono font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(total)}</div>
+        <div className="text-3xl font-mono font-bold text-black">{fmtMoney(total)}</div>
         <p className="text-xs text-muted-foreground mt-1">
           {unpaidExpenses.length} unpaid item{unpaidExpenses.length === 1 ? "" : "s"} — none of these have affected any shift's cash drawer yet.
         </p>
@@ -141,7 +141,7 @@ function SettleModal({ entry, onClose }: { entry: LedgerEntry; onClose: () => vo
               })}
             </div>
             {paymentSource === "cash_drawer" && (
-              <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">This will now deduct from the active shift's expected cash.</p>
+              <p className="text-[11px] text-black mt-1.5">This will now deduct from the active shift's expected cash.</p>
             )}
           </div>
           {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}

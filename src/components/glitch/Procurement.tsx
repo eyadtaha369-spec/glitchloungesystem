@@ -42,8 +42,8 @@ export function ProcurementPage() {
       </div>
 
       {!isAdmin && (
-        <div className="glass rounded-2xl p-4 border border-[oklch(0.82_0.16_85/0.4)] flex items-start gap-3">
-          <ShieldAlert className="w-5 h-5 text-[oklch(0.82_0.16_85)] shrink-0 mt-0.5" />
+        <div className="glass rounded-2xl p-4 border border-black/40 flex items-start gap-3">
+          <ShieldAlert className="w-5 h-5 text-black shrink-0 mt-0.5" />
           <p className="text-sm text-muted-foreground">
             Your submissions go to <strong className="text-foreground">Pending Approval</strong>. Stock and cash are not affected until an admin reviews and approves the receipt.
           </p>
@@ -191,7 +191,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
                   onClick={() => setPaymentSource(src)}
                   className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
                     paymentSource === src
-                      ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold"
+                      ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
                       : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
                   }`}
                 >
@@ -201,7 +201,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
             })}
           </div>
           {paymentSource === "cash_drawer" && (
-            <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">Deducts from the active shift's expected cash.</p>
+            <p className="text-[11px] text-black mt-1.5">Deducts from the active shift's expected cash.</p>
           )}
           {paymentSource === "out_of_pocket" && (
             <p className="text-[11px] text-muted-foreground mt-1.5">Recorded as an expense — does not affect the till.</p>
@@ -211,7 +211,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
           )}
         </div>
         {!activeShift && paymentSource === "cash_drawer" && (
-          <div className="md:col-span-2 text-xs text-[oklch(0.82_0.16_85)]">No active shift — this won't be tied to a specific shift's drawer.</div>
+          <div className="md:col-span-2 text-xs text-black">No active shift — this won't be tied to a specific shift's drawer.</div>
         )}
       </div>
 
@@ -361,7 +361,7 @@ function ExpenseSubmitForm() {
               onClick={() => { setPaymentStatus("unpaid"); setPaymentSource(""); }}
               className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
                 paymentStatus === "unpaid"
-                  ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[oklch(0.82_0.16_85)]"
+                  ? "bg-black/20 border-black/60 text-white"
                   : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
               }`}
             >
@@ -383,7 +383,7 @@ function ExpenseSubmitForm() {
                     onClick={() => setPaymentSource(src)}
                     className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
                       paymentSource === src
-                        ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold"
+                        ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
                         : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
                     }`}
                   >
@@ -393,10 +393,10 @@ function ExpenseSubmitForm() {
               })}
             </div>
             {paymentSource === "cash_drawer" && (
-              <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">Deducts from the active shift's expected cash.</p>
+              <p className="text-[11px] text-black mt-1.5">Deducts from the active shift's expected cash.</p>
             )}
             {!activeShift && paymentSource === "cash_drawer" && (
-              <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+              <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
             )}
           </div>
         ) : (
@@ -446,10 +446,10 @@ function PendingApprovals() {
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-4">
-        <Clock className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+        <Clock className="w-5 h-5 text-black" />
         <h2 className="text-lg font-semibold">Pending Approvals</h2>
         {state.pendingApprovals.length > 0 && (
-          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.2)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)]">
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-black/20 text-white border border-black/50">
             {state.pendingApprovals.length}
           </span>
         )}
@@ -462,7 +462,7 @@ function PendingApprovals() {
           {state.pendingApprovals.map((entry: LedgerEntry) => {
             const material = state.materials.find((m) => m.id === entry.materialId);
             return (
-              <div key={entry.id} className="bg-white/60 rounded-lg p-4 border border-[oklch(0.82_0.16_85/0.3)] flex flex-col md:flex-row gap-4">
+              <div key={entry.id} className="bg-white/60 rounded-lg p-4 border border-black/30 flex flex-col md:flex-row gap-4">
                 {entry.receiptUrl && (
                   <a href={entry.receiptUrl} target="_blank" rel="noreferrer" className="shrink-0">
                     <img src={entry.receiptUrl} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-black/10" />
@@ -528,12 +528,12 @@ function PurchaseHistory() {
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <History className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+          <History className="w-5 h-5 text-black" />
           <h2 className="text-lg font-semibold">Purchase History</h2>
         </div>
         <button
           onClick={() => setReportOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-xs font-bold uppercase tracking-wide shadow-[0_0_16px_oklch(0.82_0.16_85/0.4)]"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-black to-black text-[#2b2416] text-xs font-bold uppercase tracking-wide"
         >
           <FileBarChart className="w-3.5 h-3.5" /> Generate Report
         </button>
@@ -713,7 +713,7 @@ function ReportModal({ entries, materials, onClose }: {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto glass-strong rounded-2xl border border-black/50" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/8">
           <div className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Generate Procurement Report</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]">✕</button>
@@ -726,7 +726,7 @@ function ReportModal({ entries, materials, onClose }: {
                 onClick={() => setTimeframe(t)}
                 className={`py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${
                   timeframe === t
-                    ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416]"
+                    ? "bg-black/20 border-black/60 text-[#2b2416]"
                     : "bg-black/5 border-black/10 text-muted-foreground"
                 }`}
               >
@@ -760,7 +760,7 @@ function ReportModal({ entries, materials, onClose }: {
           <button onClick={exportCsv} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Export CSV</button>
           <button
             onClick={print}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-[#2b2416] font-bold"
           >
             Print
           </button>

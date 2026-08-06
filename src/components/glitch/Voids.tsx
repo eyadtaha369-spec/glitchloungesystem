@@ -101,7 +101,7 @@ function FraudAlertPanel() {
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Voided Value</div>
-          <div className="text-lg font-mono font-bold mt-1 text-[oklch(0.82_0.16_85)]">{fmtMoney(totalVoidedValue)}</div>
+          <div className="text-lg font-mono font-bold mt-1 text-black">{fmtMoney(totalVoidedValue)}</div>
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Waste %</div>
@@ -226,11 +226,11 @@ function PendingVoidsPanel({ requests }: { requests: VoidRequest[] }) {
   const { approveVoid, denyVoid } = useStore();
 
   return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.4)]">
+    <div className="glass rounded-2xl p-6 border border-black/40">
       <div className="flex items-center gap-2 mb-4">
-        <Clock className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+        <Clock className="w-5 h-5 text-black" />
         <h2 className="text-lg font-semibold">Pending Void Approvals</h2>
-        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.2)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)]">{requests.length}</span>
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-black/20 text-white border border-black/50">{requests.length}</span>
       </div>
       <div className="space-y-3">
         {requests.map((v) => (
@@ -246,7 +246,7 @@ function PendingVoidsPanel({ requests }: { requests: VoidRequest[] }) {
               <div><span className="uppercase tracking-widest text-[10px]">Reason</span><div className="text-foreground">{VOID_REASON_LABELS[v.reason as VoidReason]}</div></div>
               <div><span className="uppercase tracking-widest text-[10px]">Cashier</span><div className="text-foreground">{v.cashierUsername}</div></div>
               <div><span className="uppercase tracking-widest text-[10px]">Waiter</span><div className="text-foreground">{v.waiterName || "—"}</div></div>
-              <div><span className="uppercase tracking-widest text-[10px]">Status</span><div className="text-[oklch(0.82_0.16_85)]">Pending Approval</div></div>
+              <div><span className="uppercase tracking-widest text-[10px]">Status</span><div className="text-black">Pending Approval</div></div>
             </div>
             <div className="flex items-center gap-2 mt-3">
               <button onClick={() => approveVoid(v.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">
@@ -380,7 +380,7 @@ function FullLedgerPanel() {
                     {v.status === "approved" ? (
                       <span className="text-[oklch(0.78_0.2_155)]">Approved</span>
                     ) : v.status === "pending" ? (
-                      <span className="text-[oklch(0.82_0.16_85)]">Pending Approval</span>
+                      <span className="text-black">Pending Approval</span>
                     ) : v.status === "unapproved" ? (
                       <span className="text-[oklch(0.62_0.24_25)] font-bold">Unapproved</span>
                     ) : v.status === "discrepancy" ? (

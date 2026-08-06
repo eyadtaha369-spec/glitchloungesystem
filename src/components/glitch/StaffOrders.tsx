@@ -176,7 +176,7 @@ function StaffOrderHistory() {
           </div>
           <button
             onClick={() => printStaffOrdersReport(filtered, fromDate, toDate)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-xs font-bold uppercase tracking-wide shadow-[0_0_16px_oklch(0.82_0.16_85/0.4)]"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-black to-black text-[#2b2416] text-xs font-bold uppercase tracking-wide"
           >
             <Printer className="w-3.5 h-3.5" /> Generate Report
           </button>
@@ -275,7 +275,7 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
           <div className="text-center mb-2 receipt-block">
             <img src={logo} alt="GLITCH" className="w-36 h-auto mx-auto receipt-logo" />
             <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
-            <div className="text-sm font-bold uppercase tracking-[0.2em] mt-2 text-[oklch(0.82_0.16_85)]">STAFF CHECK</div>
+            <div className="text-sm font-bold uppercase tracking-[0.2em] mt-2 text-black">STAFF CHECK</div>
             <div className="text-sm font-bold tracking-widest" dir="rtl">مسحوبات الموظفين</div>
           </div>
           <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">

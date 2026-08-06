@@ -95,14 +95,14 @@ export function Dashboard() {
               const pct = (total / maxRev) * 100;
               return (
                 <div key={room.id} className="flex items-center gap-3">
-                  <div className={`w-16 text-xs font-mono ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-muted-foreground"}`}>
+                  <div className={`w-16 text-xs font-mono ${room.isVip ? "text-black" : "text-muted-foreground"}`}>
                     {room.name}
                   </div>
                   <div className="flex-1 h-3 bg-white/70 rounded-full overflow-hidden relative">
                     <div
                       className={`h-full rounded-full transition-all ${
                         room.isVip
-                          ? "bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.65_0.24_305)]"
+                          ? "bg-gradient-to-r from-black to-[oklch(0.65_0.24_305)]"
                           : "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.7_0.19_260)]"
                       }`}
                       style={{ width: `${pct}%` }}
@@ -160,7 +160,7 @@ function MetricCard({ label, value, icon: Icon, accent, pulse }: {
     blue: "from-[oklch(0.7_0.19_260/0.15)] border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)]",
     cyan: "from-[oklch(0.7_0.19_260/0.15)] border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)]",
     purple: "from-[oklch(0.65_0.24_305/0.15)] border-[oklch(0.65_0.24_305/0.4)] text-[oklch(0.65_0.24_305)]",
-    gold: "from-[oklch(0.82_0.16_85/0.15)] border-[oklch(0.82_0.16_85/0.4)] text-[oklch(0.82_0.16_85)]",
+    gold: "from-black/15 border-black/40 text-white",
     green: "from-[oklch(0.78_0.2_155/0.15)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]",
     red: "from-[oklch(0.62_0.24_25/0.15)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]",
   };

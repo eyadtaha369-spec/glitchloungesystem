@@ -67,7 +67,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
       </div>
 
       {!activeShift && (
-        <div className="glass rounded-2xl p-4 border border-[oklch(0.82_0.16_85/0.4)] text-sm text-[oklch(0.82_0.16_85)]">
+        <div className="glass rounded-2xl p-4 border border-black/40 text-sm text-black">
           No shift is open — open one from the Dashboard before starting {scope === "room" ? "rooms" : "tables"} or taking orders.
         </div>
       )}
@@ -85,7 +85,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 
       {scope === "lounge" && ownerTables.length > 0 && (
         <div>
-          <h2 className="text-sm uppercase tracking-widest text-[oklch(0.82_0.16_85)] font-mono mb-3">Owner Tables — Automatic 25% Discount</h2>
+          <h2 className="text-sm uppercase tracking-widest text-black font-mono mb-3">Owner Tables — Automatic 25% Discount</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {ownerTables.map((r) => (
               <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
@@ -122,7 +122,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   const itemCount = room.orders.reduce((a, o) => a + o.qty, 0);
 
   const cardStyle = room.isVip
-    ? "animate-vip bg-gradient-to-br from-[oklch(0.82_0.16_85/0.08)] via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.82_0.16_85/0.4)]"
+    ? "animate-vip bg-gradient-to-br from-black/8 via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-black/40"
     : isActive
       ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
       : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
@@ -136,7 +136,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 min-w-0">
             {room.isVip ? (
-              <Crown className="w-6 h-6 text-[oklch(0.82_0.16_85)] shrink-0" />
+              <Crown className="w-6 h-6 text-black shrink-0" />
             ) : (
               <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />
             )}
@@ -154,29 +154,29 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         </div>
 
         {room.isOwnerTable && (
-          <div className="mb-3 text-[9px] uppercase tracking-widest font-bold text-[oklch(0.82_0.16_85)]">Owner · 25% Off</div>
+          <div className="mb-3 text-[9px] uppercase tracking-widest font-bold text-black">Owner · 25% Off</div>
         )}
 
         {room.zone === "waste" ? (
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/70 rounded-xl p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items</div>
-              <div className="mt-1 font-mono text-xl font-bold text-[oklch(0.82_0.16_85)]">{itemCount}</div>
+              <div className="mt-1 font-mono text-xl font-bold text-black">{itemCount}</div>
             </div>
             <div className="bg-white/70 rounded-xl p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
-              <div className="mt-1 font-mono text-xl font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(total)}</div>
+              <div className="mt-1 font-mono text-xl font-bold text-black">{fmtMoney(total)}</div>
             </div>
           </div>
         ) : isActive ? (
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(elapsed)}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-black" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(elapsed)}</div>
             </div>
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.78_0.2_155)]"}`}>{fmtMoney(total)}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>{fmtMoney(total)}</div>
             </div>
           </div>
         ) : (
@@ -221,7 +221,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const total = timeCost + ordersCost;
 
   const cardStyle = room.isVip
-    ? "animate-vip bg-gradient-to-br from-[oklch(0.82_0.16_85/0.08)] via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-[oklch(0.82_0.16_85/0.4)]"
+    ? "animate-vip bg-gradient-to-br from-black/8 via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-black/40"
     : room.status === "active"
       ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
       : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
@@ -331,7 +331,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           {room.isVip ? (
-            <Crown className="w-5 h-5 text-[oklch(0.82_0.16_85)] shrink-0" />
+            <Crown className="w-5 h-5 text-black shrink-0" />
           ) : (
             <Gamepad2 className="w-5 h-5 text-[oklch(0.7_0.19_260)] shrink-0" />
           )}
@@ -354,12 +354,12 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             </button>
           )}
           {room.isOwnerTable && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)] shrink-0">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-black/15 text-white border border-black/50 shrink-0">
               Owner · 25% Off
             </span>
           )}
           {room.isVip && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border border-[oklch(0.82_0.16_85/0.5)] shrink-0">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-black/15 text-white border border-black/50 shrink-0">
               Premium
             </span>
           )}
@@ -377,7 +377,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         <div className="flex items-center gap-2 shrink-0">
           <div className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
           room.isPaused
-            ? "bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border-[oklch(0.82_0.16_85/0.5)]"
+            ? "bg-black/15 text-white border-black/50"
             : room.status === "active"
             ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
             : "bg-black/5 text-muted-foreground border-black/10"
@@ -391,7 +391,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       </div>
 
       {room.isPaused && (
-        <div className="mt-2 text-[10px] uppercase tracking-widest text-[oklch(0.82_0.16_85)] font-mono" dir="rtl">
+        <div className="mt-2 text-[10px] uppercase tracking-widest text-black font-mono" dir="rtl">
           موقوف مؤقتاً — الوقت متوقف
         </div>
       )}
@@ -443,24 +443,24 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           <>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items Logged</div>
-              <div className="mt-1 font-mono text-2xl font-bold text-[oklch(0.82_0.16_85)]">{room.orders.reduce((a, o) => a + o.qty, 0)}</div>
+              <div className="mt-1 font-mono text-2xl font-bold text-black">{room.orders.reduce((a, o) => a + o.qty, 0)}</div>
             </div>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Retail Value</div>
-              <div className="mt-1 font-mono text-2xl font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(total)}</div>
+              <div className="mt-1 font-mono text-2xl font-bold text-black">{fmtMoney(total)}</div>
             </div>
           </>
         ) : (
           <>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-black" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
                 {fmtDuration(elapsed)}
               </div>
             </div>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Running Cost</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>
                 {fmtMoney(total)}
               </div>
             </div>
@@ -518,7 +518,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   <span className="w-14 text-right">{fmtMoney(o.qty * o.price)}</span>
                   <button
                     onClick={() => { setEditingNoteFor(o.menuItemId); setNoteInput(o.notes ?? ""); }}
-                    className={`w-5 h-5 flex items-center justify-center rounded border ${o.notes ? "bg-[oklch(0.82_0.16_85/0.15)] border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)]" : "bg-black/5 border-black/10 hover:bg-black/8"}`}
+                    className={`w-5 h-5 flex items-center justify-center rounded border ${o.notes ? "bg-black/15 border-black/50 text-white" : "bg-black/5 border-black/10 hover:bg-black/8"}`}
                     title="Add/edit note"
                   >
                     <MessageSquare className="w-3 h-3" />
@@ -550,7 +550,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   </button>
                 </div>
               ) : o.notes ? (
-                <div className="pl-1 mt-0.5 text-[11px] italic text-[oklch(0.82_0.16_85)]">
+                <div className="pl-1 mt-0.5 text-[11px] italic text-black">
                   → *{o.notes}*
                 </div>
               ) : null}
@@ -671,7 +671,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               ) : (
                 <button
                   onClick={() => void pauseRoom(room.id)}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.82_0.16_85/0.25)] transition"
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-black/15 border border-black/50 text-white font-semibold uppercase tracking-wider text-xs hover:bg-black/25 transition"
                 >
                   <Pause className="w-4 h-4" /> Pause
                 </button>
@@ -690,7 +690,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               <button
                 onClick={() => setWasteReasonOpen(true)}
                 disabled={room.orders.length === 0}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.82_0.16_85/0.25)] transition disabled:opacity-40"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-black/15 border border-black/50 text-white font-semibold uppercase tracking-wider text-xs hover:bg-black/25 transition disabled:opacity-40"
               >
                 <ShieldAlert className="w-4 h-4" /> Log as Waste/Marketing
               </button>
@@ -715,7 +715,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             </div>
             <div className="p-6 space-y-5">
               {room.zone === "room" && (
-                <div className="text-center text-[10px] uppercase tracking-widest text-[oklch(0.82_0.16_85)] font-mono">
+                <div className="text-center text-[10px] uppercase tracking-widest text-black font-mono">
                   Timer frozen at {fmtDuration(checkoutElapsed)} — no extra time is being charged while you complete this payment
                 </div>
               )}
@@ -769,7 +769,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   </div>
                 </div>
                 {!hasManualDiscount && room.isOwnerTable && (
-                  <div className="text-[10px] text-[oklch(0.82_0.16_85)] font-mono">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
+                  <div className="text-[10px] text-black font-mono">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
                 )}
               </div>
 
@@ -799,7 +799,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </button>
                 <button
                   onClick={() => setPaymentOption("mixed_cash_visa")}
-                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "mixed_cash_visa" ? "bg-[oklch(0.82_0.16_85/0.3)] border-[oklch(0.82_0.16_85/0.8)] scale-[1.02]" : "bg-[oklch(0.82_0.16_85/0.08)] border-[oklch(0.82_0.16_85/0.3)] hover:bg-[oklch(0.82_0.16_85/0.18)]"} text-[oklch(0.82_0.16_85)]`}
+                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "mixed_cash_visa" ? "bg-black/30 border-black/80 scale-[1.02]" : "bg-black/8 border-black/30 hover:bg-black/18"} text-white`}
                 >
                   <SplitSquareHorizontal className="w-8 h-8" /> <span className="text-base font-bold uppercase text-center leading-tight">Cash + Visa</span>
                 </button>
@@ -1037,17 +1037,17 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
             <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
           </div>
           {session.timeDiscountAmount > 0 && (
-            <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+            <div className="flex justify-between text-xs text-black receipt-line">
               <span>{session.timeDiscountLabel ?? "Time Discount"}</span><span>-{fmtMoney(session.timeDiscountAmount)}</span>
             </div>
           )}
           {session.ordersDiscountAmount > 0 && (
-            <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+            <div className="flex justify-between text-xs text-black receipt-line">
               <span>{session.ordersDiscountLabel ?? "Orders Discount"}</span><span>-{fmtMoney(session.ordersDiscountAmount)}</span>
             </div>
           )}
           {session.discountAmount > 0 && session.timeDiscountAmount === 0 && session.ordersDiscountAmount === 0 && (
-            <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+            <div className="flex justify-between text-xs text-black receipt-line">
               <span>{session.discountLabel ?? "Discount"}</span><span>-{fmtMoney(session.discountAmount)}</span>
             </div>
           )}
@@ -1094,7 +1094,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-sm text-[oklch(0.82_0.16_85)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-sm text-black">
             <ChefHat className="w-4 h-4" /> Kitchen Order Ticket
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1120,7 +1120,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
               <div key={o.menuItemId} className="receipt-line">
                 <div className="font-bold">{o.qty}× {o.name}</div>
                 {o.notes && (
-                  <div className="pl-3 text-[oklch(0.82_0.16_85)] italic">
+                  <div className="pl-3 text-black italic">
                     → *{o.notes}*
                   </div>
                 )}
@@ -1134,7 +1134,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           <button
             onClick={() => void printSmart()}
             disabled={!logoReady}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-semibold disabled:opacity-60"
           >
             <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
           </button>
@@ -1233,7 +1233,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
           </div>
 
           {!isAdmin && (
-            <p className="text-xs text-[oklch(0.82_0.16_85)]">
+            <p className="text-xs text-black">
               This item stays on the live bill and counts toward Expected Cash until an admin approves it — you cannot cancel independently. Have an admin here now? They can authorize it instantly instead.
             </p>
           )}
@@ -1265,7 +1265,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
               <button
                 onClick={() => setAuthOpen(true)}
                 disabled={submitting}
-                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.5)] text-[oklch(0.82_0.16_85)] font-semibold disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-black/15 border border-black/50 text-white font-semibold disabled:opacity-60"
               >
                 Get Admin Approval Now
               </button>
@@ -1338,9 +1338,9 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
 
   return createPortal(
     <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
-      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.5)] shadow-[0_0_40px_oklch(0.82_0.16_85/0.4)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-black/50" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-black">
             <ShieldAlert className="w-4 h-4" /> Admin Authorization Required
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1370,7 +1370,7 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
           <button
             onClick={submit}
             disabled={checking}
-            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-semibold disabled:opacity-60"
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-semibold disabled:opacity-60"
           >
             {checking ? "Verifying..." : "Authorize"}
           </button>
@@ -1409,9 +1409,9 @@ function WasteReasonModal({ room, logWasteMarketing, onClose }: {
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
-      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/50" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-black">
             <ShieldAlert className="w-4 h-4" /> Log as Waste/Marketing
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1420,7 +1420,7 @@ function WasteReasonModal({ room, logWasteMarketing, onClose }: {
         <div className="p-4 space-y-4">
           <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-xs font-mono flex justify-between">
             <span>{itemCount} item{itemCount === 1 ? "" : "s"}</span>
-            <span className="font-bold text-[oklch(0.82_0.16_85)]">{fmtMoney(retailValue)} retail value</span>
+            <span className="font-bold text-black">{fmtMoney(retailValue)} retail value</span>
           </div>
 
           <div>
@@ -1453,7 +1453,7 @@ function WasteReasonModal({ room, logWasteMarketing, onClose }: {
           <button
             onClick={() => void submit()}
             disabled={submitting || !reason}
-            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.75_0.2_60)] text-black font-bold disabled:opacity-40"
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-bold disabled:opacity-40"
           >
             {submitting ? "Logging..." : "Confirm & Log"}
           </button>
@@ -1781,7 +1781,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 <div className="flex justify-between border-t border-dashed border-black/20 mt-2 pt-1 text-xs">
                   <span>Subtotal</span><span>{fmtMoney(splitReceipt.ordersCost)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-[oklch(0.82_0.16_85)] receipt-line">
+                <div className="flex justify-between text-xs text-black receipt-line">
                   <span>{splitReceipt.discountLabel ?? "Discount"}</span><span>-{fmtMoney(splitReceipt.discountAmount)}</span>
                 </div>
               </>
@@ -1905,7 +1905,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             </div>
           </div>
           {!hasManualDiscount && room.isOwnerTable && (
-            <div className="text-[10px] text-[oklch(0.82_0.16_85)] font-mono mt-1">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
+            <div className="text-[10px] text-black font-mono mt-1">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
           )}
         </div>
 
@@ -1935,7 +1935,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             </button>
             <button
               onClick={() => setPaymentOption("mixed_cash_visa")}
-              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "mixed_cash_visa" ? "bg-[oklch(0.82_0.16_85/0.25)] border-[oklch(0.82_0.16_85/0.6)]" : "bg-[oklch(0.82_0.16_85/0.08)] border-[oklch(0.82_0.16_85/0.3)]"} text-[oklch(0.82_0.16_85)]`}
+              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "mixed_cash_visa" ? "bg-black/25 border-black/60" : "bg-black/8 border-black/30"} text-white`}
             >
               <SplitSquareHorizontal className="w-4 h-4" /> <span className="text-[10px] font-semibold uppercase">Cash + Visa</span>
             </button>

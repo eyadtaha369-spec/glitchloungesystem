@@ -135,7 +135,7 @@ export function ShiftBar() {
             <p className="text-sm text-muted-foreground mb-5">Count your cash drawer and enter the actual amount. Expected cash = opening balance + cash sales − any approved drawer expenses, computed when you confirm. This closes the shift permanently and resets counters for the next cashier.</p>
 
             {state.pendingVoidCountForActiveShift > 0 && (
-              <div className="mb-5 p-4 rounded-xl bg-[oklch(0.82_0.16_85/0.12)] border-2 border-[oklch(0.82_0.16_85/0.5)] text-sm text-[oklch(0.82_0.16_85)] font-medium">
+              <div className="mb-5 p-4 rounded-xl bg-black/12 border-2 border-black/50 text-sm text-white font-medium">
                 ⚠ {state.pendingVoidCountForActiveShift} void request{state.pendingVoidCountForActiveShift > 1 ? "s are" : " is"} still awaiting admin approval this shift. Closing now will flag {state.pendingVoidCountForActiveShift > 1 ? "them" : "it"} as an <strong>Unapproved Discrepancy</strong> for the owner to reconcile later.
               </div>
             )}

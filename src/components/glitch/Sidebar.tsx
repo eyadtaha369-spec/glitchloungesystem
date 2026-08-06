@@ -29,7 +29,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
   return (
     <aside className="no-print fixed start-0 top-0 h-screen w-64 glass-strong border-e border-black/10 flex flex-col z-30">
       <div className="p-6 flex items-center gap-3 border-b border-black/8">
-        <img src={logo} alt="GLITCH" className="w-11 h-11 rounded-lg object-cover ring-1 ring-[oklch(0.82_0.16_85/0.5)]" />
+        <img src={logo} alt="GLITCH" className="w-11 h-11 rounded-lg object-cover ring-1 ring-black/50" />
         <div>
           <div className="font-bold tracking-widest text-gradient-gold text-lg leading-tight">GLITCH</div>
           <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Lounge OS</div>

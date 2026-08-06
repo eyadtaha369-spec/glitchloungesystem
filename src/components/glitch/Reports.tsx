@@ -109,7 +109,7 @@ export function ReportsPage() {
           </div>
           <button
             onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, selectedDate, wasteEntries.reduce((a, e) => a + e.amount, 0))}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] self-end"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-black to-black text-[#2b2416] text-sm font-semibold self-end"
           >
             <FileDown className="w-4 h-4" /> Generate Report
           </button>
@@ -170,7 +170,7 @@ export function ReportsPage() {
       {/* Material consumption */}
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
-          <Boxes className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+          <Boxes className="w-5 h-5 text-black" />
           <h2 className="text-lg font-semibold">Material Consumption — Today</h2>
         </div>
         {consumption.length === 0 ? (
@@ -180,7 +180,7 @@ export function ReportsPage() {
             {consumption.map((c) => (
               <div key={c.name} className="bg-white/60 rounded-lg p-3 border border-black/8 flex justify-between items-center">
                 <span className="text-sm">{c.name}</span>
-                <span className="font-mono text-sm text-[oklch(0.82_0.16_85)]">{c.qty}{c.unit}</span>
+                <span className="font-mono text-sm text-black">{c.qty}{c.unit}</span>
               </div>
             ))}
           </div>
@@ -311,10 +311,10 @@ function BusinessDayPanel() {
   };
 
   return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.5)]">
+    <div className="glass rounded-2xl p-6 border border-black/50">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <Sunrise className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+          <Sunrise className="w-5 h-5 text-black" />
           <h2 className="text-lg font-semibold">Current Business Day</h2>
         </div>
         <button onClick={() => setShowHistory((v) => !v)} className="text-xs px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 flex items-center gap-1.5">
@@ -346,7 +346,7 @@ function BusinessDayPanel() {
       )}
 
       {!canClose && state.businessDayId && (
-        <div className="flex items-center gap-2 text-xs text-[oklch(0.82_0.16_85)] mb-3">
+        <div className="flex items-center gap-2 text-xs text-black mb-3">
           <AlertTriangle className="w-3.5 h-3.5" /> Close the active shift first — a business day can't close while a shift is still running.
         </div>
       )}
@@ -354,7 +354,7 @@ function BusinessDayPanel() {
       <button
         onClick={() => setConfirmOpen(true)}
         disabled={!canClose}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-sm font-bold uppercase tracking-wide shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] disabled:opacity-40"
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-black to-black text-[#2b2416] text-sm font-bold uppercase tracking-wide disabled:opacity-40"
       >
         <CalendarCheck className="w-4 h-4" /> Close Business Day
       </button>
@@ -399,7 +399,7 @@ function BusinessDayPanel() {
 
       {confirmOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmOpen(false)}>
-          <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border border-black/50" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 space-y-3">
               <h3 className="text-lg font-bold">Close Business Day?</h3>
               <p className="text-sm text-muted-foreground">
@@ -414,7 +414,7 @@ function BusinessDayPanel() {
               <button
                 onClick={doClose}
                 disabled={closing}
-                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-[#2b2416] font-bold disabled:opacity-60"
               >
                 {closing ? "Closing..." : "Confirm & Close"}
               </button>
@@ -515,7 +515,7 @@ function PnLLedgerPanel() {
         </div>
         <div className="bg-white/60 rounded-lg p-4 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">COGS</div>
-          <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.82_0.16_85)]">{fmtMoney(totalCogs)}</div>
+          <div className="text-xl font-mono font-bold mt-1 text-black">{fmtMoney(totalCogs)}</div>
         </div>
         <div className="bg-white/60 rounded-lg p-4 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Other Expenses</div>
@@ -632,7 +632,7 @@ function AttendanceLog() {
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-4">
-        <MapPin className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
+        <MapPin className="w-5 h-5 text-black" />
         <h2 className="text-lg font-semibold">Attendance &amp; Location Log</h2>
       </div>
       {rows.length === 0 ? (

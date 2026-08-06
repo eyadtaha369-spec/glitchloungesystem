@@ -63,9 +63,9 @@ export function UsersPage() {
 
       {/* Admin self credentials */}
       {me?.role === "admin" && (
-        <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.3)]">
+        <div className="glass rounded-2xl p-6 border border-black/30">
           <h2 className="text-lg font-semibold mb-1 flex items-center gap-2">
-            <KeyRound className="w-4 h-4 text-[oklch(0.82_0.16_85)]" /> My Admin Credentials
+            <KeyRound className="w-4 h-4 text-black" /> My Admin Credentials
           </h2>
           <p className="text-xs text-muted-foreground font-mono uppercase tracking-widest mb-4">
             Change your own username and password
@@ -95,7 +95,7 @@ export function UsersPage() {
             <div className="flex items-end">
               <button
                 onClick={saveSelf}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.9_0.13_95)] text-black font-bold uppercase tracking-wider text-xs shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)]"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-black to-black text-white font-bold uppercase tracking-wider text-xs"
               >
                 <Save className="w-4 h-4" /> Save
               </button>
@@ -175,7 +175,7 @@ export function UsersPage() {
                     <td className="py-3 px-2">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-bold border ${
                         a.role === "admin"
-                          ? "bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border-[oklch(0.82_0.16_85/0.5)]"
+                          ? "bg-black/15 text-white border-black/50"
                           : "bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.7_0.19_260)] border-[oklch(0.7_0.19_260/0.4)]"
                       }`}>
                         {a.role === "admin" ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
