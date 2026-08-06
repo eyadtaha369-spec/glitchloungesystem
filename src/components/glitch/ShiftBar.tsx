@@ -52,7 +52,7 @@ export function ShiftBar() {
     return (
       <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.4)]">
         <div className="flex items-center gap-2 mb-3">
-          <Lock className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
+          <Lock className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">No Active Shift</h2>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
@@ -63,7 +63,7 @@ export function ShiftBar() {
             <div className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1">Previous Shift Closed</div>
             <div className="flex justify-between"><span>Expected Cash</span><span>{fmtMoney(closedSummary.expected)}</span></div>
             <div className="flex justify-between"><span>Actual Cash</span><span>{fmtMoney(closedSummary.actual)}</span></div>
-            <div className={`flex justify-between font-bold ${Math.abs(closedSummary.discrepancy) < 0.005 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+            <div className={`flex justify-between font-bold ${Math.abs(closedSummary.discrepancy) < 0.005 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
               <span>Discrepancy</span><span>{fmtMoney(closedSummary.discrepancy)}</span>
             </div>
           </div>
@@ -85,7 +85,7 @@ export function ShiftBar() {
             <Unlock className="w-4 h-4" /> {locating ? "Locating..." : "Open Shift"}
           </button>
         </div>
-        {err && <div className="mt-2 text-xs text-[oklch(0.75_0.22_25)]">{err}</div>}
+        {err && <div className="mt-2 text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
       </div>
     );
   }
@@ -104,7 +104,7 @@ export function ShiftBar() {
         </div>
         <button
           onClick={() => setEndOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold text-sm hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold text-sm hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
         >
           <Lock className="w-4 h-4" /> End Shift
         </button>
@@ -129,7 +129,7 @@ export function ShiftBar() {
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={() => setEndOpen(false)}>
           <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)] p-7" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
-              <DollarSign className="w-8 h-8 text-[oklch(0.75_0.22_25)]" />
+              <DollarSign className="w-8 h-8 text-[oklch(0.62_0.24_25)]" />
               <h3 className="text-2xl font-bold">Close Out Shift</h3>
             </div>
             <p className="text-sm text-muted-foreground mb-5">Count your cash drawer and enter the actual amount. Expected cash = opening balance + cash sales − any approved drawer expenses, computed when you confirm. This closes the shift permanently and resets counters for the next cashier.</p>
@@ -149,10 +149,10 @@ export function ShiftBar() {
               onChange={(e) => setActualCash(e.target.value)}
               className="mt-2 w-full bg-white/80 border-2 border-black/12 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)]"
             />
-            {err && <div className="mt-3 text-sm p-3 rounded-xl bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold">{err}</div>}
+            {err && <div className="mt-3 text-sm p-3 rounded-xl bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold">{err}</div>}
             <div className="flex gap-3 mt-6">
               <button onClick={() => setEndOpen(false)} className="flex-1 py-4 rounded-xl bg-black/5 border-2 border-black/10 text-base font-semibold hover:bg-black/8 transition">Cancel</button>
-              <button onClick={handleEnd} disabled={locating} className="flex-1 py-4 rounded-xl bg-[oklch(0.62_0.24_25/0.25)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-bold text-base uppercase tracking-wide disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
+              <button onClick={handleEnd} disabled={locating} className="flex-1 py-4 rounded-xl bg-[oklch(0.62_0.24_25/0.25)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] font-bold text-base uppercase tracking-wide disabled:opacity-60">{locating ? "Locating..." : "Confirm & Close"}</button>
             </div>
           </div>
         </div>,

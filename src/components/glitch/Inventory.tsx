@@ -64,7 +64,7 @@ export function InventoryPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Expected</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.85_0.16_200)]">{fmtMoney(expectedToday)}</div>
+            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.7_0.19_260)]">{fmtMoney(expectedToday)}</div>
           </div>
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Actual In Drawer</label>
@@ -91,10 +91,10 @@ export function InventoryPage() {
               </div>
             ) : discrepancy < 0 ? (
               <div className="flex items-center gap-2 mt-1">
-                <TrendingDown className="w-6 h-6 text-[oklch(0.75_0.22_25)]" />
+                <TrendingDown className="w-6 h-6 text-[oklch(0.62_0.24_25)]" />
                 <div>
-                  <div className="text-2xl font-mono font-bold text-[oklch(0.75_0.22_25)]">{fmtMoney(discrepancy)}</div>
-                  <div className="text-[10px] uppercase tracking-widest text-[oklch(0.75_0.22_25)]">Deficit · عجز</div>
+                  <div className="text-2xl font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(discrepancy)}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[oklch(0.62_0.24_25)]">Deficit · عجز</div>
                 </div>
               </div>
             ) : (
@@ -189,7 +189,7 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
   return (
     <div className="glass rounded-2xl p-6 border border-[oklch(0.62_0.24_25/0.35)]">
       <div className="flex items-center gap-2 mb-2">
-        <AlertOctagon className="w-5 h-5 text-[oklch(0.75_0.22_25)]" />
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
         <h2 className="text-lg font-semibold">Emergency Reset</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
@@ -204,13 +204,13 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
               {confirmKey === b.key ? (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Force close the active shift?</span>
-                  <button onClick={run} className="px-3 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">Confirm</button>
+                  <button onClick={run} className="px-3 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)]">Confirm</button>
                   <button onClick={() => setConfirmKey(null)} className="px-3 py-1.5 rounded-lg bg-black/5 border border-black/10">Cancel</button>
                 </div>
               ) : (
                 <button
                   onClick={() => setConfirmKey(b.key)}
-                  className="text-xs px-3 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.1)] border border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)] hover:bg-[oklch(0.62_0.24_25/0.2)] transition"
+                  className="text-xs px-3 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.1)] border border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)] hover:bg-[oklch(0.62_0.24_25/0.2)] transition"
                 >
                   {b.label}
                 </button>
@@ -341,10 +341,10 @@ function InventoryResetPanel() {
   };
 
   return (
-    <div className="rounded-2xl p-6 border-2 border-[oklch(0.58_0.22_25/0.5)] bg-[oklch(0.58_0.22_25/0.06)]">
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.62_0.24_25/0.5)] bg-[oklch(0.62_0.24_25/0.06)]">
       <div className="flex items-center gap-2 mb-2">
-        <AlertOctagon className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
-        <h2 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">Danger Zone — Reset Entire Stock Inventory</h2>
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.62_0.24_25)]">Danger Zone — Reset Entire Stock Inventory</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
         Permanently deletes every raw material, stock batch, restock log entry, and waste invoice — a genuinely clean
@@ -355,23 +355,23 @@ function InventoryResetPanel() {
       </p>
       <button
         onClick={() => setOpen(true)}
-        className="px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border-2 border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.58_0.22_25/0.25)]"
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.62_0.24_25/0.25)]"
       >
         Reset Entire Stock Inventory
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
-          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.58_0.22_25/0.6)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.6)]" onClick={(e) => e.stopPropagation()}>
             {done ? (
               <div className="p-6 text-center space-y-2">
-                <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Inventory Reset Complete</div>
+                <div className="text-lg font-bold text-[oklch(0.78_0.2_155)]">Inventory Reset Complete</div>
                 <p className="text-sm text-muted-foreground">Reloading with a clean slate...</p>
               </div>
             ) : (
               <>
                 <div className="p-5 space-y-4">
-                  <h3 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">This is permanent.</h3>
+                  <h3 className="text-lg font-bold text-[oklch(0.62_0.24_25)]">This is permanent.</h3>
                   <p className="text-sm text-muted-foreground">
                     Every raw material, batch, restock entry, and waste invoice will be deleted forever. Menu items,
                     rooms, shifts, sessions, and accounts are untouched — but menu recipes will need rebuilding
@@ -379,7 +379,7 @@ function InventoryResetPanel() {
                   </p>
                   <div>
                     <label className="text-xs uppercase tracking-widest text-muted-foreground">
-                      Type <span className="font-bold text-[oklch(0.58_0.22_25)]">{REQUIRED_PHRASE}</span> to confirm
+                      Type <span className="font-bold text-[oklch(0.62_0.24_25)]">{REQUIRED_PHRASE}</span> to confirm
                     </label>
                     <input
                       value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
@@ -394,14 +394,14 @@ function InventoryResetPanel() {
                       className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
                     />
                   </div>
-                  {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+                  {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
                 </div>
                 <div className="p-4 border-t border-black/8 flex justify-end gap-2">
                   <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
                   <button
                     onClick={submit}
                     disabled={!canSubmit || running}
-                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25)] text-white font-bold disabled:opacity-40"
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25)] text-white font-bold disabled:opacity-40"
                   >
                     {running ? "Wiping Inventory..." : "Permanently Reset"}
                   </button>
@@ -514,15 +514,15 @@ function ArchiveStockTable({ month, label, rows, loading }: { month: string; lab
                   <tr key={r.id} className="border-b border-black/8">
                     <td className="py-2 px-2 font-semibold">{r.materialName}</td>
                     <td className="py-2 px-2">
-                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.72_0.14_85/0.5)] text-[#2b2416]">{r.unit}</span>
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.82_0.16_85/0.5)] text-[#2b2416]">{r.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-muted-foreground">{r.category || "—"}</td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{r.openingBalance}</td>
                     <td className="py-2 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{r.purchasesIn}</td>
-                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.58_0.22_25)]">-{r.salesWasteOut}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.62_0.24_25)]">-{r.salesWasteOut}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{r.finalSystemBalance}</td>
                     <td className="py-2 px-2 text-right font-mono">{r.finalActualCount !== null ? r.finalActualCount : "—"}</td>
-                    <td className={`py-2 px-2 text-right font-mono font-bold ${variance === null ? "text-muted-foreground" : variance < 0 ? "text-[oklch(0.58_0.22_25)]" : variance > 0 ? "text-[oklch(0.62_0.16_155)]" : "text-muted-foreground"}`}>
+                    <td className={`py-2 px-2 text-right font-mono font-bold ${variance === null ? "text-muted-foreground" : variance < 0 ? "text-[oklch(0.62_0.24_25)]" : variance > 0 ? "text-[oklch(0.78_0.2_155)]" : "text-muted-foreground"}`}>
                       {variance === null ? "—" : variance === 0 ? "0" : variance > 0 ? `+${variance}` : variance}
                     </td>
                     <td className="py-2 px-2 text-right font-mono">{fmtMoney(r.totalValue)}</td>
@@ -606,8 +606,8 @@ function StockTable() {
                 Balance. This period's full audit (Opening, Remaining, Actual, Variance) is permanently archived
                 before anything resets, and Purchases/Out counters return to zero for the new period.
               </p>
-              <p className="text-sm font-semibold text-[oklch(0.58_0.22_25)]">This cannot be undone.</p>
-              {rolloverErr && <p className="text-sm text-[oklch(0.58_0.22_25)] bg-[oklch(0.58_0.22_25/0.1)] rounded-lg p-3">{rolloverErr}</p>}
+              <p className="text-sm font-semibold text-[oklch(0.62_0.24_25)]">This cannot be undone.</p>
+              {rolloverErr && <p className="text-sm text-[oklch(0.62_0.24_25)] bg-[oklch(0.62_0.24_25/0.1)] rounded-lg p-3">{rolloverErr}</p>}
             </div>
             <div className="p-4 border-t border-black/8 flex justify-end gap-2">
               <button onClick={() => setRolloverConfirmOpen(false)} disabled={rolloverRunning} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
@@ -675,14 +675,14 @@ function StockTable() {
                 const hasActualCount = s.actualStock !== null;
                 const varianceQty = hasActualCount ? Math.round((s.actualStock! - s.systemBalance) * 100) / 100 : null;
                 const varianceValue = varianceQty !== null ? Math.round(varianceQty * s.lastPurchaseCost * 100) / 100 : null;
-                const status = s.systemBalance <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.58_0.22_25)" }
+                const status = s.systemBalance <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.62_0.24_25)" }
                   : s.systemBalance < s.minStock ? { label: "قليل", labelEn: "Low", color: "oklch(0.82_0.16_85)" }
                   : { label: "متوفر", labelEn: "Available", color: "oklch(0.78_0.2_155)" };
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-semibold">{s.name}</td>
                     <td className="py-2 px-2">
-                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.72_0.14_85/0.5)] text-[#2b2416]">{s.unit}</span>
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.82_0.16_85/0.5)] text-[#2b2416]">{s.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{s.systemBalance}</td>
@@ -694,10 +694,10 @@ function StockTable() {
                         {hasActualCount ? s.actualStock : <span className="text-muted-foreground">— enter —</span>}
                       </button>
                     </td>
-                    <td className={`py-2 px-2 text-right font-mono ${varianceQty === null ? "text-muted-foreground" : varianceQty < 0 ? "text-[oklch(0.58_0.22_25)]" : varianceQty > 0 ? "text-[oklch(0.62_0.16_155)]" : "text-muted-foreground"}`}>
+                    <td className={`py-2 px-2 text-right font-mono ${varianceQty === null ? "text-muted-foreground" : varianceQty < 0 ? "text-[oklch(0.62_0.24_25)]" : varianceQty > 0 ? "text-[oklch(0.78_0.2_155)]" : "text-muted-foreground"}`}>
                       {varianceQty === null ? "—" : varianceQty > 0 ? `+${varianceQty}` : varianceQty}
                     </td>
-                    <td className={`py-2 px-2 text-right font-mono ${varianceValue === null ? "text-muted-foreground" : varianceValue < 0 ? "text-[oklch(0.58_0.22_25)]" : varianceValue > 0 ? "text-[oklch(0.62_0.16_155)]" : "text-muted-foreground"}`}>
+                    <td className={`py-2 px-2 text-right font-mono ${varianceValue === null ? "text-muted-foreground" : varianceValue < 0 ? "text-[oklch(0.62_0.24_25)]" : varianceValue > 0 ? "text-[oklch(0.78_0.2_155)]" : "text-muted-foreground"}`}>
                       {varianceValue === null ? "—" : varianceValue > 0 ? `+${fmtMoney(varianceValue)}` : fmtMoney(varianceValue)}
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
@@ -715,7 +715,7 @@ function StockTable() {
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}
-                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.72_0.14_85/0.15)] border border-[oklch(0.72_0.14_85/0.4)] text-[oklch(0.72_0.14_85)] hover:bg-[oklch(0.72_0.14_85/0.25)] mr-1.5"
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[oklch(0.82_0.16_85/0.15)] border border-[oklch(0.82_0.16_85/0.4)] text-[oklch(0.82_0.16_85)] hover:bg-[oklch(0.82_0.16_85/0.25)] mr-1.5"
                         title="Edit this entry"
                       >
                         <Pencil className="w-3.5 h-3.5 inline mr-1" />Edit
@@ -817,9 +817,9 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.72_0.14_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/8">
-          <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.72_0.14_85)]">Edit Inventory Entry</div>
+          <div className="font-mono uppercase tracking-widest text-xs text-[oklch(0.82_0.16_85)]">Edit Inventory Entry</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3">
@@ -866,7 +866,7 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
 
           <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-xs font-mono space-y-1">
             {qtyDeltaPreview !== 0 && !isNaN(newQty) && (
-              <div className={`flex justify-between font-bold ${qtyDeltaPreview < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+              <div className={`flex justify-between font-bold ${qtyDeltaPreview < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
                 <span>Quantity Correction (est.)</span><span>{qtyDeltaPreview > 0 ? "+" : ""}{qtyDeltaPreview} {unit}</span>
               </div>
             )}
@@ -877,14 +877,14 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
           <p className="text-[11px] text-muted-foreground">
             Name/unit/cost/min-alert changes and any quantity correction are recorded separately in the Audit Log with your username, timestamp, and before/after values.
           </p>
-          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+          {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/8 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
             onClick={submit}
             disabled={submitting}
-            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold disabled:opacity-60"
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold disabled:opacity-60"
           >
             {submitting ? "Saving..." : "Save Changes"}
           </button>
@@ -945,18 +945,18 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                 />
               </div>
               {valid && variance !== 0 && (
-                <div className={`text-sm font-bold text-center ${variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                <div className={`text-sm font-bold text-center ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
                   {variance < 0 ? `${Math.abs(variance)} ${target.unit} Deficit (عجز)` : `+${variance} ${target.unit} Surplus`}
                 </div>
               )}
-              {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+              {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
             </div>
             <div className="p-4 border-t border-black/8 flex justify-end gap-2">
               <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
               <button
                 onClick={() => setConfirming(true)}
                 disabled={!valid}
-                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.72_0.14_85/0.25)] border border-[oklch(0.72_0.14_85/0.6)] font-semibold disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.82_0.16_85/0.25)] border border-[oklch(0.82_0.16_85/0.6)] font-semibold disabled:opacity-50"
               >
                 Continue
               </button>
@@ -970,20 +970,20 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                 <strong>{num} {target.unit}</strong>?
               </p>
               {variance !== 0 ? (
-                <p className={`text-sm font-bold ${variance < 0 ? "text-[oklch(0.58_0.22_25)]" : "text-[oklch(0.62_0.16_155)]"}`}>
+                <p className={`text-sm font-bold ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
                   This will record a {variance < 0 ? "deficit" : "surplus"} of {Math.abs(variance)} {target.unit}.
                 </p>
               ) : (
-                <p className="text-sm text-[oklch(0.62_0.16_155)]">This matches the system figure exactly — no variance.</p>
+                <p className="text-sm text-[oklch(0.78_0.2_155)]">This matches the system figure exactly — no variance.</p>
               )}
-              {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+              {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
             </div>
             <div className="p-4 border-t border-black/8 flex justify-end gap-2">
               <button onClick={() => setConfirming(false)} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Back</button>
               <button
                 onClick={confirmAndSave}
                 disabled={submitting}
-                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold disabled:opacity-60"
               >
                 {submitting ? "Saving..." : "Confirm & Save"}
               </button>
@@ -1022,7 +1022,7 @@ function MaterialHistoryModal({ target, onClose }: { target: { id: string; name:
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.7_0.19_260)]">
             <History className="w-4 h-4" /> {target.name} — History
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1111,9 +1111,9 @@ function RecipeMatchCheck() {
   const allGood = noRecipe.length === 0 && brokenLinks.length === 0;
 
   return (
-    <div className={`glass rounded-2xl p-6 border-2 ${allGood ? "border-[oklch(0.62_0.16_155/0.4)]" : "border-[oklch(0.82_0.16_85/0.5)]"}`}>
+    <div className={`glass rounded-2xl p-6 border-2 ${allGood ? "border-[oklch(0.78_0.2_155/0.4)]" : "border-[oklch(0.82_0.16_85/0.5)]"}`}>
       <div className="flex items-center gap-2 mb-2">
-        {allGood ? <Check className="w-5 h-5 text-[oklch(0.62_0.16_155)]" /> : <AlertOctagon className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />}
+        {allGood ? <Check className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> : <AlertOctagon className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />}
         <h2 className="text-lg font-semibold">Recipe ↔ Inventory Match Check</h2>
       </div>
       {allGood ? (
@@ -1133,7 +1133,7 @@ function RecipeMatchCheck() {
           )}
           {brokenLinks.length > 0 && (
             <div>
-              <div className="text-sm font-bold text-[oklch(0.58_0.22_25)] mb-1">
+              <div className="text-sm font-bold text-[oklch(0.62_0.24_25)] mb-1">
                 {brokenLinks.length} menu item(s) reference a material that no longer exists — their recipe needs rebuilding:
               </div>
               <ul className="text-sm text-muted-foreground list-disc list-inside">
@@ -1231,19 +1231,19 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
             {ings.map((ing, idx) => {
               const incomplete = (ing.stockId && !(ing.qty > 0)) || (!ing.stockId && ing.qty > 0);
               return (
-                <div key={idx} className={`grid grid-cols-3 gap-2 ${incomplete ? "ring-2 ring-[oklch(0.75_0.22_25)] rounded" : ""}`}>
+                <div key={idx} className={`grid grid-cols-3 gap-2 ${incomplete ? "ring-2 ring-[oklch(0.62_0.24_25)] rounded" : ""}`}>
                   <select value={ing.stockId} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10">
                     <option value="">select stock...</option>
                     {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
                   </select>
                   <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
-                  <button onClick={() => setIngs(ings.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
+                  <button onClick={() => setIngs(ings.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.62_0.24_25)]">Remove</button>
                 </div>
               );
             })}
             <button onClick={() => setIngs([...ings, { stockId: "", qty: 0 }])} className="text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10">+ Ingredient</button>
           </div>
-          {editErr && <div className="text-xs text-[oklch(0.75_0.22_25)] bg-[oklch(0.75_0.22_25/0.1)] rounded-lg p-2">{editErr}</div>}
+          {editErr && <div className="text-xs text-[oklch(0.62_0.24_25)] bg-[oklch(0.62_0.24_25/0.1)] rounded-lg p-2">{editErr}</div>}
           <button onClick={save} className="py-2 px-4 rounded bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-sm">Save Menu Item</button>
         </div>
       )}
@@ -1264,19 +1264,19 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                   {editIngs.map((ing, idx) => {
                     const incomplete = (ing.stockId && !(ing.qty > 0)) || (!ing.stockId && ing.qty > 0);
                     return (
-                      <div key={idx} className={`grid grid-cols-3 gap-1.5 ${incomplete ? "ring-2 ring-[oklch(0.75_0.22_25)] rounded" : ""}`}>
+                      <div key={idx} className={`grid grid-cols-3 gap-1.5 ${incomplete ? "ring-2 ring-[oklch(0.62_0.24_25)] rounded" : ""}`}>
                         <select value={ing.stockId} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, stockId: e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10">
                           <option value="">select stock...</option>
                           {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
                         </select>
                         <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10" />
-                        <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.75_0.22_25)]">Remove</button>
+                        <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.62_0.24_25)]">Remove</button>
                       </div>
                     );
                   })}
                   <button onClick={() => setEditIngs([...editIngs, { stockId: "", qty: 0 }])} className="text-xs px-2 py-1 rounded bg-black/5 border border-black/10">+ Ingredient</button>
                 </div>
-                {editErr && <div className="text-xs text-[oklch(0.75_0.22_25)] bg-[oklch(0.75_0.22_25/0.1)] rounded-lg p-2">{editErr}</div>}
+                {editErr && <div className="text-xs text-[oklch(0.62_0.24_25)] bg-[oklch(0.62_0.24_25/0.1)] rounded-lg p-2">{editErr}</div>}
                 <div className="flex items-center gap-2 pt-1">
                   <button onClick={saveEdit} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"><Save className="w-3.5 h-3.5" /> Save</button>
                   <button onClick={() => { setEditingId(null); setEditErr(null); }} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-black/5 border border-black/10"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -1290,13 +1290,13 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                 <div>
                   <div className="font-semibold">{m.name}</div>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="font-mono text-xs text-[oklch(0.85_0.16_200)]">{fmtMoney(m.price)}</span>
+                    <span className="font-mono text-xs text-[oklch(0.7_0.19_260)]">{fmtMoney(m.price)}</span>
                     <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-black/5 text-muted-foreground">{m.category ?? "Extras"}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.85_0.16_200)]"><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => onDelete(m.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={() => onDelete(m.id)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]"><Trash2 className="w-4 h-4" /></button>
                 </div>
               </div>
               <div className="mt-3 text-xs font-mono space-y-0.5 text-muted-foreground">

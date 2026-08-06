@@ -41,7 +41,7 @@ export function Login() {
           <img src={logo} alt="GLITCH" className="w-20 h-20 rounded-full object-cover mb-4 ring-2 ring-[oklch(0.82_0.16_85/0.5)] shadow-[0_0_30px_oklch(0.82_0.16_85/0.4)]" />
           <h1 className="text-3xl font-bold tracking-widest text-gradient-gold">{t("login.title")}</h1>
           <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mt-1">{t("login.subtitle")}</p>
-          <div className="mt-4 flex items-center gap-2 text-sm text-[oklch(0.85_0.16_200)]">
+          <div className="mt-4 flex items-center gap-2 text-sm text-[oklch(0.7_0.19_260)]">
             <Gamepad2 className="w-4 h-4" />
             <span className="font-mono uppercase tracking-widest">{t("login.heading")}</span>
           </div>
@@ -76,7 +76,7 @@ export function Login() {
               />
             </div>
           </div>
-          {err && <div className="text-sm text-[oklch(0.7_0.22_25)] bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.4)] rounded-lg p-3">{err}</div>}
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)] bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.4)] rounded-lg p-3">{err}</div>}
           <button
             type="submit"
             disabled={loading}

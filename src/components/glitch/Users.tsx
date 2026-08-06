@@ -102,7 +102,7 @@ export function UsersPage() {
             </div>
           </div>
           {selfMsg && (
-            <div className={`mt-3 text-xs font-mono ${selfMsg.kind === "ok" ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+            <div className={`mt-3 text-xs font-mono ${selfMsg.kind === "ok" ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
               {selfMsg.kind === "ok" ? "✓ " : "⚠ "}{selfMsg.text}
             </div>
           )}
@@ -141,12 +141,12 @@ export function UsersPage() {
             Create
           </button>
         </div>
-        {err && <div className="mt-3 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+        {err && <div className="mt-3 text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
       </div>
 
       <div className="glass rounded-2xl p-6">
         <h2 className="text-lg font-semibold mb-4">Employee Roster</h2>
-        {rowMsg && <div className="mb-3 text-xs text-[oklch(0.75_0.22_25)] font-mono">⚠ {rowMsg}</div>}
+        {rowMsg && <div className="mb-3 text-xs text-[oklch(0.62_0.24_25)] font-mono">⚠ {rowMsg}</div>}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -176,7 +176,7 @@ export function UsersPage() {
                       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-bold border ${
                         a.role === "admin"
                           ? "bg-[oklch(0.82_0.16_85/0.15)] text-[oklch(0.82_0.16_85)] border-[oklch(0.82_0.16_85/0.5)]"
-                          : "bg-[oklch(0.85_0.16_200/0.15)] text-[oklch(0.85_0.16_200)] border-[oklch(0.85_0.16_200/0.4)]"
+                          : "bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.7_0.19_260)] border-[oklch(0.7_0.19_260/0.4)]"
                       }`}>
                         {a.role === "admin" ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
                         {a.role}
@@ -207,11 +207,11 @@ export function UsersPage() {
                           </>
                         ) : (
                           <>
-                            <button onClick={() => beginEdit(a.username)} className="text-[oklch(0.85_0.16_200)] hover:opacity-80" title="Edit">
+                            <button onClick={() => beginEdit(a.username)} className="text-[oklch(0.7_0.19_260)] hover:opacity-80" title="Edit">
                               <Pencil className="w-4 h-4" />
                             </button>
                             {!isSelf && (
-                              <button onClick={() => void deleteAccount(a.username)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]" title="Delete">
+                              <button onClick={() => void deleteAccount(a.username)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}

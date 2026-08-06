@@ -82,14 +82,14 @@ export function Gatekeeper() {
 
         {checking && (
           <div className="flex flex-col items-center gap-3 py-8">
-            <MapPin className="w-8 h-8 text-[oklch(0.85_0.16_200)] animate-pulse" />
+            <MapPin className="w-8 h-8 text-[oklch(0.7_0.19_260)] animate-pulse" />
             <p className="text-sm text-muted-foreground">{t("shift.checkingLocation")}</p>
           </div>
         )}
 
         {!checking && locationBlocked && (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
-            <ShieldOff className="w-10 h-10 text-[oklch(0.75_0.22_25)]" />
+            <ShieldOff className="w-10 h-10 text-[oklch(0.62_0.24_25)]" />
             <div>
               <h2 className="font-semibold text-lg">{t("shift.locationAccessRequired")}</h2>
               <p className="text-sm text-muted-foreground mt-2">
@@ -124,7 +124,7 @@ export function Gatekeeper() {
                 className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-lg font-mono outline-none focus:border-[oklch(0.7_0.19_260)] text-center"
               />
             </div>
-            {err && <div className="text-sm text-[oklch(0.75_0.22_25)] text-center">{err}</div>}
+            {err && <div className="text-sm text-[oklch(0.62_0.24_25)] text-center">{err}</div>}
             <button
               onClick={handleStart}
               disabled={submitting}

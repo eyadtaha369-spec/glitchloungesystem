@@ -61,9 +61,9 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
                   : "text-muted-foreground hover:text-[#2b2416] hover:bg-black/5"
               }`}
             >
-              <Icon className={`w-4 h-4 ${active ? "text-[oklch(0.85_0.16_200)]" : ""}`} />
+              <Icon className={`w-4 h-4 ${active ? "text-[oklch(0.7_0.19_260)]" : ""}`} />
               <span>{t(item.labelKey)}</span>
-              {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[oklch(0.85_0.16_200)] shadow-[0_0_10px_oklch(0.85_0.16_200)]" />}
+              {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[oklch(0.7_0.19_260)] shadow-[0_0_10px_oklch(0.7_0.19_260)]" />}
             </button>
           );
         })}
@@ -76,7 +76,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
           </div>
           <div className="min-w-0">
             <div className="text-sm font-medium truncate">{state.currentUser?.username}</div>
-            <div className="text-[10px] uppercase tracking-widest text-[oklch(0.85_0.16_200)]">{state.currentUser?.role}</div>
+            <div className="text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)]">{state.currentUser?.role}</div>
           </div>
         </div>
         <button

@@ -55,7 +55,7 @@ export function StaffOrdersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Users className="w-7 h-7 text-[oklch(0.85_0.16_200)]" />
+        <Users className="w-7 h-7 text-[oklch(0.7_0.19_260)]" />
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Staff Orders</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
@@ -64,7 +64,7 @@ export function StaffOrdersPage() {
         </div>
       </div>
 
-      <div className="glass rounded-2xl p-6 border border-[oklch(0.85_0.16_200/0.3)]">
+      <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.3)]">
         <p className="text-xs text-muted-foreground mb-4">
           Items keep standard menu prices for accurate costing and inventory deduction, but the total is logged as a
           Staff Consumption Expense — it never counts toward sales revenue.
@@ -81,7 +81,7 @@ export function StaffOrdersPage() {
           <div className="flex items-end">
             <button
               onClick={() => setPickerOpen(true)}
-              className="w-full py-3 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-bold uppercase tracking-wide text-sm"
+              className="w-full py-3 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] font-bold uppercase tracking-wide text-sm"
             >
               + Add Items
             </button>
@@ -108,7 +108,7 @@ export function StaffOrdersPage() {
           </div>
         )}
 
-        {err && <div className="mt-3 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+        {err && <div className="mt-3 text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
 
         <button
           onClick={submit}
@@ -176,7 +176,7 @@ function StaffOrderHistory() {
           </div>
           <button
             onClick={() => printStaffOrdersReport(filtered, fromDate, toDate)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-xs font-bold uppercase tracking-wide shadow-[0_0_16px_oklch(0.72_0.14_85/0.4)]"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-xs font-bold uppercase tracking-wide shadow-[0_0_16px_oklch(0.82_0.16_85/0.4)]"
           >
             <Printer className="w-3.5 h-3.5" /> Generate Report
           </button>
@@ -224,7 +224,7 @@ function StaffItemPickerModal({ menu, onClose, onPick }: { menu: MenuItem[]; onC
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md no-print" onClick={onClose}>
       <div className="w-full max-w-4xl h-[80vh] glass-strong rounded-3xl border-2 border-[oklch(0.7_0.19_260/0.5)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/10 shrink-0">
-          <div className="font-mono uppercase tracking-widest text-lg font-bold text-[oklch(0.85_0.16_200)]">Add Staff Order Items</div>
+          <div className="font-mono uppercase tracking-widest text-lg font-bold text-[oklch(0.7_0.19_260)]">Add Staff Order Items</div>
           <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10"><X className="w-6 h-6" /></button>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-6 py-4 border-b border-black/10 shrink-0">
@@ -268,7 +268,7 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-black/10">
-          <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.85_0.16_200)]">Staff Check</div>
+          <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.7_0.19_260)]">Staff Check</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
         <div className="print-area p-6 font-mono text-sm bg-white/50">
@@ -301,7 +301,7 @@ function StaffReceiptModal({ order, onClose }: { order: StaffOrder; onClose: () 
           <button
             onClick={() => void printSmart()}
             disabled={!logoReady}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.85_0.16_200)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-semibold disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-semibold disabled:opacity-60"
           >
             <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
           </button>

@@ -103,7 +103,7 @@ export function Dashboard() {
                       className={`h-full rounded-full transition-all ${
                         room.isVip
                           ? "bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.65_0.24_305)]"
-                          : "bg-gradient-to-r from-[oklch(0.85_0.16_200)] to-[oklch(0.7_0.19_260)]"
+                          : "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.7_0.19_260)]"
                       }`}
                       style={{ width: `${pct}%` }}
                     />
@@ -123,7 +123,7 @@ export function Dashboard() {
         {/* Activity feed */}
         <div className="glass rounded-2xl p-6 flex flex-col">
           <div className="flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-[oklch(0.85_0.16_200)]" />
+            <Activity className="w-4 h-4 text-[oklch(0.7_0.19_260)]" />
             <h2 className="text-lg font-semibold">Activity Feed</h2>
           </div>
           <div className="flex-1 overflow-y-auto space-y-2 max-h-[420px] pr-1">
@@ -158,11 +158,11 @@ function MetricCard({ label, value, icon: Icon, accent, pulse }: {
 }) {
   const map = {
     blue: "from-[oklch(0.7_0.19_260/0.15)] border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)]",
-    cyan: "from-[oklch(0.85_0.16_200/0.15)] border-[oklch(0.85_0.16_200/0.4)] text-[oklch(0.85_0.16_200)]",
+    cyan: "from-[oklch(0.7_0.19_260/0.15)] border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)]",
     purple: "from-[oklch(0.65_0.24_305/0.15)] border-[oklch(0.65_0.24_305/0.4)] text-[oklch(0.65_0.24_305)]",
     gold: "from-[oklch(0.82_0.16_85/0.15)] border-[oklch(0.82_0.16_85/0.4)] text-[oklch(0.82_0.16_85)]",
     green: "from-[oklch(0.78_0.2_155/0.15)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]",
-    red: "from-[oklch(0.68_0.25_25/0.15)] border-[oklch(0.68_0.25_25/0.4)] text-[oklch(0.68_0.25_25)]",
+    red: "from-[oklch(0.62_0.24_25/0.15)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]",
   };
   return (
     <div className={`glass rounded-2xl p-5 border bg-gradient-to-br to-transparent ${map[accent]} ${pulse ? "animate-pulse-red" : ""}`}>

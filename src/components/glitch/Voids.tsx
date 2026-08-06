@@ -75,7 +75,7 @@ function FraudAlertPanel() {
     <div className={`glass rounded-2xl p-6 border ${flagged ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-black/10"}`}>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <div className="flex items-center gap-2">
-          {flagged ? <AlertTriangle className="w-5 h-5 text-[oklch(0.75_0.22_25)] animate-pulse-glow" /> : <ShieldAlert className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />}
+          {flagged ? <AlertTriangle className="w-5 h-5 text-[oklch(0.62_0.24_25)] animate-pulse-glow" /> : <ShieldAlert className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />}
           <h2 className="text-lg font-semibold">{flagged ? "Staff Collusion & Fraud Alert" : "Fraud Risk — Normal"}</h2>
         </div>
         <button onClick={() => setEditingThreshold((v) => !v)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
@@ -105,7 +105,7 @@ function FraudAlertPanel() {
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Waste %</div>
-          <div className={`text-lg font-mono font-bold mt-1 ${flagged ? "text-[oklch(0.75_0.22_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>{wastePercent.toFixed(2)}%</div>
+          <div className={`text-lg font-mono font-bold mt-1 ${flagged ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>{wastePercent.toFixed(2)}%</div>
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Active Shift</div>

@@ -65,7 +65,7 @@ export function UnpaidExpensesPage() {
                   <tr key={e.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2.5 px-2 text-muted-foreground font-mono text-xs">{new Date(e.ts).toLocaleDateString()}</td>
                     <td className="py-2.5 px-2 font-semibold">{e.description}</td>
-                    <td className="py-2.5 px-2 text-right font-mono font-bold text-[oklch(0.75_0.22_25)]">{fmtMoney(e.amount)}</td>
+                    <td className="py-2.5 px-2 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(e.amount)}</td>
                     <td className="py-2.5 px-2 text-muted-foreground text-xs">{e.supplierId || e.category || "—"}</td>
                     <td className="py-2.5 px-2 text-right">
                       <button
@@ -117,7 +117,7 @@ function SettleModal({ entry, onClose }: { entry: LedgerEntry; onClose: () => vo
         <div className="p-5 space-y-4">
           <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-sm">
             <div className="font-semibold">{entry.description}</div>
-            <div className="text-lg font-mono font-bold text-[oklch(0.75_0.22_25)] mt-1">{fmtMoney(entry.amount)}</div>
+            <div className="text-lg font-mono font-bold text-[oklch(0.62_0.24_25)] mt-1">{fmtMoney(entry.amount)}</div>
           </div>
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Source / طريقة الدفع</label>
@@ -144,7 +144,7 @@ function SettleModal({ entry, onClose }: { entry: LedgerEntry; onClose: () => vo
               <p className="text-[11px] text-[oklch(0.82_0.16_85)] mt-1.5">This will now deduct from the active shift's expected cash.</p>
             )}
           </div>
-          {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/8 flex justify-end gap-2">
           <button onClick={onClose} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>

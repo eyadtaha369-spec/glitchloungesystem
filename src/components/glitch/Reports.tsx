@@ -109,7 +109,7 @@ export function ReportsPage() {
           </div>
           <button
             onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, selectedDate, wasteEntries.reduce((a, e) => a + e.amount, 0))}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.72_0.14_85/0.4)] self-end"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] self-end"
           >
             <FileDown className="w-4 h-4" /> Generate Report
           </button>
@@ -141,7 +141,7 @@ export function ReportsPage() {
           </div>
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Visa</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.85_0.16_200)]">{fmtMoney(visaRevenue)}</div>
+            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.7_0.19_260)]">{fmtMoney(visaRevenue)}</div>
           </div>
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">InstaPay</div>
@@ -153,7 +153,7 @@ export function ReportsPage() {
       {/* Shift comparison */}
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
-          <Users2 className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
+          <Users2 className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">Shift Comparison — Today</h2>
         </div>
         {todayShifts.length === 0 ? (
@@ -231,10 +231,10 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
   const total = entries.reduce((a, e) => a + e.amount, 0);
 
   return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.58_0.22_25/0.4)]">
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.62_0.24_25/0.4)]">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
         <div className="flex items-center gap-2">
-          <Trash2 className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
+          <Trash2 className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
           <h2 className="text-lg font-semibold">Wasted / Marketing Expense — Audit Summary</h2>
         </div>
         <div className="flex gap-1.5">
@@ -244,7 +244,7 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
               onClick={() => setTimeframe(tf)}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${
                 timeframe === tf
-                  ? "bg-[oklch(0.58_0.22_25/0.2)] border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)]"
+                  ? "bg-[oklch(0.62_0.24_25/0.2)] border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)]"
                   : "bg-black/5 border-black/10 text-muted-foreground"
               }`}
             >
@@ -265,7 +265,7 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
       )}
       <div className="text-[11px] text-muted-foreground uppercase tracking-widest mb-1">{range.label}</div>
 
-      <div className="text-3xl font-mono font-bold text-[oklch(0.58_0.22_25)] mb-4">{fmtMoney(total)}</div>
+      <div className="text-3xl font-mono font-bold text-[oklch(0.62_0.24_25)] mb-4">{fmtMoney(total)}</div>
       {entries.length === 0 ? (
         <div className="text-sm text-muted-foreground font-mono">Nothing logged in this period.</div>
       ) : (
@@ -273,7 +273,7 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
           {entries.map((e) => (
             <div key={e.id} className="flex items-center justify-between text-xs font-mono bg-white/60 rounded-lg px-3 py-2 border border-black/8">
               <span className="truncate">{e.description || "Wasted/Marketing item(s)"} · {new Date(e.ts).toLocaleString()} · {e.staffUsername}</span>
-              <span className="text-[oklch(0.58_0.22_25)] font-bold shrink-0 ml-2">{fmtMoney(e.amount)}</span>
+              <span className="text-[oklch(0.62_0.24_25)] font-bold shrink-0 ml-2">{fmtMoney(e.amount)}</span>
             </div>
           ))}
         </div>
@@ -311,10 +311,10 @@ function BusinessDayPanel() {
   };
 
   return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.72_0.14_85/0.5)]">
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.5)]">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <Sunrise className="w-5 h-5 text-[oklch(0.72_0.14_85)]" />
+          <Sunrise className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
           <h2 className="text-lg font-semibold">Current Business Day</h2>
         </div>
         <button onClick={() => setShowHistory((v) => !v)} className="text-xs px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 flex items-center gap-1.5">
@@ -338,7 +338,7 @@ function BusinessDayPanel() {
           </div>
           <div className="bg-black/5 rounded-lg p-3 border border-black/8 col-span-2">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue So Far (Live)</div>
-            <div className="text-lg font-mono font-bold mt-1 text-[oklch(0.62_0.16_155)]">{fmtMoney(liveRevenue)}</div>
+            <div className="text-lg font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(liveRevenue)}</div>
           </div>
         </div>
       ) : (
@@ -354,7 +354,7 @@ function BusinessDayPanel() {
       <button
         onClick={() => setConfirmOpen(true)}
         disabled={!canClose}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-sm font-bold uppercase tracking-wide shadow-[0_0_20px_oklch(0.72_0.14_85/0.4)] disabled:opacity-40"
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-sm font-bold uppercase tracking-wide shadow-[0_0_20px_oklch(0.82_0.16_85/0.4)] disabled:opacity-40"
       >
         <CalendarCheck className="w-4 h-4" /> Close Business Day
       </button>
@@ -399,7 +399,7 @@ function BusinessDayPanel() {
 
       {confirmOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmOpen(false)}>
-          <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.72_0.14_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 space-y-3">
               <h3 className="text-lg font-bold">Close Business Day?</h3>
               <p className="text-sm text-muted-foreground">
@@ -407,14 +407,14 @@ function BusinessDayPanel() {
                 <strong>{bdShifts.length}</strong> shift{bdShifts.length === 1 ? "" : "s"} into the permanent financial
                 ledger, then opens a brand new business day starting from zero for the next shift. This cannot be undone.
               </p>
-              {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+              {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
             </div>
             <div className="p-4 border-t border-black/8 flex justify-end gap-2">
               <button onClick={() => setConfirmOpen(false)} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
               <button
                 onClick={doClose}
                 disabled={closing}
-                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold disabled:opacity-60"
               >
                 {closing ? "Closing..." : "Confirm & Close"}
               </button>
@@ -519,11 +519,11 @@ function PnLLedgerPanel() {
         </div>
         <div className="bg-white/60 rounded-lg p-4 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Other Expenses</div>
-          <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.75_0.22_25)]">{fmtMoney(totalExpenses)}</div>
+          <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalExpenses)}</div>
         </div>
         <div className={`rounded-lg p-4 border ${netProfit >= 0 ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)]"}`}>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Profit</div>
-          <div className={`text-xl font-mono font-bold mt-1 ${netProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>{fmtMoney(netProfit)}</div>
+          <div className={`text-xl font-mono font-bold mt-1 ${netProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(netProfit)}</div>
         </div>
       </div>
 
@@ -548,7 +548,7 @@ function PnLLedgerPanel() {
                   <td className="py-2 px-2 text-xs uppercase tracking-widest text-muted-foreground">{l.category}</td>
                   <td className="py-2 px-2 text-xs">{l.description || "—"}</td>
                   <td className="py-2 px-2 text-xs">{l.staffUsername}</td>
-                  <td className={`py-2 px-2 text-right font-mono font-semibold ${l.direction === "inflow" ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+                  <td className={`py-2 px-2 text-right font-mono font-semibold ${l.direction === "inflow" ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
                     {l.direction === "inflow" ? "+" : "-"}{fmtMoney(l.amount)}
                   </td>
                 </tr>
@@ -580,7 +580,7 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
         )}
       </div>
       {pendingVoids > 0 && (
-        <div className="mb-2 text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded bg-[oklch(0.62_0.24_25/0.15)] text-[oklch(0.75_0.22_25)] border border-[oklch(0.62_0.24_25/0.4)] inline-block">
+        <div className="mb-2 text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded bg-[oklch(0.62_0.24_25/0.15)] text-[oklch(0.62_0.24_25)] border border-[oklch(0.62_0.24_25/0.4)] inline-block">
           ⚠ {pendingVoids} Unapproved Discrepanc{pendingVoids > 1 ? "ies" : "y"}
         </div>
       )}
@@ -596,7 +596,7 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
           <div className="flex justify-between"><span>Actual Cash</span><span>{fmtMoney(shift.closingActualCash)}</span></div>
         )}
         {discrepancy !== null && (
-          <div className={`flex justify-between font-bold ${Math.abs(discrepancy) < 0.005 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.75_0.22_25)]"}`}>
+          <div className={`flex justify-between font-bold ${Math.abs(discrepancy) < 0.005 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
             <span>Discrepancy</span><span>{fmtMoney(discrepancy)}</span>
           </div>
         )}
@@ -659,12 +659,12 @@ function AttendanceLog() {
                   <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{sh.closedAt ? microTs(sh.closedAt) : "— (open)"}</td>
                   <td className="py-2 px-2">
                     {sh.openedLat !== null && sh.openedLng !== null ? (
-                      <a href={mapsUrl(sh.openedLat, sh.openedLng)} target="_blank" rel="noreferrer" className="text-[oklch(0.85_0.16_200)] hover:underline text-xs">View Location</a>
+                      <a href={mapsUrl(sh.openedLat, sh.openedLng)} target="_blank" rel="noreferrer" className="text-[oklch(0.7_0.19_260)] hover:underline text-xs">View Location</a>
                     ) : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
                   <td className="py-2 px-2">
                     {sh.closedLat !== null && sh.closedLng !== null ? (
-                      <a href={mapsUrl(sh.closedLat, sh.closedLng)} target="_blank" rel="noreferrer" className="text-[oklch(0.85_0.16_200)] hover:underline text-xs">View Location</a>
+                      <a href={mapsUrl(sh.closedLat, sh.closedLng)} target="_blank" rel="noreferrer" className="text-[oklch(0.7_0.19_260)] hover:underline text-xs">View Location</a>
                     ) : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
                 </tr>
@@ -693,7 +693,7 @@ function HistoryLog() {
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <History className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
+          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">Shift History Archive</h2>
         </div>
         <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
@@ -735,7 +735,7 @@ function HistoryLog() {
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(sh.openedAt).toLocaleString()}</td>
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{sh.closedAt ? new Date(sh.closedAt).toLocaleString() : "—"}</td>
                     <td className="py-2 px-2 text-right font-mono">{fmtMoney(revenue)}</td>
-                    <td className={`py-2 px-2 text-right font-mono ${sh.discrepancy !== null && Math.abs(sh.discrepancy) >= 0.005 ? "text-[oklch(0.75_0.22_25)]" : ""}`}>
+                    <td className={`py-2 px-2 text-right font-mono ${sh.discrepancy !== null && Math.abs(sh.discrepancy) >= 0.005 ? "text-[oklch(0.62_0.24_25)]" : ""}`}>
                       {sh.discrepancy !== null ? fmtMoney(sh.discrepancy) : "—"}
                     </td>
                     <td className="py-2 px-2 text-right text-xs uppercase tracking-widest text-muted-foreground">

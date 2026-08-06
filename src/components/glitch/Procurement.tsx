@@ -191,7 +191,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
                   onClick={() => setPaymentSource(src)}
                   className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
                     paymentSource === src
-                      ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold"
+                      ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold"
                       : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
                   }`}
                 >
@@ -235,7 +235,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
       </div>
 
       {result && (
-        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)]"}`}>
+        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
           {result.text}
         </div>
       )}
@@ -383,7 +383,7 @@ function ExpenseSubmitForm() {
                     onClick={() => setPaymentSource(src)}
                     className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
                       paymentSource === src
-                        ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold"
+                        ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold"
                         : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
                     }`}
                   >
@@ -422,7 +422,7 @@ function ExpenseSubmitForm() {
       </div>
 
       {result && (
-        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)]"}`}>
+        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
           {result.text}
         </div>
       )}
@@ -480,7 +480,7 @@ function PendingApprovals() {
                   {rejectingId === entry.id ? (
                     <div className="flex items-center gap-2 mt-3">
                       <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="flex-1 bg-white/70 border border-black/10 rounded px-2 py-1.5 text-xs" />
-                      <button onClick={async () => { await rejectPurchase(entry.id, reason); setRejectingId(null); setReason(""); }} className="text-xs px-3 py-1.5 rounded bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]">Confirm Reject</button>
+                      <button onClick={async () => { await rejectPurchase(entry.id, reason); setRejectingId(null); setReason(""); }} className="text-xs px-3 py-1.5 rounded bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)]">Confirm Reject</button>
                       <button onClick={() => setRejectingId(null)} className="text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10">Cancel</button>
                     </div>
                   ) : (
@@ -528,12 +528,12 @@ function PurchaseHistory() {
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <History className="w-5 h-5 text-[oklch(0.72_0.14_85)]" />
+          <History className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
           <h2 className="text-lg font-semibold">Purchase History</h2>
         </div>
         <button
           onClick={() => setReportOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] text-xs font-bold uppercase tracking-wide shadow-[0_0_16px_oklch(0.72_0.14_85/0.4)]"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] text-xs font-bold uppercase tracking-wide shadow-[0_0_16px_oklch(0.82_0.16_85/0.4)]"
         >
           <FileBarChart className="w-3.5 h-3.5" /> Generate Report
         </button>
@@ -713,7 +713,7 @@ function ReportModal({ entries, materials, onClose }: {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto glass-strong rounded-2xl border border-[oklch(0.72_0.14_85/0.5)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto glass-strong rounded-2xl border border-[oklch(0.82_0.16_85/0.5)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/8">
           <div className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Generate Procurement Report</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]">✕</button>
@@ -726,7 +726,7 @@ function ReportModal({ entries, materials, onClose }: {
                 onClick={() => setTimeframe(t)}
                 className={`py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${
                   timeframe === t
-                    ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416]"
+                    ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416]"
                     : "bg-black/5 border-black/10 text-muted-foreground"
                 }`}
               >
@@ -760,7 +760,7 @@ function ReportModal({ entries, materials, onClose }: {
           <button onClick={exportCsv} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Export CSV</button>
           <button
             onClick={print}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.72_0.14_85)] to-[oklch(0.8_0.11_90)] text-[#2b2416] font-bold"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.82_0.16_85)] to-[oklch(0.82_0.16_85)] text-[#2b2416] font-bold"
           >
             Print
           </button>

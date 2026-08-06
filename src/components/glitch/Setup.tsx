@@ -48,10 +48,10 @@ function MenuRebuildPanel() {
   };
 
   return (
-    <div className="rounded-2xl p-6 border-2 border-[oklch(0.58_0.22_25/0.5)] bg-[oklch(0.58_0.22_25/0.06)]">
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.62_0.24_25/0.5)] bg-[oklch(0.62_0.24_25/0.06)]">
       <div className="flex items-center gap-2 mb-2">
-        <AlertOctagon className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
-        <h2 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">Danger Zone — Rebuild Entire Menu &amp; Recipes</h2>
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.62_0.24_25)]">Danger Zone — Rebuild Entire Menu &amp; Recipes</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
         Permanently replaces the entire menu with the current source recipe book — every menu item's name, price,
@@ -61,37 +61,37 @@ function MenuRebuildPanel() {
       </p>
       <button
         onClick={() => setOpen(true)}
-        className="px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border-2 border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.58_0.22_25/0.25)]"
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.62_0.24_25/0.25)]"
       >
         Rebuild Menu &amp; Recipes
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
-          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.58_0.22_25/0.6)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.6)]" onClick={(e) => e.stopPropagation()}>
             {result ? (
               <div className="p-6 space-y-2">
-                <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Menu Rebuilt</div>
+                <div className="text-lg font-bold text-[oklch(0.78_0.2_155)]">Menu Rebuilt</div>
                 <p className="text-sm text-muted-foreground">
                   {result.materialsCreated} new material{result.materialsCreated === 1 ? "" : "s"} created ·{" "}
                   {result.itemsCreated} menu item{result.itemsCreated === 1 ? "" : "s"} rebuilt
                 </p>
                 {result.unresolved.length > 0 && (
-                  <p className="text-xs text-[oklch(0.58_0.22_25)]">Couldn't resolve: {result.unresolved.join(", ")}</p>
+                  <p className="text-xs text-[oklch(0.62_0.24_25)]">Couldn't resolve: {result.unresolved.join(", ")}</p>
                 )}
                 <button onClick={() => { setOpen(false); setResult(null); setConfirmText(""); setPassword(""); }} className="mt-2 px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Done</button>
               </div>
             ) : (
               <>
                 <div className="p-5 space-y-4">
-                  <h3 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">This is permanent.</h3>
+                  <h3 className="text-lg font-bold text-[oklch(0.62_0.24_25)]">This is permanent.</h3>
                   <p className="text-sm text-muted-foreground">
                     Every current menu item will be replaced. This does not touch stock quantities, prices already
                     charged in past sessions, or reports — only the live menu and its recipes going forward.
                   </p>
                   <div>
                     <label className="text-xs uppercase tracking-widest text-muted-foreground">
-                      Type <span className="font-bold text-[oklch(0.58_0.22_25)]">{REQUIRED_PHRASE}</span> to confirm
+                      Type <span className="font-bold text-[oklch(0.62_0.24_25)]">{REQUIRED_PHRASE}</span> to confirm
                     </label>
                     <input
                       value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
@@ -106,14 +106,14 @@ function MenuRebuildPanel() {
                       className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
                     />
                   </div>
-                  {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+                  {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
                 </div>
                 <div className="p-4 border-t border-black/8 flex justify-end gap-2">
                   <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
                   <button
                     onClick={submit}
                     disabled={!canSubmit || running}
-                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25)] text-white font-bold disabled:opacity-40"
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25)] text-white font-bold disabled:opacity-40"
                   >
                     {running ? "Rebuilding..." : "Permanently Rebuild"}
                   </button>
@@ -154,10 +154,10 @@ function ProductionResetPanel() {
   };
 
   return (
-    <div className="rounded-2xl p-6 border-2 border-[oklch(0.58_0.22_25/0.5)] bg-[oklch(0.58_0.22_25/0.06)]">
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.62_0.24_25/0.5)] bg-[oklch(0.62_0.24_25/0.06)]">
       <div className="flex items-center gap-2 mb-2">
-        <AlertOctagon className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
-        <h2 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">Danger Zone — Go-Live Data Wipe</h2>
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.62_0.24_25)]">Danger Zone — Go-Live Data Wipe</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
         Permanently deletes every order, receipt, shift, void, expense, staff order, restock log, and activity log entry —
@@ -167,30 +167,30 @@ function ProductionResetPanel() {
       </p>
       <button
         onClick={() => setOpen(true)}
-        className="px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border-2 border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.58_0.22_25/0.25)]"
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.62_0.24_25/0.25)]"
       >
         Reset System for Live Production
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
-          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.58_0.22_25/0.6)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.6)]" onClick={(e) => e.stopPropagation()}>
             {done ? (
               <div className="p-6 text-center space-y-2">
-                <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">System Reset Complete</div>
+                <div className="text-lg font-bold text-[oklch(0.78_0.2_155)]">System Reset Complete</div>
                 <p className="text-sm text-muted-foreground">Reloading with a clean slate...</p>
               </div>
             ) : (
               <>
                 <div className="p-5 space-y-4">
-                  <h3 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">This is permanent.</h3>
+                  <h3 className="text-lg font-bold text-[oklch(0.62_0.24_25)]">This is permanent.</h3>
                   <p className="text-sm text-muted-foreground">
                     All test orders, receipts, shifts, void requests, expenses, staff orders, and activity history will be
                     deleted forever. Menu, rooms, materials, and accounts stay.
                   </p>
                   <div>
                     <label className="text-xs uppercase tracking-widest text-muted-foreground">
-                      Type <span className="font-bold text-[oklch(0.58_0.22_25)]">{REQUIRED_PHRASE}</span> to confirm
+                      Type <span className="font-bold text-[oklch(0.62_0.24_25)]">{REQUIRED_PHRASE}</span> to confirm
                     </label>
                     <input
                       value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
@@ -205,14 +205,14 @@ function ProductionResetPanel() {
                       className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
                     />
                   </div>
-                  {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+                  {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
                 </div>
                 <div className="p-4 border-t border-black/8 flex justify-end gap-2">
                   <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
                   <button
                     onClick={submit}
                     disabled={!canSubmit || running}
-                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25)] text-white font-bold disabled:opacity-40"
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25)] text-white font-bold disabled:opacity-40"
                   >
                     {running ? "Wiping Data..." : "Permanently Reset"}
                   </button>
@@ -250,9 +250,9 @@ function PrinterSetupPanel() {
   };
 
   return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.72_0.14_85/0.4)]">
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.82_0.16_85/0.4)]">
       <div className="flex items-center gap-2 mb-2">
-        <Printer className="w-5 h-5 text-[oklch(0.72_0.14_85)]" />
+        <Printer className="w-5 h-5 text-[oklch(0.82_0.16_85)]" />
         <h2 className="text-lg font-semibold">Thermal Printer Setup — One-Click Printing</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
@@ -287,7 +287,7 @@ function PrinterSetupPanel() {
               <button
                 onClick={() => choosePrinter("")}
                 className={`w-full flex items-center justify-between text-start text-xs px-3 py-2.5 rounded-lg border ${
-                  selected === "" ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
+                  selected === "" ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
                 }`}
               >
                 <span>System Default</span>
@@ -298,7 +298,7 @@ function PrinterSetupPanel() {
                   key={p.name}
                   onClick={() => choosePrinter(p.name)}
                   className={`w-full flex items-center justify-between text-start text-xs px-3 py-2.5 rounded-lg border ${
-                    selected === p.name ? "bg-[oklch(0.72_0.14_85/0.2)] border-[oklch(0.72_0.14_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
+                    selected === p.name ? "bg-[oklch(0.82_0.16_85/0.2)] border-[oklch(0.82_0.16_85/0.6)] text-[#2b2416] font-semibold" : "bg-white/60 border-black/10 hover:bg-black/5"
                   }`}
                 >
                   <span>{p.displayName || p.name}{p.isDefault ? " (Windows default)" : ""}</span>
@@ -320,7 +320,7 @@ function PrinterSetupPanel() {
           <div className="flex items-center gap-2">
             <code className="flex-1 bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-xs font-mono break-all">{kioskCommand}</code>
             <button onClick={() => copy(kioskCommand, "win")} className="shrink-0 p-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
-              {copied === "win" ? <Check className="w-4 h-4 text-[oklch(0.62_0.16_155)]" /> : <Copy className="w-4 h-4" />}
+              {copied === "win" ? <Check className="w-4 h-4 text-[oklch(0.78_0.2_155)]" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
           <p className="text-[11px] text-muted-foreground mt-1">
@@ -339,12 +339,12 @@ function PrinterSetupPanel() {
               onClick={() => copy('open -a "Google Chrome" --args --kiosk-printing --app=https://glitchloungesystem.vercel.app', "mac")}
               className="shrink-0 p-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8"
             >
-              {copied === "mac" ? <Check className="w-4 h-4 text-[oklch(0.62_0.16_155)]" /> : <Copy className="w-4 h-4" />}
+              {copied === "mac" ? <Check className="w-4 h-4 text-[oklch(0.78_0.2_155)]" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
         </div>
 
-        <div className="rounded-lg bg-[oklch(0.72_0.14_85/0.1)] border border-[oklch(0.72_0.14_85/0.3)] p-3 text-xs text-muted-foreground">
+        <div className="rounded-lg bg-[oklch(0.82_0.16_85/0.1)] border border-[oklch(0.82_0.16_85/0.3)] p-3 text-xs text-muted-foreground">
           <strong className="text-foreground">Then, in that window, print once manually</strong> (Ctrl/Cmd+P) and set your
           80mm thermal printer as the default destination — kiosk mode always prints to whatever is currently set as
           default, silently, from then on. Also make sure "Margins" is set to "None" and paper size to your printer's
@@ -409,7 +409,7 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
         <div className="max-w-3xl mx-auto">
           {result ? (
             <div className="space-y-3">
-              <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Imported {result.added} material(s)</div>
+              <div className="text-lg font-bold text-[oklch(0.78_0.2_155)]">Imported {result.added} material(s)</div>
               {result.skipped.length > 0 && (
                 <div className="text-sm text-muted-foreground">
                   Skipped {result.skipped.length} already-existing material(s) by name: {result.skipped.join(", ")}
@@ -459,7 +459,7 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
               )}
-              {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+              {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
             </div>
           )}
         </div>
@@ -571,8 +571,8 @@ function MaterialsPanel() {
                   <div className="text-xs text-muted-foreground font-mono">{m.unit} · min {m.minStockAlert}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.85_0.16_200)]"><Pencil className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => deleteRawMaterial(m.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => deleteRawMaterial(m.id)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             );
@@ -599,7 +599,7 @@ function SuppliersPanel() {
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Truck className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
+          <Truck className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">Supplier Profiles</h2>
         </div>
         <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
@@ -650,8 +650,8 @@ function SuppliersPanel() {
                   <div className="text-xs text-muted-foreground">{s.category} · {s.contact}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => beginEdit(s)} className="text-muted-foreground hover:text-[oklch(0.85_0.16_200)]"><Pencil className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => deleteSupplier(s.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => beginEdit(s)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => deleteSupplier(s.id)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             );

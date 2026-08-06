@@ -96,7 +96,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 
       {scope === "lounge" && wasteTable && (
         <div>
-          <h2 className="text-sm uppercase tracking-widest text-[oklch(0.58_0.22_25)] font-mono mb-3">Wasted / Marketing — Remakes, Complaints &amp; Complimentary</h2>
+          <h2 className="text-sm uppercase tracking-widest text-[oklch(0.62_0.24_25)] font-mono mb-3">Wasted / Marketing — Remakes, Complaints &amp; Complimentary</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             <RoomCard room={wasteTable} elapsed={0} onCheckout={setReceipt} transferTargets={EMPTY_ROOMS} />
           </div>
@@ -138,7 +138,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             {room.isVip ? (
               <Crown className="w-6 h-6 text-[oklch(0.82_0.16_85)] shrink-0" />
             ) : (
-              <Gamepad2 className="w-6 h-6 text-[oklch(0.85_0.16_200)] shrink-0" />
+              <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />
             )}
             <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
           </div>
@@ -172,7 +172,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.85_0.16_200)]"}`}>{fmtDuration(elapsed)}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(elapsed)}</div>
             </div>
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
@@ -333,7 +333,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           {room.isVip ? (
             <Crown className="w-5 h-5 text-[oklch(0.82_0.16_85)] shrink-0" />
           ) : (
-            <Gamepad2 className="w-5 h-5 text-[oklch(0.85_0.16_200)] shrink-0" />
+            <Gamepad2 className="w-5 h-5 text-[oklch(0.7_0.19_260)] shrink-0" />
           )}
           {editingName ? (
             <div className="flex items-center gap-1.5 min-w-0">
@@ -364,7 +364,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             </span>
           )}
           {room.zone === "split" && (
-            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.85_0.16_200)] border border-[oklch(0.7_0.19_260/0.5)] shrink-0">
+            <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.7_0.19_260)] border border-[oklch(0.7_0.19_260/0.5)] shrink-0">
               {room.splitInvoiceNumber}
             </span>
           )}
@@ -423,7 +423,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               <span className="text-muted-foreground font-mono uppercase tracking-widest">Rate</span>
               <span className="font-mono font-semibold">Single {fmtMoney(room.singleRate)}/hr · Multi {fmtMoney(room.multiRate)}/hr</span>
               {isAdmin && (
-                <button className="text-[oklch(0.85_0.16_200)] hover:underline text-[10px] uppercase" onClick={() => setEditingRate(true)}>
+                <button className="text-[oklch(0.7_0.19_260)] hover:underline text-[10px] uppercase" onClick={() => setEditingRate(true)}>
                   edit
                 </button>
               )}
@@ -454,7 +454,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           <>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.85_0.16_200)]" : "text-muted-foreground"}`}>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.82_0.16_85)]" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
                 {fmtDuration(elapsed)}
               </div>
             </div>
@@ -501,7 +501,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   ) : (
                     <button
                       onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
-                      className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.75_0.22_25)]"
+                      className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.62_0.24_25)]"
                       title="Void this item"
                     >
                       <ShieldAlert className="w-3 h-3" />
@@ -617,7 +617,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       )}
 
       {warn && (
-        <div className="mt-3 text-xs bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] rounded-lg px-3 py-2 font-mono">
+        <div className="mt-3 text-xs bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] rounded-lg px-3 py-2 font-mono">
           ⚠ {warn}
         </div>
       )}
@@ -635,7 +635,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               </button>
               <button
                 onClick={() => handleStart("multi")}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-bold uppercase tracking-wider text-xs"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] font-bold uppercase tracking-wider text-xs"
               >
                 Multi {fmtMoney(room.multiRate)}/hr
               </button>
@@ -654,7 +654,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             <div className="flex-1">
               <button
                 onClick={() => setMenuOpen(true)}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.85_0.16_200)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
               >
                 <Plus className="w-4 h-4" /> Order
               </button>
@@ -680,7 +680,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             {room.zone === "room" && (
               <button
                 onClick={() => setExtendTimeOpen(true)}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.85_0.16_200)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.7_0.19_260/0.25)] transition"
                 title="Extend Time"
               >
                 <Clock className="w-4 h-4" />
@@ -697,7 +697,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             ) : (
               <button
                 onClick={() => { setFrozenAt(Date.now()); setCheckoutOpen(true); }}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
               >
                 <Square className="w-4 h-4" /> End
               </button>
@@ -710,7 +710,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-black/10">
-              <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.75_0.22_25)]">{room.name} · Checkout</div>
+              <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.62_0.24_25)]">{room.name} · Checkout</div>
               <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-6 space-y-5">
@@ -793,7 +793,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </button>
                 <button
                   onClick={() => setPaymentOption("visa")}
-                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.3)] border-[oklch(0.7_0.19_260/0.8)] scale-[1.02]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)] hover:bg-[oklch(0.7_0.19_260/0.18)]"} text-[oklch(0.85_0.16_200)]`}
+                  className={`flex flex-col items-center gap-2 py-6 rounded-2xl border-2 transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.3)] border-[oklch(0.7_0.19_260/0.8)] scale-[1.02]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)] hover:bg-[oklch(0.7_0.19_260/0.18)]"} text-[oklch(0.7_0.19_260)]`}
                 >
                   <CreditCard className="w-8 h-8" /> <span className="text-base font-bold uppercase">100% Visa</span>
                 </button>
@@ -830,7 +830,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                     <span className="text-2xl font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(cashAmount)}</span>
                   </div>
                   {secondaryExceedsTotal && (
-                    <div className="text-sm font-mono font-bold text-[oklch(0.75_0.22_25)] px-1">
+                    <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)] px-1">
                       {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount can't exceed the total ({fmtMoney(total)}).
                     </div>
                   )}
@@ -838,7 +838,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               )}
 
               {checkoutErr && (
-                <div className="text-sm p-4 rounded-xl bg-[oklch(0.62_0.24_25/0.2)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-semibold">
+                <div className="text-sm p-4 rounded-xl bg-[oklch(0.62_0.24_25/0.2)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] font-semibold">
                   {checkoutErr}
                 </div>
               )}
@@ -895,7 +895,7 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/10 shrink-0">
-          <div className="font-mono uppercase tracking-widest text-lg font-bold text-[oklch(0.85_0.16_200)]">
+          <div className="font-mono uppercase tracking-widest text-lg font-bold text-[oklch(0.7_0.19_260)]">
             {room.name} · Add Order
           </div>
           <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition">
@@ -941,7 +941,7 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
                 >
                   <span className="text-lg font-bold leading-tight">{m.name}</span>
                   <span className="text-2xl font-mono font-black text-[oklch(0.78_0.2_155)]">{fmtMoney(m.price)}</span>
-                  {!ok && <span className="text-xs uppercase tracking-widest text-[oklch(0.75_0.22_25)]">Out of stock</span>}
+                  {!ok && <span className="text-xs uppercase tracking-widest text-[oklch(0.62_0.24_25)]">Out of stock</span>}
                 </button>
               );
             })}
@@ -973,7 +973,7 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-black/10">
-          <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.85_0.16_200)]">Receipt</div>
+          <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.7_0.19_260)]">Receipt</div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
 
@@ -1189,7 +1189,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.75_0.22_25)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.62_0.24_25)]">
             <ShieldAlert className="w-4 h-4" /> Void Request
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1239,14 +1239,14 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
           )}
 
           {confirmingUnapproved && (
-            <div className="text-xs p-3 rounded-lg border bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)] space-y-2">
+            <div className="text-xs p-3 rounded-lg border bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)] space-y-2">
               <p className="font-semibold">No admin available — remove this item now?</p>
               <p>It will come off the bill and inventory will be deducted immediately, before any review. This goes into the Unapproved Voids queue and must be reconciled by an admin later — it's permanently on record with your name attached.</p>
             </div>
           )}
 
           {result && (
-            <div className={`text-sm p-2.5 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.75_0.22_25)]"}`}>
+            <div className={`text-sm p-2.5 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
               {result.text}
             </div>
           )}
@@ -1258,7 +1258,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
               <button
                 onClick={() => setConfirmingUnapproved(true)}
                 disabled={submitting}
-                className="px-4 py-2 rounded-lg text-sm bg-black/5 border border-black/10 text-muted-foreground hover:bg-[oklch(0.62_0.24_25/0.1)] hover:text-[oklch(0.75_0.22_25)] disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-black/5 border border-black/10 text-muted-foreground hover:bg-[oklch(0.62_0.24_25/0.1)] hover:text-[oklch(0.62_0.24_25)] disabled:opacity-60"
               >
                 No Admin Available
               </button>
@@ -1277,7 +1277,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
               <button
                 onClick={() => submit(undefined, undefined, true)}
                 disabled={submitting}
-                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.75_0.22_25)] font-bold disabled:opacity-60"
+                className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] font-bold disabled:opacity-60"
               >
                 {submitting ? "Removing..." : "Confirm — Remove Now, Review Later"}
               </button>
@@ -1286,7 +1286,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             <button
               onClick={() => submit()}
               disabled={submitting}
-              className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)] font-semibold disabled:opacity-60"
+              className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold disabled:opacity-60"
             >
               {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
             </button>
@@ -1363,7 +1363,7 @@ function AdminAuthModal({ description, onClose, onAuthorized }: {
               className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
             />
           </div>
-          {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/10 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
@@ -1446,7 +1446,7 @@ function WasteReasonModal({ room, logWasteMarketing, onClose }: {
             />
           </div>
 
-          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+          {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/10 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
@@ -1495,7 +1495,7 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.7_0.19_260)]">
             <Clock className="w-4 h-4" /> Extend Time — {room.name}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1555,7 +1555,7 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
             </div>
           )}
 
-          {err && <div className="text-xs text-[oklch(0.58_0.22_25)]">{err}</div>}
+          {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/10 flex justify-end">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
@@ -1596,7 +1596,7 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.7_0.19_260)]">
             <ArrowRightLeft className="w-4 h-4" /> Transfer {room.name}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1627,21 +1627,21 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
                 </button>
                 <button
                   onClick={() => setRateMode("multi")}
-                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "multi" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
+                  className={`py-2 rounded-lg text-xs font-semibold border ${rateMode === "multi" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
                 >
                   Multi {fmtMoney(target?.multiRate ?? 0)}/hr
                 </button>
               </div>
             </div>
           )}
-          {err && <div className="text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/10 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
             onClick={submit}
             disabled={submitting || !targetId}
-            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-semibold disabled:opacity-60"
+            className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] font-semibold disabled:opacity-60"
           >
             {submitting ? "Transferring..." : "Confirm Transfer"}
           </button>
@@ -1811,7 +1811,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.85_0.16_200)]">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.7_0.19_260)]">
             <SplitSquareHorizontal className="w-4 h-4" /> Split Payment — {room.name}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
@@ -1823,13 +1823,13 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
         <div className="flex gap-2 px-4 pt-3">
           <button
             onClick={() => setMode("items")}
-            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "items" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
+            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "items" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
           >
             Split by Items
           </button>
           <button
             onClick={() => setMode("amount")}
-            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "amount" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
+            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide border-2 transition ${mode === "amount" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)]" : "bg-black/5 border-black/10 text-muted-foreground"}`}
           >
             Split by Amount
           </button>
@@ -1857,7 +1857,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-[oklch(0.85_0.16_200)] mb-2">Sub-Bill (pay now)</div>
+              <div className="text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)] mb-2">Sub-Bill (pay now)</div>
               <div className="space-y-2 min-h-[60px]">
                 {items.length === 0 && <div className="text-xs text-muted-foreground italic p-2.5">Nothing selected yet</div>}
                 {room.orders.filter((o) => selected[o.menuItemId]).map((o) => (
@@ -1929,7 +1929,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             </button>
             <button
               onClick={() => setPaymentOption("visa")}
-              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.25)] border-[oklch(0.7_0.19_260/0.6)]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)]"} text-[oklch(0.85_0.16_200)]`}
+              className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition ${paymentOption === "visa" ? "bg-[oklch(0.7_0.19_260/0.25)] border-[oklch(0.7_0.19_260/0.6)]" : "bg-[oklch(0.7_0.19_260/0.08)] border-[oklch(0.7_0.19_260/0.3)]"} text-[oklch(0.7_0.19_260)]`}
             >
               <CreditCard className="w-4 h-4" /> <span className="text-[11px] font-semibold uppercase">Visa</span>
             </button>
@@ -1961,7 +1961,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 <span className="text-sm font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(cashAmount)}</span>
               </div>
               {secondaryExceedsTotal && (
-                <div className="text-xs font-mono text-[oklch(0.75_0.22_25)] px-1">
+                <div className="text-xs font-mono text-[oklch(0.62_0.24_25)] px-1">
                   Can't exceed the sub-bill total ({fmtMoney(splitTotal)}).
                 </div>
               )}
@@ -1969,14 +1969,14 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           )}
         </div>
 
-        {err && <div className="px-4 pb-3 text-sm text-[oklch(0.75_0.22_25)]">{err}</div>}
+        {err && <div className="px-4 pb-3 text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
 
         <div className="p-4 border-t border-black/10 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
             onClick={submit}
             disabled={submitting}
-            className="px-5 py-2.5 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.85_0.16_200)] font-semibold disabled:opacity-60"
+            className="px-5 py-2.5 rounded-lg text-sm bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] font-semibold disabled:opacity-60"
           >
             {submitting ? "Processing..." : "Confirm & Print Split Receipt"}
           </button>
