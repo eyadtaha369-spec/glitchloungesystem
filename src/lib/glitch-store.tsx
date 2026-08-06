@@ -61,8 +61,7 @@ import {
 import {
   getRawMaterialsFn, addRawMaterialFn, bulkAddRawMaterialsFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
   restockMaterialFn, getRestockLogFn, setActualStockFn, submitWasteInvoiceFn, getWasteInvoicesFn,
-  importMenuCatalogFn,
-  repairMenuRecipesFn,
+  resetMenuAndRecipesFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
   logRecurringExpensePaymentFn,
@@ -176,8 +175,7 @@ interface StoreContextValue {
   submitWasteInvoice: (materialId: string, wastedQty: number, reason: WasteInvoiceReason, note?: string) => Promise<{ ok: boolean; error?: string; invoice?: WasteInvoice }>;
   wasteInvoices: WasteInvoice[];
   refreshWasteInvoices: () => Promise<void>;
-  importMenuCatalog: () => Promise<{ ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] }>;
-  repairMenuRecipes: () => Promise<{ ok: boolean; materialsCreated: number; itemsFixed: number; stillUnresolved: string[] }>;
+  resetMenuAndRecipes: (password: string) => Promise<{ ok: boolean; error?: string; materialsCreated: number; itemsCreated: number; unresolved: string[] }>;
   updateRawMaterial: (id: string, patch: Partial<RawMaterial>) => Promise<{ ok: boolean; error?: string }>;
   deleteRawMaterial: (id: string) => Promise<void>;
   addSupplier: (s: { name: string; contact: string; category: string }) => Promise<void>;
@@ -684,27 +682,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const importMenuCatalog: StoreContextValue["importMenuCatalog"] = async () => {
-    return withPending("importMenuCatalog", async () => {
-      const res = await importMenuCatalogFn();
+  const resetMenuAndRecipes: StoreContextValue["resetMenuAndRecipes"] = async (password) => {
+    return withPending("resetMenuAndRecipes", async () => {
+      const res = await resetMenuAndRecipesFn({ data: { password } });
       if (res.ok) {
         setAppState(res.state);
         setMaterials(await getRawMaterialsFn());
       }
-      return {
-        ok: res.ok, materialsAdded: res.materialsAdded, materialsPriced: res.materialsPriced, itemsAdded: res.itemsAdded,
-        itemsUpdated: res.itemsUpdated, itemsWithoutRecipe: res.itemsWithoutRecipe,
-      };
-    });
-  };
-  const repairMenuRecipes: StoreContextValue["repairMenuRecipes"] = async () => {
-    return withPending("repairMenuRecipes", async () => {
-      const res = await repairMenuRecipesFn();
-      if (res.ok) {
-        setAppState(res.state);
-        setMaterials(await getRawMaterialsFn());
-      }
-      return { ok: res.ok, materialsCreated: res.materialsCreated, itemsFixed: res.itemsFixed, stillUnresolved: res.stillUnresolved };
+      return { ok: res.ok, error: res.error, materialsCreated: res.materialsCreated, itemsCreated: res.itemsCreated, unresolved: res.unresolved };
     });
   };
   const updateRawMaterial: StoreContextValue["updateRawMaterial"] = async (id, patch) => {
@@ -1082,7 +1067,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
-    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, importMenuCatalog, repairMenuRecipes,
+    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,

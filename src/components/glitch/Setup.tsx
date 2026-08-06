@@ -16,7 +16,113 @@ export function SetupPage() {
       <PrinterSetupPanel />
       <MaterialsPanel />
       <SuppliersPanel />
+      <MenuRebuildPanel />
       <ProductionResetPanel />
+    </div>
+  );
+}
+
+function MenuRebuildPanel() {
+  const { resetMenuAndRecipes } = useStore();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ materialsCreated: number; itemsCreated: number; unresolved: string[] } | null>(null);
+
+  const REQUIRED_PHRASE = "REBUILD MENU";
+  const canSubmit = confirmText.trim().toUpperCase() === REQUIRED_PHRASE && password.length > 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setRunning(true);
+    setErr(null);
+    try {
+      const res = await resetMenuAndRecipes(password);
+      if (!res.ok) { setErr(res.error ?? "Rebuild failed"); return; }
+      setResult({ materialsCreated: res.materialsCreated, itemsCreated: res.itemsCreated, unresolved: res.unresolved });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.58_0.22_25/0.5)] bg-[oklch(0.58_0.22_25/0.06)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertOctagon className="w-5 h-5 text-[oklch(0.58_0.22_25)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">Danger Zone — Rebuild Entire Menu &amp; Recipes</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
+        Permanently replaces the entire menu with the current source recipe book — every menu item's name, price,
+        category, and recipe is rebuilt from scratch. Any material referenced by a recipe but not already in your
+        inventory (matched by name) is created automatically; materials that already exist are never duplicated or
+        altered. <strong>This cannot be undone.</strong>
+      </p>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border-2 border-[oklch(0.58_0.22_25/0.6)] text-[oklch(0.58_0.22_25)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.58_0.22_25/0.25)]"
+      >
+        Rebuild Menu &amp; Recipes
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.58_0.22_25/0.6)]" onClick={(e) => e.stopPropagation()}>
+            {result ? (
+              <div className="p-6 space-y-2">
+                <div className="text-lg font-bold text-[oklch(0.62_0.16_155)]">Menu Rebuilt</div>
+                <p className="text-sm text-muted-foreground">
+                  {result.materialsCreated} new material{result.materialsCreated === 1 ? "" : "s"} created ·{" "}
+                  {result.itemsCreated} menu item{result.itemsCreated === 1 ? "" : "s"} rebuilt
+                </p>
+                {result.unresolved.length > 0 && (
+                  <p className="text-xs text-[oklch(0.58_0.22_25)]">Couldn't resolve: {result.unresolved.join(", ")}</p>
+                )}
+                <button onClick={() => { setOpen(false); setResult(null); setConfirmText(""); setPassword(""); }} className="mt-2 px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Done</button>
+              </div>
+            ) : (
+              <>
+                <div className="p-5 space-y-4">
+                  <h3 className="text-lg font-bold text-[oklch(0.58_0.22_25)]">This is permanent.</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Every current menu item will be replaced. This does not touch stock quantities, prices already
+                    charged in past sessions, or reports — only the live menu and its recipes going forward.
+                  </p>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Type <span className="font-bold text-[oklch(0.58_0.22_25)]">{REQUIRED_PHRASE}</span> to confirm
+                    </label>
+                    <input
+                      value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      placeholder={REQUIRED_PHRASE}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Re-enter Your Admin Password</label>
+                    <input
+                      type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {err && <div className="text-sm text-[oklch(0.58_0.22_25)]">{err}</div>}
+                </div>
+                <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+                  <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+                  <button
+                    onClick={submit}
+                    disabled={!canSubmit || running}
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.58_0.22_25)] text-white font-bold disabled:opacity-40"
+                  >
+                    {running ? "Rebuilding..." : "Permanently Rebuild"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

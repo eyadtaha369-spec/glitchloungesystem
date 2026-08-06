@@ -241,17 +241,11 @@ export const rejectPurchaseFn = createServerFn({ method: "POST" })
 
 // One-time (idempotent) full menu + recipe catalog import — additive,
 // matches existing items/materials by name so it never duplicates.
-export const importMenuCatalogFn = createServerFn({ method: "POST" }).handler(async () => {
-  const user = await requireAdmin();
-  return callAppsScript<{
-    ok: boolean; materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number;
-    itemsWithoutRecipe: string[]; state: AppState;
-  }>("importMenuCatalog", { username: user.username });
-});
-
-export const repairMenuRecipesFn = createServerFn({ method: "POST" }).handler(async () => {
-  const user = await requireAdmin();
-  return callAppsScript<{
-    ok: boolean; materialsCreated: number; itemsFixed: number; stillUnresolved: string[]; state: AppState;
-  }>("repairMenuRecipes", { username: user.username });
-});
+export const resetMenuAndRecipesFn = createServerFn({ method: "POST" })
+  .validator((d: { password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{
+      ok: boolean; error?: string; materialsCreated: number; itemsCreated: number; unresolved: string[]; state: AppState;
+    }>("resetMenuAndRecipes", { username: user.username, password: data.password });
+  });

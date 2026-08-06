@@ -31,7 +31,7 @@ const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
-const { repairMenuRecipes_ } = require("./lib/recipe-repair");
+const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 
@@ -573,10 +573,16 @@ Object.assign(handlers, {
     });
     return { ok: true, count: result.count, month: result.month, state: withStockView_(getState_()) };
   },
-  repairMenuRecipes(body) {
+  resetMenuAndRecipes(body) {
     requireRole_(body.username, ["admin"]);
-    const result = repairMenuRecipes_(readObjects_, appendObject_, newId_, getState_, setState_, withStockView_, logActivity_, body.username);
-    return { ok: true, materialsCreated: result.materialsCreated, itemsFixed: result.itemsFixed, stillUnresolved: result.stillUnresolved, state: result.state };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — reset cancelled. Nothing was changed." };
+    const result = resetMenuAndRecipes_(readObjects_, appendObject_, updateObjectById_, newId_, getState_, setState_, withStockView_, body.username);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+      description: body.username + " rebuilt the entire menu from source — " + result.materialsCreated + " new material(s) created, " + result.itemsCreated + " menu item(s) rebuilt with recipes.",
+    });
+    return { ok: true, materialsCreated: result.materialsCreated, itemsCreated: result.itemsCreated, unresolved: result.unresolved, state: result.state };
   },
   getInventorySnapshots(body) {
     requireRole_(body.username, ["admin", "cashier"]);

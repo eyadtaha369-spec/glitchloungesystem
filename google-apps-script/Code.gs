@@ -2936,21 +2936,20 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_({ items: readObjects_("ActivityLogs") });
 
-      case "importMenuCatalog": {
+      case "resetMenuAndRecipes": {
         requireRole_(body.username, ["admin"]);
-        const result = importMenuCatalog_();
+        const auth = login_(body.username, body.password);
+        if (!auth.ok || auth.role !== "admin") {
+          return json_({ ok: false, error: "Password incorrect — reset cancelled. Nothing was changed." });
+        }
+        const result = resetMenuAndRecipes_(body.username);
         logActivity_({
-          actorUsername: body.username, actorRole: "admin", actionType: "MENU_CATALOG_IMPORTED",
-          description: "Imported menu catalog — " + result.materialsAdded + " new materials, " +
-            result.materialsPriced + " existing materials re-priced, " +
-            result.itemsAdded + " new items, " + result.itemsUpdated + " items updated" +
-            (result.itemsWithoutRecipe.length ? " (" + result.itemsWithoutRecipe.length + " without a recipe: " + result.itemsWithoutRecipe.join(", ") + ")" : ""),
-          after: { materialsAdded: result.materialsAdded, materialsPriced: result.materialsPriced, itemsAdded: result.itemsAdded, itemsUpdated: result.itemsUpdated, itemsWithoutRecipe: result.itemsWithoutRecipe },
+          actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+          description: body.username + " rebuilt the entire menu from source — " + result.materialsCreated + " new material(s) created, " + result.itemsCreated + " menu item(s) rebuilt with recipes.",
         });
         return json_({
-          ok: true, materialsAdded: result.materialsAdded, materialsPriced: result.materialsPriced, itemsAdded: result.itemsAdded,
-          itemsUpdated: result.itemsUpdated, itemsWithoutRecipe: result.itemsWithoutRecipe,
-          state: withStockView_(result.state),
+          ok: true, materialsCreated: result.materialsCreated, itemsCreated: result.itemsCreated,
+          unresolved: result.unresolved, state: result.state,
         });
       }
 
@@ -2977,425 +2976,231 @@ function doPost(e) {
 // Materials: [name, unit, minStockAlert]. Units are inferred from the scale
 // of the recipe amounts given (kg for solids/powders, L for liquids/syrups,
 // pcs for whole countable items, "bunch"/"scoop" for the two special cases).
-function menuCatalogMaterials_() {
-  // [name, unit, minStockAlert, unitCost] — unitCost is REAL pricing from
-  // the business's own recipe/costing spreadsheet (RESPI - GLITCH.xlsx),
-  // not an estimate.
+function menuResetMaterials_() {
   return [
-    // ESTIMATED cost (not in the original price sheet — matched to
-    // similar toppings/syrups at 160-170/unit; correct via Inventory if
-    // the real purchase price differs):
-    ["Mix Berry Topping", "kg", 2, 160],
-    ["Peach Topping", "kg", 2, 160],
-    ["Coconut Topping", "kg", 2, 160],
-    ["Pineapple Compote", "kg", 2, 160],
-    ["Sweet and Sour Syrup", "L", 1, 170],
-    ["Kinder Sauce", "kg", 1, 165],
-    ["Espresso Grounds", "kg", 2, 700],
-    ["Herbal Tea Bag", "pcs", 10, 2],
-    ["Frozen Avocado", "kg", 2, 250],
-    ["Extra Topping", "kg", 2, 170],
-    ["Oreo Biscuits", "pcs", 10, 15],
-    ["Ice Cream", "kg", 2, 80],
-    ["Brownies (Pre-made)", "pcs", 10, 30],
-    ["Frozen Watermelon", "kg", 2, 75],
-    ["Frozen Date", "kg", 2, 75],
-    ["Turkish Coffee Grounds", "kg", 2, 420],
-    ["Chocolate Powder", "kg", 2, 260],
-    ["Vanilla Powder", "kg", 2, 180],
-    ["Cheesecake (Pre-made)", "pcs", 10, 40],
-    ["Ice", "kg", 2, 0],
-    ["Passion Fruit Topping", "kg", 2, 160],
-    ["Berry Topping", "kg", 2, 160],
-    ["Raspberry Topping", "kg", 2, 160],
-    ["Strawberry Topping", "kg", 2, 160],
-    ["Mango Topping", "kg", 2, 160],
-    ["Pineapple Juice (Juhayna)", "L", 1, 35],
-    ["Apple Juice (Juhayna)", "L", 1, 30],
-    ["Frozen Guava", "kg", 2, 75],
-    ["Condensed Milk", "kg", 2, 285],
-    ["Frozen Peach", "kg", 2, 150],
-    ["Frozen Pomegranate", "kg", 2, 75],
-    ["Red Bull", "pcs", 10, 53],
-    ["Yogurt", "kg", 2, 10],
-    ["Sahlab Powder", "kg", 2, 130],
-    ["Sugar", "kg", 2, 30],
-    ["Pistachio Cream", "kg", 2, 550],
-    ["Lotus Cream", "kg", 2, 160],
-    ["Nutella Cream", "kg", 2, 160],
-    ["White Chocolate Cream", "kg", 2, 170],
-    ["Blue Curacao Syrup", "L", 1, 180],
-    ["Hazelnut Syrup", "L", 1, 180],
-    ["Cherry Syrup", "L", 1, 170],
-    ["Mojito Syrup", "L", 1, 170],
-    ["Green Tea Bag", "pcs", 10, 2],
-    ["Tea Bag", "pcs", 10, 1.5],
-    ["Loose Tea", "kg", 2, 200],
-    ["Flavored Tea Bag", "pcs", 10, 5],
-    ["Chocolate Sauce", "L", 1, 165],
-    ["Caramel Sauce", "L", 1, 165],
-    ["Waffle Batter", "kg", 2, 10],
-    ["Honey", "kg", 2, 200],
-    ["Frozen Strawberry", "kg", 2, 80],
-    ["Cut Fruit Garnish", "kg", 2, 15],
-    ["Cinnamon Sticks", "kg", 2, 300],
-    ["Cloves", "kg", 2, 900],
-    ["Soda Can", "pcs", 10, 12.5],
-    ["Frozen Kiwi", "kg", 2, 180],
-    ["Milk", "L", 1, 43],
-    ["Fresh Lemon", "kg", 2, 25],
-    ["Lemon Slice", "pcs", 10, 0.5],
-    ["Frozen Mango", "kg", 2, 125],
-    ["Fresh Mango", "kg", 2, 60],
-    ["Mixed Nuts", "kg", 2, 600],
-    ["Banana", "kg", 2, 35],
-    ["Molten Cake (Pre-made)", "pcs", 10, 35],
-    ["Instant Coffee (Nescafe)", "kg", 2, 1200],
-    ["Mint Syrup", "L", 1, 90],
-    ["Fresh Mint", "kg", 2, 1]
+    ["زبادي", "kg", 1, 10],
+    ["عسل", "kg", 1, 200],
+    ["لبن", "L", 1, 43],
+    ["سكر", "kg", 1, 30],
+    ["تلج", "kg", 1, 0],
+    ["توبينج فراوله", "kg", 1, 160],
+    ["توبينج مانجو", "kg", 1, 160],
+    ["توبينج بيري", "kg", 1, 160],
+    ["توبينج راس بيري", "kg", 1, 160],
+    ["توبينج باشون فروت", "kg", 1, 160],
+    ["بودر فانيليا", "kg", 1, 180],
+    ["صوص شوكليت", "kg", 1, 165],
+    ["صوص كراميل", "kg", 1, 165],
+    ["بودر شوكليت", "kg", 1, 260],
+    ["اسبريسو", "kg", 1, 700],
+    ["نعناع سيرب", "L", 1, 90],
+    ["بن تركي", "kg", 1, 420],
+    ["مانجو فريش", "kg", 1, 60],
+    ["فراوله فريش", "kg", 1, 55],
+    ["شاي باكت", "pcs", 1, 1.5],
+    ["مكسرات", "kg", 1, 600],
+    ["سما نوتيلا", "kg", 1, 160],
+    ["سما وايت", "kg", 1, 170],
+    ["سما فسدق", "kg", 1, 550],
+    ["سما لوتس", "kg", 1, 160],
+    ["حليب مكثف", "L", 1, 285],
+    ["اوريو", "kg", 1, 15],
+    ["جوافه فروزين", "kg", 1, 75],
+    ["فراوله فروزين", "kg", 1, 80],
+    ["كيوي فروزين", "kg", 1, 180],
+    ["بلح فروزين", "kg", 1, 75],
+    ["افوكادو فروزين", "kg", 1, 250],
+    ["بطيخ فروزين", "kg", 1, 75],
+    ["رمان فروزين", "kg", 1, 75],
+    ["سيرب فانيليا", "L", 1, 180],
+    ["سيرب بندق", "L", 1, 180],
+    ["سيرب بلوكراساو", "L", 1, 180],
+    ["ايس كريم", "kg", 1, 80],
+    ["ريدبول", "pcs", 1, 53],
+    ["كان", "pcs", 1, 12.5],
+    ["مياه ص", "pcs", 1, 5],
+    ["مياه ك", "pcs", 1, 8.5],
+    ["مشروب شعير", "L", 1, 13],
+    ["مولتن كيك", "kg", 1, 35],
+    ["تشيز كيك", "kg", 1, 40],
+    ["براونيز", "kg", 1, 30],
+    ["سيرب موهيتو", "L", 1, 170],
+    ["مانجو فروزين", "kg", 1, 125],
+    ["خوخ فروزين", "kg", 1, 150],
+    ["فواكهه قطع", "pcs", 1, 15],
+    ["موز", "kg", 1, 35],
+    ["ليمون", "kg", 1, 25],
+    ["جهينه تفاح", "kg", 1, 30],
+    ["جهينه اناناس", "kg", 1, 35],
+    ["نعناع فريش", "kg", 1, 1],
+    ["سيرب سويت اند ساور", "L", 1, 180],
+    ["ليمون قطع", "pcs", 1, 0.5],
+    ["سيرب شيري", "L", 1, 170],
+    ["اكسترا توبينج", "kg", 1, 170],
+    ["عجينه وافل", "kg", 1, 10],
+    ["معسل فاخر", "kg", 1, 740],
+    ["معسل دندش", "kg", 1, 550],
+    ["معسل مزايا", "kg", 1, 710],
+    ["نسكافيه", "kg", 1, 1200],
+    ["شاي سايب", "kg", 1, 200],
+    ["قرنفل", "kg", 1, 900],
+    ["شاي اخضر", "kg", 1, 2],
+    ["شاي نكهات", "kg", 1, 5],
+    ["قرفه عيدان", "kg", 1, 300],
+    ["اعشاب باكت", "pcs", 1, 2],
+    ["سحلب بودر", "kg", 1, 130],
+    ["توبينج جوز الهند", "kg", 1, 160],
+    ["صوص كيندر", "kg", 1, 165],
+    ["فيروز", "pcs", 1, 45],
+    ["كومبوت اناناس", "kg", 1, 160]
   ];
 }
 
-function menuCatalogRecipes_() {
-  // Exact gram/kg/liter/piece quantities per item, translated from the
-  // business's own Arabic recipe book — not estimated.
+function menuResetItems_() {
   return {
-    "Mix Berry Smoothie": [["Mix Berry Topping", 0.03], ["Ice", 1]],
-    "Peach Smoothie": [["Peach Topping", 0.03], ["Ice", 1]],
-    "Pina Colada": [["Coconut Topping", 0.01], ["Pineapple Compote", 0.05], ["Blue Curacao Syrup", 0.005]],
-    "Classic Mojito": [["Mojito Syrup", 0.01], ["Sweet and Sour Syrup", 0.01], ["Soda Can", 1], ["Lemon Slice", 1], ["Fresh Mint", 0.5]],
-    "Peach Mojito": [["Peach Topping", 0.02], ["Mojito Syrup", 0.01], ["Soda Can", 1], ["Lemon Slice", 1], ["Fresh Mint", 0.5]],
-    "Kinder Shake": [["Ice Cream", 0.21], ["Kinder Sauce", 0.03], ["Milk", 0.15]],
-    "Redbull": [["Red Bull", 1]],
-    "Milk": [["Milk", 0.05]],
-    "Honey": [["Honey", 0.02]],
-    "Nuts": [["Mixed Nuts", 0.02]],
-    "Ice Cream": [["Ice Cream", 0.05]],
-    "Espresso Shot": [["Espresso Grounds", 0.009]],
-    "Espresso": [["Espresso Grounds", 0.007]],
-    "Espresso Double": [["Espresso Grounds", 0.014]],
-    "Macchiato": [["Espresso Grounds", 0.007], ["Milk", 0.02]],
-    "Macchiato Double": [["Espresso Grounds", 0.014], ["Milk", 0.04]],
-    "Cappuccino": [["Espresso Grounds", 0.014], ["Milk", 0.15], ["Sugar", 0.01]],
-    "Latte": [["Espresso Grounds", 0.007], ["Milk", 0.15], ["Sugar", 0.01]],
-    "Spanish Latte": [["Espresso Grounds", 0.007], ["Milk", 0.15], ["Condensed Milk", 0.03]],
-    "Mocha": [["Espresso Grounds", 0.007], ["Milk", 0.15], ["Chocolate Sauce", 0.03]],
-    "Cortado": [["Milk", 0.1], ["Espresso Grounds", 0.014], ["Sugar", 0.01]],
-    "Nescafe": [["Instant Coffee (Nescafe)", 0.005], ["Milk", 0.15]],
-    "Hazelnut Coffee": [["Turkish Coffee Grounds", 0.01], ["Hazelnut Syrup", 0.03], ["Milk", 0.1]],
-    "Nutella Coffee": [["Turkish Coffee Grounds", 0.01], ["Milk", 0.1], ["Nutella Cream", 0.05]],
-    "French Coffee": [["Turkish Coffee Grounds", 0.01], ["Milk", 0.1], ["Sugar", 0.01]],
-    "Turkish Coffee": [["Turkish Coffee Grounds", 0.015], ["Sugar", 0.01]],
-    "Turkish Coffee Double": [["Turkish Coffee Grounds", 0.025], ["Sugar", 0.01]],
-    "Classic Frappe": [["Vanilla Powder", 0.03], ["Espresso Grounds", 0.007], ["Ice", 1], ["Milk", 0.15], ["Ice Cream", 0.07]],
-    "Nutella Frappe": [["Vanilla Powder", 0.03], ["Nutella Cream", 0.04], ["Ice", 1], ["Milk", 0.15], ["Ice Cream", 0.07]],
-    "Lotus Frappe": [["Vanilla Powder", 0.03], ["Lotus Cream", 0.04], ["Ice", 1], ["Milk", 0.15], ["Ice Cream", 0.07]],
-    "Caramel Frappe": [["Vanilla Powder", 0.03], ["Espresso Grounds", 0.007], ["Ice", 1], ["Milk", 0.15], ["Ice Cream", 0.07], ["Caramel Sauce", 0.03]],
-    "Hazelnut Frappe": [["Vanilla Powder", 0.03], ["Pistachio Cream", 0.03], ["Ice", 1], ["Milk", 0.15], ["Ice Cream", 0.07]],
-    "Iced Latte": [["Espresso Grounds", 0.007], ["Milk", 0.15], ["Sugar", 0.02]],
-    "Iced Spanish Latte": [["Espresso Grounds", 0.007], ["Milk", 0.15], ["Sugar", 0.02], ["Condensed Milk", 0.02]],
-    "Iced Mocha": [["Espresso Grounds", 0.007], ["Milk", 0.15], ["Sugar", 0.02], ["Chocolate Sauce", 0.02]],
-    "Iced Cappuccino": [["Instant Coffee (Nescafe)", 0.005], ["Milk", 0.15], ["Sugar", 0.02]],
-    "Vanilla Shake": [["Ice Cream", 0.21], ["Milk", 0.1]],
-    "Chocolate Shake": [["Chocolate Sauce", 0.03], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Mango Shake": [["Frozen Mango", 0.1], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Strawberry Shake": [["Strawberry Topping", 0.025], ["Ice Cream", 0.21], ["Milk", 0.1]],
-    "Mix Berry Shake": [["Berry Topping", 0.015], ["Raspberry Topping", 0.015], ["Ice Cream", 0.21], ["Milk", 0.1]],
-    "Passion Fruit Shake": [["Passion Fruit Topping", 0.025], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Oreo Shake": [["Oreo Biscuits", 1], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Nutella Shake": [["Nutella Cream", 0.03], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Lotus Shake": [["Lotus Cream", 0,03], ["Milk", 0.03], ["Ice Cream", 0.21]],
-    "Pistachio Shake": [["Pistachio Cream", 0.03], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Caramel Shake": [["Caramel Sauce", 0.03], ["Milk", 0.1], ["Ice Cream", 0.21]],
-    "Mango": [["Fresh Mango", 0.25]],
-    "Strawberry": [["Frozen Strawberry", 0.2], ["Sugar", 0.03], ["Milk", 0.15]],
-    "Guava": [["Frozen Guava", 0.2], ["Milk", 0.15], ["Sugar", 0.03]],
-    "Banana": [["Banana", 0.15], ["Milk", 0.15], ["Sugar", 0.03]],
-    "Kiwi": [["Frozen Kiwi", 0.2], ["Sugar", 0.03]],
-    "Watermelon": [["Frozen Watermelon", 0.25], ["Sugar", 0.02]],
-    "Pomegranate": [["Frozen Pomegranate", 0.25], ["Sugar", 0.02]],
-    "Lemon": [["Fresh Lemon", 0.06], ["Sugar", 0.04], ["Ice", 1], ["Milk", 0.02]],
-    "Lemon Mint": [["Fresh Lemon", 0.06], ["Mint Syrup", 0.04], ["Sugar", 0.1], ["Ice", 1], ["Milk", 0.025]],
-    "Date": [["Frozen Date", 0.2], ["Sugar", 0.01], ["Milk", 0.15]],
-    "Avocado": [["Frozen Avocado", 0.12], ["Milk", 0.15], ["Ice Cream", 0.07]],
-    "Classic Yogurt": [["Yogurt", 2], ["Sugar", 0.02], ["Milk", 0.1]],
-    "Watermelon Mint": [["Frozen Watermelon", 0.25], ["Fresh Mint", 1], ["Ice", 1], ["Sugar", 0.02]],
-    "Passion Fruit Smoothie": [["Passion Fruit Topping", 0.04], ["Ice", 1], ["Sugar", 0.02]],
-    "Mango Smoothie": [["Frozen Mango", 0.1], ["Sugar", 0.03], ["Mango Topping", 0.02]],
-    "Strawberry Smoothie": [["Frozen Strawberry", 0.2], ["Sugar", 0.02], ["Strawberry Topping", 0.02]],
-    "Lemon Mint Smoothie": [["Fresh Lemon", 0.075], ["Sugar", 0.04], ["Ice", 1], ["Milk", 0.02]],
-    "Mix Berry Mojito": [["Soda Can", 1], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Lemon Slice", 1], ["Berry Topping", 0.01], ["Raspberry Topping", 0.01]],
-    "Strawberry Mojito": [["Soda Can", 1], ["Lemon Slice", 1], ["Mojito Syrup", 0.01], ["Strawberry Topping", 0.02], ["Fresh Mint", 0.5]],
-    "Passion Fruit Mojito": [["Soda Can", 1], ["Mojito Syrup", 0.01], ["Fresh Mint", 0.5], ["Passion Fruit Topping", 0.02], ["Lemon Slice", 1]],
-    "Blue Sky Mojito": [["Soda Can", 1], ["Mojito Syrup", 0.01], ["Lemon Slice", 1], ["Blue Curacao Syrup", 0.01], ["Berry Topping", 0.02], ["Fresh Mint", 0.5]],
-    "Mango Mojito": [["Soda Can", 1], ["Lemon Slice", 1], ["Mojito Syrup", 0.01], ["Mango Topping", 0.02], ["Ice", 1], ["Fresh Mint", 0.5]],
-    "Cherry Mojito": [["Soda Can", 1], ["Ice", 1], ["Lemon Slice", 1], ["Mojito Syrup", 0.01], ["Cherry Syrup", 0.02], ["Fresh Mint", 0.5]],
-    "Red Bull Mojito": [["Red Bull", 1], ["Lemon Slice", 1], ["Extra Topping", 0.02], ["Fresh Mint", 0.5], ["Mojito Syrup", 0.01]],
-    "Molten Cake": [["Molten Cake (Pre-made)", 1], ["Ice Cream", 0.07], ["Nutella Cream", 0.02], ["White Chocolate Cream", 0.01]],
-    "Cheesecake": [["Cheesecake (Pre-made)", 1], ["Pistachio Cream", 0.02], ["White Chocolate Cream", 0.01]],
-    "Brownies": [["Brownies (Pre-made)", 1], ["Ice Cream", 0.07], ["Chocolate Sauce", 0.02]],
-    "Waffle Nutella": [["Nutella Cream", 0.05], ["Ice Cream", 0.07], ["Waffle Batter", 1], ["White Chocolate Cream", 0.01]],
-    "Waffle Four Seasons": [["Lotus Cream", 0.05], ["Ice Cream", 0.07], ["Waffle Batter", 1], ["White Chocolate Cream", 0.01]],
-    "Berry Bomb": [["Berry Topping", 0.02], ["Raspberry Topping", 0.02], ["Pineapple Juice (Juhayna)", 0.15], ["Blue Curacao Syrup", 0.02]],
-    "Classic Cocktail": [["Frozen Mango", 0.1], ["Frozen Strawberry", 0.1], ["Frozen Guava", 0.1], ["Ice", 1], ["Sugar", 0.02]],
-    "Mix Power": [["Frozen Avocado", 0.06], ["Frozen Date", 0.1], ["Mixed Nuts", 0.015], ["Honey", 0.03], ["Milk", 0.15], ["Sugar", 0.02]],
-    "Mango Dream": [["Frozen Mango", 0.1], ["Frozen Peach", 0.1], ["Ice Cream", 0.07], ["Passion Fruit Topping", 0.025]],
-    "Zabadooo": [["Yogurt", 1], ["Frozen Mango", 0.1], ["Cut Fruit Garnish", 1], ["Sugar", 0.02], ["Ice", 1]],
-    "Glitch Cocktail": [["Yogurt", 1], ["Frozen Mango", 0.1], ["Ice Cream", 0.14], ["Banana", 0.1], ["Honey", 0.02], ["Milk", 0.1]],
-    "Twist": [["Frozen Mango", 0.1], ["Frozen Kiwi", 0.1], ["Ice Cream", 0.07], ["Sugar", 0.02]],
-    "Classic Tea": [["Tea Bag", 1], ["Sugar", 0.05]],
-    "Golden Tea": [["Loose Tea", 0.005], ["Fresh Mint", 0.5], ["Sugar", 0.05], ["Cloves", 0.005]],
-    "Flavored Tea": [["Flavored Tea Bag", 1], ["Sugar", 0.05]],
-    "Milk Tea": [["Tea Bag", 1], ["Sugar", 0.05], ["Milk", 0.05]],
-    "Flavored Milk Tea": [["Flavored Tea Bag", 1], ["Milk", 0.05], ["Sugar", 0.05]],
-    "Hot Cider": [["Apple Juice (Juhayna)", 0.15], ["Cinnamon Sticks", 0.01], ["Sugar", 0.01]],
-    "Herbal Tea": [["Green Tea Bag", 1], ["Sugar", 0.05]],
-    "Hot Chocolate": [["Milk", 0.1], ["Chocolate Powder", 0.03]],
-    "Hot Chocolate Nutella": [["Milk", 0.1], ["Chocolate Powder", 0.03], ["Nutella Cream", 0.02]],
-    "Herbal Cocktail": [["Herbal Tea Bag", 2], ["Cinnamon Sticks", 0.01], ["Honey", 0.02], ["Fresh Mint", 0.5], ["Lemon Slice", 1]],
-    "Sahlab": [["Sahlab Powder", 0.025], ["Milk", 0.15], ["Mixed Nuts", 0.02], ["Sugar", 0.02]]
+    "Espresso": { price: 35, category: "Coffee", ingredients: [["اسبريسو", 0.007]] },
+    "Espresso Double": { price: 45, category: "Coffee", ingredients: [["اسبريسو", 0.014]] },
+    "Macchiato": { price: 35, category: "Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.02]] },
+    "Macchiato Double": { price: 50, category: "Coffee", ingredients: [["اسبريسو", 0.014], ["لبن", 0.04]] },
+    "Cappuccino": { price: 60, category: "Coffee", ingredients: [["اسبريسو", 0.014], ["لبن", 0.15], ["سكر", 0.01]] },
+    "Latte": { price: 60, category: "Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.01]] },
+    "Spanish Latte": { price: 65, category: "Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.15], ["حليب مكثف", 0.03]] },
+    "Mocha": { price: 60, category: "Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.15], ["صوص شوكليت", 0.03]] },
+    "Cortado": { price: 50, category: "Coffee", ingredients: [["لبن", 0.1], ["اسبريسو", 0.014], ["سكر", 0.01]] },
+    "Nescafe": { price: 60, category: "Coffee", ingredients: [["نسكافيه", 0.005], ["لبن", 0.15]] },
+    "Hazelnut Coffee": { price: 60, category: "Coffee", ingredients: [["بن تركي", 0.01], ["سيرب بندق", 0.03], ["لبن", 0.1]] },
+    "Nutella Coffee": { price: 65, category: "Coffee", ingredients: [["بن تركي", 0.01], ["لبن", 0.1], ["سما نوتيلا", 0.05]] },
+    "French Coffee": { price: 45, category: "Coffee", ingredients: [["بن تركي", 0.01], ["لبن", 0.1], ["سكر", 0.01]] },
+    "Turkish Coffee": { price: 30, category: "Coffee", ingredients: [["بن تركي", 0.015], ["سكر", 0.01]] },
+    "Turkish Coffee Double": { price: 35, category: "Coffee", ingredients: [["بن تركي", 0.025], ["سكر", 0.01]] },
+    "Classic Frappe": { price: 70, category: "Coffee Frappe", ingredients: [["بودر فانيليا", 0.03], ["اسبريسو", 0.007], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]] },
+    "Nutella Frappe": { price: 75, category: "Coffee Frappe", ingredients: [["بودر فانيليا", 0.03], ["سما نوتيلا", 0.04], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]] },
+    "Lotus Frappe": { price: 75, category: "Coffee Frappe", ingredients: [["بودر فانيليا", 0.03], ["سما لوتس", 0.04], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]] },
+    "Caramel Frappe": { price: 80, category: "Coffee Frappe", ingredients: [["بودر فانيليا", 0.03], ["اسبريسو", 0.007], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07], ["صوص كراميل", 0.03]] },
+    "Hazelnut Frappe": { price: 90, category: "Coffee Frappe", ingredients: [["بودر فانيليا", 0.03], ["سما فسدق", 0.03], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]] },
+    "Iced Latte": { price: 70, category: "Ice Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02]] },
+    "Iced Spanish Latte": { price: 75, category: "Ice Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02], ["حليب مكثف", 0.02]] },
+    "Iced Mocha": { price: 75, category: "Ice Coffee", ingredients: [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02], ["صوص شوكليت", 0.02]] },
+    "Iced Cappuccino": { price: 70, category: "Ice Coffee", ingredients: [["نسكافيه", 0.005], ["لبن", 0.15], ["سكر", 0.02]] },
+    "Vanilla Shake": { price: 60, category: "Milkshake", ingredients: [["ايس كريم", 0.21], ["لبن", 0.1]] },
+    "Chocolate Shake": { price: 65, category: "Milkshake", ingredients: [["صوص شوكليت", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Mango Shake": { price: 70, category: "Milkshake", ingredients: [["مانجو فروزين", 0.1], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Strawberry Shake": { price: 65, category: "Milkshake", ingredients: [["توبينج فراوله", 0.025], ["ايس كريم", 0.21], ["لبن", 0.1]] },
+    "Mix Berry Shake": { price: 65, category: "Milkshake", ingredients: [["توبينج بيري", 0.015], ["توبينج راس بيري", 0.015], ["ايس كريم", 0.21], ["لبن", 0.1]] },
+    "Passion Fruit Shake": { price: 65, category: "Milkshake", ingredients: [["توبينج باشون فروت", 0.025], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Oreo Shake": { price: 70, category: "Milkshake", ingredients: [["اوريو", 1.0], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Nutella Shake": { price: 75, category: "Milkshake", ingredients: [["سما نوتيلا", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Lotus Shake": { price: 75, category: "Milkshake", ingredients: [["لبن", 0.03], ["ايس كريم", 0.21]] },
+    "Pistachio Shake": { price: 80, category: "Milkshake", ingredients: [["سما فسدق", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Caramel Shake": { price: 75, category: "Milkshake", ingredients: [["صوص كراميل", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]] },
+    "Kinder Shake": { price: 75, category: "Milkshake", ingredients: [["لبن", 0.2], ["صوص كيندر", 0.03], ["تلج", 0.1]] },
+    "Mango": { price: 65, category: "Fresh Juice", ingredients: [["مانجو فريش", 0.25]] },
+    "Strawberry": { price: 60, category: "Fresh Juice", ingredients: [["فراوله فروزين", 0.2], ["سكر", 0.03], ["لبن", 0.15]] },
+    "Guava": { price: 60, category: "Fresh Juice", ingredients: [["جوافه فروزين", 0.2], ["لبن", 0.15], ["سكر", 0.03]] },
+    "Banana": { price: 60, category: "Fresh Juice", ingredients: [["موز", 0.15], ["لبن", 0.15], ["سكر", 0.03]] },
+    "Kiwi": { price: 70, category: "Fresh Juice", ingredients: [["كيوي فروزين", 0.2], ["سكر", 0.03]] },
+    "Watermelon": { price: 65, category: "Fresh Juice", ingredients: [["بطيخ فروزين", 0.25], ["سكر", 0.02]] },
+    "Pomegranate": { price: 60, category: "Fresh Juice", ingredients: [["رمان فروزين", 0.25], ["سكر", 0.02]] },
+    "Lemon": { price: 45, category: "Fresh Juice", ingredients: [["ليمون", 0.06], ["سكر", 0.04], ["تلج", 1.0], ["لبن", 0.02]] },
+    "Lemon Mint": { price: 55, category: "Fresh Juice", ingredients: [["ليمون", 0.06], ["نعناع سيرب", 0.04], ["سكر", 0.1], ["تلج", 1.0], ["لبن", 0.025]] },
+    "Date": { price: 70, category: "Fresh Juice", ingredients: [["بلح فروزين", 0.2], ["سكر", 0.01], ["لبن", 0.15]] },
+    "Avocado": { price: 80, category: "Fresh Juice", ingredients: [["افوكادو فروزين", 0.12], ["لبن", 0.15], ["ايس كريم", 0.07]] },
+    "Classic Yogurt": { price: 60, category: "Fresh Juice", ingredients: [["زبادي", 2.0], ["سكر", 0.02], ["لبن", 0.1]] },
+    "Watermelon Mint": { price: 70, category: "Frozen Fresh", ingredients: [["بطيخ فروزين", 0.25], ["نعناع فريش", 1.0], ["تلج", 1.0], ["سكر", 0.02]] },
+    "Passion Fruit Smoothie": { price: 65, category: "Frozen Fresh", ingredients: [["توبينج باشون فروت", 0.04], ["تلج", 1.0], ["سكر", 0.02]] },
+    "Mango Smoothie": { price: 70, category: "Frozen Fresh", ingredients: [["مانجو فروزين", 0.1], ["سكر", 0.03], ["توبينج مانجو", 0.02]] },
+    "Strawberry Smoothie": { price: 70, category: "Frozen Fresh", ingredients: [["فراوله فروزين", 0.2], ["سكر", 0.02], ["توبينج فراوله", 0.02]] },
+    "Lemon Mint Smoothie": { price: 60, category: "Frozen Fresh", ingredients: [["ليمون", 0.075], ["سكر", 0.04], ["تلج", 1.0], ["لبن", 0.02]] },
+    "Mix Berry Smoothie": { price: 65, category: "Frozen Fresh", ingredients: [["توبينج بيري", 0.02], ["توبينج راس بيري", 0.02], ["جهينه اناناس", 0.15], ["سيرب بلوكراساو", 0.02]] },
+    "Peach Smoothie": { price: 65, category: "Frozen Fresh", ingredients: [["خوخ فروزين", 0.15], ["تلج", 0.1]] },
+    "Pina Colada": { price: 75, category: "Frozen Fresh", ingredients: [["توبينج جوز الهند", 0.02], ["كومبوت اناناس", 0.03], ["تلج", 0.1]] },
+    "Classic Cocktail": { price: 70, category: "Cocktails", ingredients: [["مانجو فروزين", 0.1], ["فراوله فروزين", 0.1], ["جوافه فروزين", 0.1], ["تلج", 1.0], ["سكر", 0.02]] },
+    "Mix Power": { price: 80, category: "Cocktails", ingredients: [["افوكادو فروزين", 0.06], ["بلح فروزين", 0.1], ["مكسرات", 0.015], ["عسل", 0.03], ["لبن", 0.15], ["سكر", 0.02]] },
+    "Mango Dream": { price: 75, category: "Cocktails", ingredients: [["مانجو فروزين", 0.1], ["خوخ فروزين", 0.1], ["ايس كريم", 0.07], ["توبينج باشون فروت", 0.025]] },
+    "Berry Bomb": { price: 75, category: "Cocktails", ingredients: [["فراوله فروزين", 0.1], ["توبينج بيري", 0.02], ["توبينج راس بيري", 0.02], ["سكر", 0.02]] },
+    "Zabadooo": { price: 75, category: "Cocktails", ingredients: [["زبادي", 1.0], ["مانجو فروزين", 0.1], ["فواكهه قطع", 1.0], ["سكر", 0.02], ["تلج", 1.0]] },
+    "Twist": { price: 80, category: "Cocktails", ingredients: [["مانجو فروزين", 0.1], ["كيوي فروزين", 0.1], ["ايس كريم", 0.07], ["سكر", 0.02]] },
+    "Glitch Cocktail": { price: 85, category: "Cocktails", ingredients: [["زبادي", 1.0], ["مانجو فروزين", 0.1], ["ايس كريم", 0.14], ["موز", 0.1], ["عسل", 0.02], ["لبن", 0.1]] },
+    "Hot Chocolate": { price: 60, category: "Hot Drinks", ingredients: [["لبن", 0.1], ["بودر شوكليت", 0.03]] },
+    "Hot Chocolate Nutella": { price: 70, category: "Hot Drinks", ingredients: [["لبن", 0.1], ["بودر شوكليت", 0.03], ["سما نوتيلا", 0.02]] },
+    "Hot Cider": { price: 50, category: "Hot Drinks", ingredients: [["جهينه تفاح", 0.15], ["قرفه عيدان", 0.01], ["سكر", 0.01]] },
+    "Classic Tea": { price: 25, category: "Hot Drinks", ingredients: [["شاي باكت", 1.0], ["سكر", 0.05]] },
+    "Golden Tea": { price: 30, category: "Hot Drinks", ingredients: [["شاي سايب", 0.005], ["نعناع فريش", 0.5], ["سكر", 0.05], ["قرنفل", 0.005]] },
+    "Milk Tea": { price: 35, category: "Hot Drinks", ingredients: [["شاي باكت", 1.0], ["سكر", 0.05], ["لبن", 0.05]] },
+    "Flavored Tea": { price: 30, category: "Hot Drinks", ingredients: [["شاي نكهات", 1.0], ["سكر", 0.05]] },
+    "Flavored Milk Tea": { price: 40, category: "Hot Drinks", ingredients: [["شاي نكهات", 1.0], ["لبن", 0.05], ["سكر", 0.05]] },
+    "Herbal Tea": { price: 30, category: "Hot Drinks", ingredients: [["اعشاب باكت", 1.0], ["سكر", 0.05]] },
+    "Herbal Cocktail": { price: 50, category: "Hot Drinks", ingredients: [["اعشاب باكت", 2.0], ["قرفه عيدان", 0.01], ["عسل", 0.02], ["نعناع فريش", 0.5], ["ليمون قطع", 1.0]] },
+    "Molten Cake": { price: 70, category: "Desserts", ingredients: [["مولتن كيك", 1.0], ["ايس كريم", 0.07], ["سما نوتيلا", 0.02], ["سما وايت", 0.01]] },
+    "Cheesecake": { price: 70, category: "Desserts", ingredients: [["تشيز كيك", 1.0], ["سما فسدق", 0.02], ["سما وايت", 0.01]] },
+    "Brownies": { price: 65, category: "Desserts", ingredients: [["براونيز", 1.0], ["ايس كريم", 0.07], ["صوص شوكليت", 0.02]] },
+    "Waffle Nutella": { price: 75, category: "Desserts", ingredients: [["سما نوتيلا", 0.05], ["ايس كريم", 0.07], ["عجينه وافل", 1.0], ["سما وايت", 0.01]] },
+    "Waffle Four Seasons": { price: 85, category: "Desserts", ingredients: [["صوص شوكليت", 0.02], ["عجينه وافل", 1.0], ["ايس كريم", 0.07], ["سما نوتيلا", 0.03], ["سما وايت", 0.01]] },
+    "Classic Mojito": { price: 60, category: "Mojito", ingredients: [["كان", 1], ["ليمون قطع", 1], ["نعناع فريش", 0.5], ["سيرب موهيتو", 0.01]] },
+    "Mix Berry Mojito": { price: 65, category: "Mojito", ingredients: [["كان", 1.0], ["سيرب موهيتو", 0.01], ["نعناع فريش", 0.5], ["ليمون قطع", 1.0], ["توبينج بيري", 0.01], ["توبينج راس بيري", 0.01]] },
+    "Strawberry Mojito": { price: 65, category: "Mojito", ingredients: [["كان", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["توبينج فراوله", 0.02], ["نعناع فريش", 0.5]] },
+    "Passion Fruit Mojito": { price: 70, category: "Mojito", ingredients: [["كان", 1.0], ["سيرب موهيتو", 0.01], ["نعناع فريش", 0.5], ["توبينج باشون فروت", 0.02], ["ليمون قطع", 1.0]] },
+    "Blue Sky Mojito": { price: 75, category: "Mojito", ingredients: [["كان", 1.0], ["سيرب موهيتو", 0.01], ["ليمون قطع", 1.0], ["سيرب بلوكراساو", 0.01], ["توبينج بيري", 0.02], ["نعناع فريش", 0.5]] },
+    "Mango Mojito": { price: 70, category: "Mojito", ingredients: [["كان", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["توبينج مانجو", 0.02], ["تلج", 1.0], ["نعناع فريش", 0.5]] },
+    "Cherry Mojito": { price: 70, category: "Mojito", ingredients: [["كان", 1.0], ["تلج", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["سيرب شيري", 0.02], ["نعناع فريش", 0.5]] },
+    "Peach Mojito": { price: 65, category: "Mojito", ingredients: [["كان", 1], ["ليمون قطع", 1], ["نعناع فريش", 0.5], ["سيرب موهيتو", 0.01], ["خوخ فروزين", 0.02]] },
+    "Red Bull Mojito": { price: 90, category: "Mojito", ingredients: [["ريدبول", 1.0], ["ليمون قطع", 1.0], ["اكسترا توبينج", 0.02], ["نعناع فريش", 0.5], ["سيرب موهيتو", 0.01]] },
+    "Water": { price: 10, category: "Soft Drinks", ingredients: [["مياه ص", 1]] },
+    "Soft Soda": { price: 40, category: "Soft Drinks", ingredients: [["كان", 1]] },
+    "Fayrouz": { price: 45, category: "Soft Drinks", ingredients: [["فيروز", 1]] },
+    "Redbull": { price: 80, category: "Soft Drinks", ingredients: [["ريدبول", 1]] },
+    "Milk": { price: 15, category: "Extras", ingredients: [["لبن", 0.1]] },
+    "Honey": { price: 15, category: "Extras", ingredients: [["عسل", 0.02]] },
+    "Nuts": { price: 20, category: "Extras", ingredients: [["مكسرات", 0.02]] },
+    "Sauce": { price: 20, category: "Extras", ingredients: [["صوص شوكليت", 0.02]] },
+    "Ice Cream": { price: 15, category: "Extras", ingredients: [["ايس كريم", 0.05]] },
+    "Espresso Shot": { price: 20, category: "Extras", ingredients: [["اسبريسو", 0.007]] },
+    "Maasel": { price: 20, category: "Shisha", ingredients: [["معسل مزايا", 0.02]] },
+    "Moroccan": { price: 40, category: "Shisha", ingredients: [["معسل مزايا", 0.02]] },
+    "Moroccan Flavors": { price: 45, category: "Shisha", ingredients: [["معسل فاخر", 0.02]] },
+    "Premium Shisha": { price: 65, category: "Shisha", ingredients: [["معسل فاخر", 0.03]] },
+    "Glitch Special Shisha": { price: 85, category: "Shisha", ingredients: [["معسل دندش", 0.03]] },
+    "Extra Hose (Regular)": { price: 10, category: "Shisha", ingredients: [] },
+    "Extra Hose (Ice)": { price: 20, category: "Shisha", ingredients: [] }
   };
 }
 
-// [name, price, category]. All items now have verified recipes except
-// Shisha/Soft Drinks/Extras — these get an empty ingredient list and won't
-// deduct stock or track COGS until real recipes are supplied for them.
-function menuCatalogItems_() {
-  return [
-    ["Espresso", 35, "Coffee"], ["Espresso Double", 45, "Coffee"], ["Macchiato", 35, "Coffee"], ["Macchiato Double", 50, "Coffee"], ["Cappuccino", 60, "Coffee"], ["Latte", 60, "Coffee"], ["Spanish Latte", 65, "Coffee"], ["Mocha", 60, "Coffee"], ["Cortado", 50, "Coffee"], ["Nescafe", 60, "Coffee"], ["Hazelnut Coffee", 60, "Coffee"], ["Nutella Coffee", 65, "Coffee"], ["French Coffee", 45, "Coffee"], ["Turkish Coffee", 30, "Coffee"], ["Turkish Coffee Double", 35, "Coffee"], ["Classic Frappe", 70, "Coffee Frappe"], ["Nutella Frappe", 75, "Coffee Frappe"], ["Lotus Frappe", 75, "Coffee Frappe"], ["Caramel Frappe", 80, "Coffee Frappe"], ["Hazelnut Frappe", 90, "Coffee Frappe"], ["Iced Latte", 70, "Ice Coffee"], ["Iced Spanish Latte", 75, "Ice Coffee"], ["Iced Mocha", 75, "Ice Coffee"], ["Iced Cappuccino", 70, "Ice Coffee"], ["Vanilla Shake", 60, "Milkshake"], ["Chocolate Shake", 65, "Milkshake"], ["Mango Shake", 70, "Milkshake"], ["Strawberry Shake", 65, "Milkshake"], ["Mix Berry Shake", 65, "Milkshake"], ["Passion Fruit Shake", 65, "Milkshake"], ["Oreo Shake", 70, "Milkshake"], ["Nutella Shake", 75, "Milkshake"], ["Lotus Shake", 75, "Milkshake"], ["Pistachio Shake", 80, "Milkshake"], ["Caramel Shake", 75, "Milkshake"], ["Kinder Shake", 75, "Milkshake"], ["Mango", 65, "Fresh Juice"], ["Strawberry", 60, "Fresh Juice"], ["Guava", 60, "Fresh Juice"], ["Banana", 60, "Fresh Juice"], ["Kiwi", 70, "Fresh Juice"], ["Watermelon", 65, "Fresh Juice"], ["Pomegranate", 60, "Fresh Juice"], ["Lemon", 45, "Fresh Juice"], ["Lemon Mint", 55, "Fresh Juice"], ["Date", 70, "Fresh Juice"], ["Avocado", 80, "Fresh Juice"], ["Classic Yogurt", 60, "Fresh Juice"], ["Watermelon Mint", 70, "Frozen Fresh"], ["Passion Fruit Smoothie", 65, "Frozen Fresh"], ["Mango Smoothie", 70, "Frozen Fresh"], ["Strawberry Smoothie", 70, "Frozen Fresh"], ["Lemon Mint Smoothie", 60, "Frozen Fresh"], ["Mix Berry Smoothie", 65, "Frozen Fresh"], ["Peach Smoothie", 65, "Frozen Fresh"], ["Pina Colada", 75, "Frozen Fresh"], ["Classic Mojito", 60, "Mojito"], ["Mix Berry Mojito", 65, "Mojito"], ["Strawberry Mojito", 65, "Mojito"], ["Passion Fruit Mojito", 70, "Mojito"], ["Blue Sky Mojito", 75, "Mojito"], ["Mango Mojito", 70, "Mojito"], ["Cherry Mojito", 70, "Mojito"], ["Peach Mojito", 65, "Mojito"], ["Red Bull Mojito", 90, "Mojito"], ["Molten Cake", 70, "Desserts"], ["Cheesecake", 70, "Desserts"], ["Brownies", 65, "Desserts"], ["Waffle Nutella", 75, "Desserts"], ["Waffle Four Seasons", 85, "Desserts"], ["Berry Bomb", 75, "Cocktails"], ["Classic Cocktail", 70, "Cocktails"], ["Mix Power", 80, "Cocktails"], ["Mango Dream", 75, "Cocktails"], ["Zabadooo", 75, "Cocktails"], ["Glitch Cocktail", 85, "Cocktails"], ["Twist", 80, "Cocktails"], ["Classic Tea", 25, "Hot Drinks"], ["Golden Tea", 30, "Hot Drinks"], ["Flavored Tea", 30, "Hot Drinks"], ["Milk Tea", 35, "Hot Drinks"], ["Flavored Milk Tea", 40, "Hot Drinks"], ["Hot Cider", 50, "Hot Drinks"], ["Herbal Tea", 30, "Hot Drinks"], ["Hot Chocolate", 60, "Hot Drinks"], ["Hot Chocolate Nutella", 70, "Hot Drinks"], ["Herbal Cocktail", 50, "Hot Drinks"], ["Sahlab", 50, "Hot Drinks"],
-    ["Water", 10, "Soft Drinks"], ["Soft Soda", 40, "Soft Drinks"], ["Fayrouz", 45, "Soft Drinks"], ["Redbull", 80, "Soft Drinks"],
-    ["Milk", 15, "Extras"], ["Honey", 15, "Extras"], ["Nuts", 20, "Extras"], ["Sauce", 20, "Extras"], ["Ice Cream", 15, "Extras"], ["Espresso Shot", 20, "Extras"],
-    ["Maasel", 20, "Shisha"], ["Moroccan", 40, "Shisha"], ["Moroccan Flavors", 45, "Shisha"], ["Premium Shisha", 65, "Shisha"], ["Glitch Special Shisha", 85, "Shisha"], ["Extra Hose (Regular)", 10, "Shisha"], ["Extra Hose (Ice)", 20, "Shisha"]
-  ];
-}
-
-function slugify_(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-// Additive + idempotent: matches existing materials/menu items by NAME so
-// running this more than once (or after the placeholder seed) never
-// duplicates anything — an existing item with a matching name gets its
-// price/category/ingredients updated in place (same id, so past sessions
-// referencing it stay intact); anything new gets appended.
-function repairMenuRecipeMaterials_() {
-  // Genuinely missing materials — referenced by a recipe but not found
-  // under any Arabic name currently in RawMaterials. Verified via price
-  // matching + exact-quantity recipe alignment against 80 confirmed
-  // recipe pairs (94 English catalog recipes vs 88 Arabic source
-  // recipes), not guessed — see conversation for the full derivation.
-  return [
-    ["توبينج ميكس بيري", "kg", 2, 160],
-    ["توبينج خوخ", "kg", 2, 160],
-    ["توبينج جوز الهند", "kg", 2, 160],
-    ["كومبوت اناناس", "kg", 2, 160],
-    ["صوص كيندر", "kg", 1, 165]
-  ];
-}
-
-function repairMenuRecipeLinks_() {
-  // Every English-named menu item's ingredients, translated to the
-  // Arabic material names actually in use — resolves the "recipe
-  // references a material that no longer exists" break caused by the
-  // live inventory being bulk-imported under Arabic names while the
-  // menu catalog was built under English ones.
-  return {
-    "Mix Berry Smoothie": [["توبينج ميكس بيري", 0.03], ["تلج", 1.0]],
-    "Peach Smoothie": [["توبينج خوخ", 0.03], ["تلج", 1.0]],
-    "Pina Colada": [["توبينج جوز الهند", 0.01], ["كومبوت اناناس", 0.05], ["سيرب بلوكراساو", 0.005]],
-    "Classic Mojito": [["سيرب موهيتو", 0.01], ["سيرب سويت اند ساور", 0.01], ["كان", 1.0], ["ليمون قطع", 1.0], ["نعناع فريش", 0.5]],
-    "Peach Mojito": [["توبينج خوخ", 0.02], ["سيرب موهيتو", 0.01], ["كان", 1.0], ["ليمون قطع", 1.0], ["نعناع فريش", 0.5]],
-    "Kinder Shake": [["ايس كريم", 0.21], ["صوص كيندر", 0.03], ["لبن", 0.15]],
-    "Redbull": [["ريدبول", 1.0]],
-    "Milk": [["لبن", 0.05]],
-    "Honey": [["عسل", 0.02]],
-    "Nuts": [["مكسرات", 0.02]],
-    "Ice Cream": [["ايس كريم", 0.05]],
-    "Espresso Shot": [["اسبريسو", 0.009]],
-    "Espresso": [["اسبريسو", 0.007]],
-    "Espresso Double": [["اسبريسو", 0.014]],
-    "Macchiato": [["اسبريسو", 0.007], ["لبن", 0.02]],
-    "Macchiato Double": [["اسبريسو", 0.014], ["لبن", 0.04]],
-    "Cappuccino": [["اسبريسو", 0.014], ["لبن", 0.15], ["سكر", 0.01]],
-    "Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.01]],
-    "Spanish Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["حليب مكثف", 0.03]],
-    "Mocha": [["اسبريسو", 0.007], ["لبن", 0.15], ["صوص شوكليت", 0.03]],
-    "Cortado": [["لبن", 0.1], ["اسبريسو", 0.014], ["سكر", 0.01]],
-    "Nescafe": [["نسكافيه", 0.005], ["لبن", 0.15]],
-    "Hazelnut Coffee": [["بن تركي", 0.01], ["سيرب بندق", 0.03], ["لبن", 0.1]],
-    "Nutella Coffee": [["بن تركي", 0.01], ["لبن", 0.1], ["سما نوتيلا", 0.05]],
-    "French Coffee": [["بن تركي", 0.01], ["لبن", 0.1], ["سكر", 0.01]],
-    "Turkish Coffee": [["بن تركي", 0.015], ["سكر", 0.01]],
-    "Turkish Coffee Double": [["بن تركي", 0.025], ["سكر", 0.01]],
-    "Classic Frappe": [["بودر فانيليا", 0.03], ["اسبريسو", 0.007], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
-    "Nutella Frappe": [["بودر فانيليا", 0.03], ["سما نوتيلا", 0.04], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
-    "Lotus Frappe": [["بودر فانيليا", 0.03], ["سما لوتس", 0.04], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
-    "Caramel Frappe": [["بودر فانيليا", 0.03], ["اسبريسو", 0.007], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07], ["صوص كراميل", 0.03]],
-    "Hazelnut Frappe": [["بودر فانيليا", 0.03], ["سما فسدق", 0.03], ["تلج", 1.0], ["لبن", 0.15], ["ايس كريم", 0.07]],
-    "Iced Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02]],
-    "Iced Spanish Latte": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02], ["حليب مكثف", 0.02]],
-    "Iced Mocha": [["اسبريسو", 0.007], ["لبن", 0.15], ["سكر", 0.02], ["صوص شوكليت", 0.02]],
-    "Iced Cappuccino": [["نسكافيه", 0.005], ["لبن", 0.15], ["سكر", 0.02]],
-    "Vanilla Shake": [["ايس كريم", 0.21], ["لبن", 0.1]],
-    "Chocolate Shake": [["صوص شوكليت", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Mango Shake": [["مانجو فروزين", 0.1], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Strawberry Shake": [["توبينج فراوله", 0.025], ["ايس كريم", 0.21], ["لبن", 0.1]],
-    "Mix Berry Shake": [["توبينج بيري", 0.015], ["توبينج راس بيري", 0.015], ["ايس كريم", 0.21], ["لبن", 0.1]],
-    "Passion Fruit Shake": [["توبينج باشون فروت", 0.025], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Oreo Shake": [["اوريو", 1.0], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Nutella Shake": [["سما نوتيلا", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Lotus Shake": [["لبن", 0.03], ["ايس كريم", 0.21]],
-    "Pistachio Shake": [["سما فسدق", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Caramel Shake": [["صوص كراميل", 0.03], ["لبن", 0.1], ["ايس كريم", 0.21]],
-    "Mango": [["مانجو فريش", 0.25]],
-    "Strawberry": [["فراوله فروزين", 0.2], ["سكر", 0.03], ["لبن", 0.15]],
-    "Guava": [["جوافه فروزين", 0.2], ["لبن", 0.15], ["سكر", 0.03]],
-    "Banana": [["موز", 0.15], ["لبن", 0.15], ["سكر", 0.03]],
-    "Kiwi": [["كيوي فروزين", 0.2], ["سكر", 0.03]],
-    "Watermelon": [["بطيخ فروزين", 0.25], ["سكر", 0.02]],
-    "Pomegranate": [["رمان فروزين", 0.25], ["سكر", 0.02]],
-    "Lemon": [["ليمون", 0.06], ["سكر", 0.04], ["تلج", 1.0], ["لبن", 0.02]],
-    "Lemon Mint": [["ليمون", 0.06], ["نعناع سيرب", 0.04], ["سكر", 0.1], ["تلج", 1.0], ["لبن", 0.025]],
-    "Date": [["بلح فروزين", 0.2], ["سكر", 0.01], ["لبن", 0.15]],
-    "Avocado": [["افوكادو فروزين", 0.12], ["لبن", 0.15], ["ايس كريم", 0.07]],
-    "Classic Yogurt": [["زبادي", 2.0], ["سكر", 0.02], ["لبن", 0.1]],
-    "Watermelon Mint": [["بطيخ فروزين", 0.25], ["نعناع فريش", 1.0], ["تلج", 1.0], ["سكر", 0.02]],
-    "Passion Fruit Smoothie": [["توبينج باشون فروت", 0.04], ["تلج", 1.0], ["سكر", 0.02]],
-    "Mango Smoothie": [["مانجو فروزين", 0.1], ["سكر", 0.03], ["توبينج مانجو", 0.02]],
-    "Strawberry Smoothie": [["فراوله فروزين", 0.2], ["سكر", 0.02], ["توبينج فراوله", 0.02]],
-    "Lemon Mint Smoothie": [["ليمون", 0.075], ["سكر", 0.04], ["تلج", 1.0], ["لبن", 0.02]],
-    "Mix Berry Mojito": [["كان", 1.0], ["سيرب موهيتو", 0.01], ["نعناع فريش", 0.5], ["ليمون قطع", 1.0], ["توبينج بيري", 0.01], ["توبينج راس بيري", 0.01]],
-    "Strawberry Mojito": [["كان", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["توبينج فراوله", 0.02], ["نعناع فريش", 0.5]],
-    "Passion Fruit Mojito": [["كان", 1.0], ["سيرب موهيتو", 0.01], ["نعناع فريش", 0.5], ["توبينج باشون فروت", 0.02], ["ليمون قطع", 1.0]],
-    "Blue Sky Mojito": [["كان", 1.0], ["سيرب موهيتو", 0.01], ["ليمون قطع", 1.0], ["سيرب بلوكراساو", 0.01], ["توبينج بيري", 0.02], ["نعناع فريش", 0.5]],
-    "Mango Mojito": [["كان", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["توبينج مانجو", 0.02], ["تلج", 1.0], ["نعناع فريش", 0.5]],
-    "Cherry Mojito": [["كان", 1.0], ["تلج", 1.0], ["ليمون قطع", 1.0], ["سيرب موهيتو", 0.01], ["سيرب شيري", 0.02], ["نعناع فريش", 0.5]],
-    "Red Bull Mojito": [["ريدبول", 1.0], ["ليمون قطع", 1.0], ["اكسترا توبينج", 0.02], ["نعناع فريش", 0.5], ["سيرب موهيتو", 0.01]],
-    "Molten Cake": [["مولتن كيك", 1.0], ["ايس كريم", 0.07], ["سما نوتيلا", 0.02], ["سما وايت", 0.01]],
-    "Cheesecake": [["تشيز كيك", 1.0], ["سما فسدق", 0.02], ["سما وايت", 0.01]],
-    "Brownies": [["براونيز", 1.0], ["ايس كريم", 0.07], ["صوص شوكليت", 0.02]],
-    "Waffle Nutella": [["سما نوتيلا", 0.05], ["ايس كريم", 0.07], ["عجينه وافل", 1.0], ["سما وايت", 0.01]],
-    "Waffle Four Seasons": [["سما لوتس", 0.05], ["ايس كريم", 0.07], ["عجينه وافل", 1.0], ["سما وايت", 0.01]],
-    "Berry Bomb": [["توبينج بيري", 0.02], ["توبينج راس بيري", 0.02], ["جهينه اناناس", 0.15], ["سيرب بلوكراساو", 0.02]],
-    "Classic Cocktail": [["مانجو فروزين", 0.1], ["فراوله فروزين", 0.1], ["جوافه فروزين", 0.1], ["تلج", 1.0], ["سكر", 0.02]],
-    "Mix Power": [["افوكادو فروزين", 0.06], ["بلح فروزين", 0.1], ["مكسرات", 0.015], ["عسل", 0.03], ["لبن", 0.15], ["سكر", 0.02]],
-    "Mango Dream": [["مانجو فروزين", 0.1], ["خوخ فروزين", 0.1], ["ايس كريم", 0.07], ["توبينج باشون فروت", 0.025]],
-    "Zabadooo": [["زبادي", 1.0], ["مانجو فروزين", 0.1], ["فواكهه قطع", 1.0], ["سكر", 0.02], ["تلج", 1.0]],
-    "Glitch Cocktail": [["زبادي", 1.0], ["مانجو فروزين", 0.1], ["ايس كريم", 0.14], ["موز", 0.1], ["عسل", 0.02], ["لبن", 0.1]],
-    "Twist": [["مانجو فروزين", 0.1], ["كيوي فروزين", 0.1], ["ايس كريم", 0.07], ["سكر", 0.02]],
-    "Classic Tea": [["شاي باكت", 1.0], ["سكر", 0.05]],
-    "Golden Tea": [["شاي سايب", 0.005], ["نعناع فريش", 0.5], ["سكر", 0.05], ["قرنفل", 0.005]],
-    "Flavored Tea": [["شاي نكهات", 1.0], ["سكر", 0.05]],
-    "Milk Tea": [["شاي باكت", 1.0], ["سكر", 0.05], ["لبن", 0.05]],
-    "Flavored Milk Tea": [["شاي نكهات", 1.0], ["لبن", 0.05], ["سكر", 0.05]],
-    "Hot Cider": [["جهينه تفاح", 0.15], ["قرفه عيدان", 0.01], ["سكر", 0.01]],
-    "Herbal Tea": [["اعشاب باكت", 1.0], ["سكر", 0.05]],
-    "Hot Chocolate": [["لبن", 0.1], ["بودر شوكليت", 0.03]],
-    "Hot Chocolate Nutella": [["لبن", 0.1], ["بودر شوكليت", 0.03], ["سما نوتيلا", 0.02]],
-    "Herbal Cocktail": [["اعشاب باكت", 2.0], ["قرفه عيدان", 0.01], ["عسل", 0.02], ["نعناع فريش", 0.5], ["ليمون قطع", 1.0]],
-    "Sahlab": [["سحلب بودر", 0.025], ["لبن", 0.15], ["مكسرات", 0.02], ["سكر", 0.02]]
-  };
-}
-
-function repairMenuRecipes_(username) {
+function resetMenuAndRecipes_(username) {
   const existingMaterials = readObjects_("RawMaterials");
   const materialIdByName = {};
   existingMaterials.forEach(function (m) { materialIdByName[m.name.trim().toLowerCase()] = m.id; });
 
   let materialsCreated = 0;
-  repairMenuRecipeMaterials_().forEach(function (row) {
+  menuResetMaterials_().forEach(function (row) {
     const name = row[0], unit = row[1], minStockAlert = row[2], unitCost = row[3];
     const key = name.trim().toLowerCase();
-    if (materialIdByName[key]) return; // already exists — never duplicate
+    if (materialIdByName[key]) return;
     const id = newId_("mat");
     appendObject_("RawMaterials", { id: id, name: name, unit: unit, minStockAlert: minStockAlert, unitCost: unitCost, openingStock: 0, category: "", storageLocation: "", lastPurchaseCost: unitCost });
     materialIdByName[key] = id;
     materialsCreated++;
   });
 
-  const recipeMap = repairMenuRecipeLinks_();
+  const itemDefs = menuResetItems_();
   const state = getState_();
-  let itemsFixed = 0;
-  const stillUnresolved = [];
-
-  state.menu = state.menu.map(function (item) {
-    const recipeRows = recipeMap[item.name];
-    if (!recipeRows) return item; // menu item not covered by this repair, leave untouched
+  const newMenu = [];
+  const unresolved = [];
+  Object.keys(itemDefs).forEach(function (name) {
+    const def = itemDefs[name];
     const ingredients = [];
-    recipeRows.forEach(function (row) {
+    def.ingredients.forEach(function (row) {
       const matName = row[0], qty = row[1];
       const id = materialIdByName[matName.trim().toLowerCase()];
-      if (!id) { stillUnresolved.push(item.name + " -> " + matName); return; }
+      if (!id) { unresolved.push(name + " -> " + matName); return; }
       ingredients.push({ stockId: id, qty: qty });
     });
-    itemsFixed++;
-    return Object.assign({}, item, { ingredients: ingredients });
+    newMenu.push({ id: newId_("item"), name: name, price: def.price, category: def.category, ingredients: ingredients });
   });
+  state.menu = newMenu;
   setState_(state);
 
-  logActivity_({
-    actorUsername: username, actorRole: "admin", actionType: "RAW_MATERIAL_COST_CONTEXT",
-    description: username + " repaired menu recipe links — created " + materialsCreated + " missing material(s), rebuilt " + itemsFixed + " menu item recipe(s) to reference current inventory.",
-  });
-
-  return { ok: true, materialsCreated: materialsCreated, itemsFixed: itemsFixed, stillUnresolved: stillUnresolved, state: withStockView_(getState_()) };
+  return { ok: true, materialsCreated: materialsCreated, itemsCreated: newMenu.length, unresolved: unresolved, state: withStockView_(getState_()) };
 }
-
-function importMenuCatalog_() {
-  const existingMaterials = readObjects_("RawMaterials");
-  const materialIdByName = {};
-  existingMaterials.forEach((m) => { materialIdByName[m.name.toLowerCase()] = m.id; });
-
-  let materialsAdded = 0, materialsPriced = 0;
-  menuCatalogMaterials_().forEach((row) => {
-    const name = row[0], unit = row[1], minStockAlert = row[2], unitCost = row[3];
-    const key = name.toLowerCase();
-    if (materialIdByName[key]) {
-      // Already exists — this import carries REAL verified pricing, so
-      // it's worth updating the cost even for a material that was added
-      // before (e.g. from the earlier, estimated catalog). Never touches
-      // unit/minStockAlert on an existing material, only the price.
-      if (typeof unitCost === "number") {
-        updateObjectById_("RawMaterials", materialIdByName[key], { unitCost: unitCost });
-        materialsPriced++;
-      }
-      return;
-    }
-    const id = "mat-" + slugify_(name);
-    appendObject_("RawMaterials", { id: id, name: name, unit: unit, minStockAlert: minStockAlert, unitCost: unitCost || 0 });
-    materialIdByName[key] = id;
-    materialsAdded++;
-  });
-
-  const recipes = menuCatalogRecipes_();
-  const state = getState_();
-  const existingByName = {};
-  state.menu.forEach((m, idx) => { existingByName[m.name.toLowerCase()] = idx; });
-
-  let itemsAdded = 0, itemsUpdated = 0, itemsWithoutRecipe = [];
-  menuCatalogItems_().forEach((row) => {
-    const name = row[0], price = row[1], category = row[2];
-    const recipeRows = recipes[name] || [];
-    if (recipeRows.length === 0) itemsWithoutRecipe.push(name);
-    const ingredients = recipeRows.map((r) => ({ stockId: materialIdByName[r[0].toLowerCase()], qty: r[1] }));
-    const existingIdx = existingByName[name.toLowerCase()];
-    if (existingIdx !== undefined) {
-      const existing = state.menu[existingIdx];
-      state.menu[existingIdx] = Object.assign({}, existing, { price: price, category: category, ingredients: ingredients });
-      itemsUpdated++;
-    } else {
-      state.menu.push({ id: "item-" + slugify_(name), name: name, price: price, category: category, ingredients: ingredients });
-      itemsAdded++;
-    }
-  });
-  setState_(state);
-
-  return {
-    ok: true, materialsAdded: materialsAdded, materialsPriced: materialsPriced, itemsAdded: itemsAdded, itemsUpdated: itemsUpdated,
-    itemsWithoutRecipe: itemsWithoutRecipe, state: state,
-  };
-}
-
 
 function withStockView_(state) {
   if (!state) return state;
