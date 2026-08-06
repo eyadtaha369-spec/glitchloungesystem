@@ -244,7 +244,9 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const handleOrder = async (menuItemId: string) => {
     const r = await addOrder(room.id, menuItemId, 1);
     if (!r.ok) flashWarn(r.error ?? "Order failed");
-    setMenuOpen(false);
+    // Deliberately stays open — picking one item shouldn't force closing
+    // and reopening the picker for every additional item on the order.
+    // Closed explicitly via the X button or tapping outside instead.
   };
 
   // Increasing qty is a routine correction, unrestricted. Removing/reducing
