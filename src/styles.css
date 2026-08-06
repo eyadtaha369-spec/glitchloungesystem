@@ -205,15 +205,38 @@
        Tahoma/Arial fall back for Arabic glyphs (JetBrains Mono has none),
        ui-monospace/monospace as a final generic fallback. */
     font-family: "Courier New", "Tahoma", "Arial", ui-monospace, monospace !important;
-    font-size: 16px !important;
-    line-height: 1.55 !important;
-    width: 80mm !important;
-    max-width: 80mm !important;
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+    /* 80mm is the PAPER width, not necessarily the PRINTABLE width —
+       most thermal printers have a real printable area closer to
+       72-76mm even on "80mm" paper, due to fixed hardware margins on
+       the print head itself. Targeting content at 72mm (with 4mm
+       padding per side already eating into the paper's 80mm) leaves
+       real headroom so label/value rows actually fit, instead of the
+       right-aligned value silently running past what the printer can
+       physically mark and getting cut off mid-line. */
+    width: 72mm !important;
+    max-width: 72mm !important;
     margin: 0 !important;
     padding: 4mm 4mm !important;
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
+  }
+
+  /* Label/value rows (flex justify-between) must wrap rather than
+     overflow when combined content is too long for one line — a long
+     value (a full date/time string, "Mixed (Cash + Visa)", etc.) wraps
+     onto its own line below the label instead of silently running past
+     the printable edge and getting cut off, which is what was actually
+     happening here. */
+  .print-area .flex.justify-between {
+    flex-wrap: wrap !important;
+  }
+  .print-area .flex.justify-between > * {
+    min-width: 0 !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
   }
 
   .print-area * {
@@ -233,15 +256,16 @@
   }
 
   /* Item names, quantities, and totals need to survive a thermal head at
-     a glance — bump size and weight well past the on-screen defaults. */
+     a glance — bump size and weight past the base size, but not so far
+     that they themselves start overflowing the narrower printable width. */
   .print-area .receipt-line,
   .print-area .receipt-block {
-    font-size: 17px !important;
+    font-size: 14px !important;
     font-weight: 700 !important;
   }
   .print-area .receipt-block:has(.receipt-total),
   .print-area .receipt-total {
-    font-size: 24px !important;
+    font-size: 19px !important;
     font-weight: 800 !important;
   }
 

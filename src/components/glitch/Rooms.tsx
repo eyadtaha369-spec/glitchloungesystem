@@ -10,6 +10,17 @@ import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote
 // React.memo on whatever receives it.
 const EMPTY_ROOMS: Room[] = [];
 
+// Default toLocaleString() produces long strings like "8/6/2026,
+// 1:30:03 AM" — combined with a label on a printed receipt's narrow
+// width, that's long enough to run past the printer's actual
+// printable area. Seconds-level precision isn't needed on a receipt
+// timestamp anyway, so this drops both the year and the seconds.
+function fmtReceiptTime(d: Date): string {
+  const datePart = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  const timePart = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${datePart} ${timePart}`;
+}
+
 // Mirrors the server's effectiveDurationSec_: elapsed seconds at an
 // arbitrary point in time, excluding all paused time. Used to freeze the
 // checkout bill to the exact moment "End" was clicked.
@@ -988,8 +999,8 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
           <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
             <div className="flex justify-between"><span>Order #</span><span className="font-bold">{session.orderNumber}</span></div>
             <div className="flex justify-between"><span>Room</span><span>{session.roomName}</span></div>
-            <div className="flex justify-between"><span>Start</span><span>{startD.toLocaleString()}</span></div>
-            <div className="flex justify-between"><span>End</span><span>{endD.toLocaleString()}</span></div>
+            <div className="flex justify-between"><span>Start</span><span>{fmtReceiptTime(startD)}</span></div>
+            <div className="flex justify-between"><span>End</span><span>{fmtReceiptTime(endD)}</span></div>
             <div className="flex justify-between"><span>Duration</span><span>{fmtDuration(session.durationSec)}</span></div>
             <div className="flex justify-between"><span>Payment</span><span className="uppercase">{PAYMENT_LABELS[session.paymentMethod]}</span></div>
             {session.paymentMethod === "mixed_cash_visa" && (
@@ -1112,7 +1123,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
             <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
             <div className="flex justify-between"><span>KOT #</span><span className="font-bold">{kotNumber}</span></div>
-            <div className="flex justify-between"><span>Time</span><span>{now.toLocaleString()}</span></div>
+            <div className="flex justify-between"><span>Time</span><span>{fmtReceiptTime(now)}</span></div>
             <div className="flex justify-between"><span>Server</span><span>{state.currentUser?.username ?? "—"}</span></div>
           </div>
 
@@ -1758,7 +1769,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             </div>
             <div className="border-t border-b border-dashed border-black/20 py-2 my-2 text-xs receipt-block">
               <div className="flex justify-between"><span>Table/Room</span><span className="font-bold">{room.name}</span></div>
-              <div className="flex justify-between"><span>Time</span><span>{new Date(splitReceipt.endedAt).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>Time</span><span>{fmtReceiptTime(new Date(splitReceipt.endedAt))}</span></div>
               <div className="flex justify-between"><span>Payment</span><span className="uppercase">{PAYMENT_LABELS[splitReceipt.paymentMethod]}</span></div>
               {(splitReceipt.paymentMethod === "mixed_cash_visa" || splitReceipt.paymentMethod === "mixed_cash_instapay") && (
                 <>
