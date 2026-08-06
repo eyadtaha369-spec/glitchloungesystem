@@ -105,6 +105,15 @@ ipcMain.handle("print-silent", async (event, options = {}) => {
         printBackground: true,
         deviceName: options.deviceName || "", // "" = current OS default printer
         margins: { marginType: "none" },
+        // Without this, Electron falls back to the OS/driver's default
+        // paper size (often A4/Letter) — while the CSS's @page rule
+        // assumes 80mm. That mismatch is what actually pushes/offsets
+        // the printed content: the browser renders correctly at 80mm,
+        // but the print job itself gets framed inside a wider page.
+        // Height is set generously large since thermal receipts are
+        // continuous-roll (auto-length, not a fixed page height) — the
+        // printer cuts based on actual content length, not this value.
+        pageSize: { width: 80000, height: 297000 }, // microns: 80mm x 297mm
       },
       (success, failureReason) => {
         resolve(success ? { ok: true } : { ok: false, error: failureReason });

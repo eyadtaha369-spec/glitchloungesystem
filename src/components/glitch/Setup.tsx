@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
+import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
 import { getPreferredPrinter, setPreferredPrinter } from "@/lib/print";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, MapPin, Navigation, AlertOctagon, Printer, Copy, Check, RefreshCw, Upload } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, AlertOctagon, Printer, Copy, Check, RefreshCw, Upload } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -10,16 +10,12 @@ export function SetupPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Setup</h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
-          Raw Materials · Suppliers · Recurring Expenses · Geofence
+          Raw Materials · Suppliers
         </p>
       </div>
-      <MenuImportPanel />
-      <RecipeRepairPanel />
       <PrinterSetupPanel />
-      <GeofencePanel />
       <MaterialsPanel />
       <SuppliersPanel />
-      <RecurringExpensesPanel />
       <ProductionResetPanel />
     </div>
   );
@@ -250,187 +246,6 @@ function PrinterSetupPanel() {
         </div>
       </div>
       )}
-    </div>
-  );
-}
-
-function MenuImportPanel() {
-  const { importMenuCatalog } = useStore();
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ materialsAdded: number; materialsPriced: number; itemsAdded: number; itemsUpdated: number; itemsWithoutRecipe: string[] } | null>(null);
-
-  const run = async () => {
-    setRunning(true);
-    setResult(null);
-    try {
-      const res = await importMenuCatalog();
-      setResult(res);
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.4)]">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Import Full Menu Catalog</h2>
-          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-            Adds the full Coffee / Frappe / Ice Coffee / Milkshake / Fresh Juice / Frozen Fresh / Mojito / Desserts
-            catalog with recipes and verified real unit costs from GLITCH's own recipe book. Safe to run more than
-            once — matches by name, so existing items get updated in place instead of duplicated (and existing raw
-            materials get their price refreshed to the verified figure), and nothing already in your menu is removed.
-          </p>
-        </div>
-        <button
-          onClick={run}
-          disabled={running}
-          className="shrink-0 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] text-sm font-semibold disabled:opacity-60"
-        >
-          {running ? "Importing..." : "Run Import"}
-        </button>
-      </div>
-      {result && (
-        <div className="mt-4 p-4 rounded-lg bg-white/60 border border-black/8 text-sm space-y-1">
-          <div className="text-[oklch(0.78_0.2_155)]">
-            {result.materialsAdded} new raw material{result.materialsAdded === 1 ? "" : "s"} added ·{" "}
-            {result.materialsPriced} existing material{result.materialsPriced === 1 ? "" : "s"} re-priced ·{" "}
-            {result.itemsAdded} new item{result.itemsAdded === 1 ? "" : "s"} added ·{" "}
-            {result.itemsUpdated} item{result.itemsUpdated === 1 ? "" : "s"} updated in place
-          </div>
-          {result.itemsWithoutRecipe.length > 0 && (
-            <div className="text-[oklch(0.82_0.16_85)] text-xs mt-2">
-              No recipe was provided for these — they won't deduct stock until you add ingredients on the Inventory page:{" "}
-              {result.itemsWithoutRecipe.join(", ")}.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RecipeRepairPanel() {
-  const { repairMenuRecipes } = useStore();
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ materialsCreated: number; itemsFixed: number; stillUnresolved: string[] } | null>(null);
-
-  const run = async () => {
-    setRunning(true);
-    setResult(null);
-    try {
-      const res = await repairMenuRecipes();
-      setResult(res);
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  return (
-    <div className="glass rounded-2xl p-6 border border-[oklch(0.58_0.22_25/0.4)]">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Repair Menu Recipe Links</h2>
-          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-            Fixes recipes built when the menu catalog used English material names, now that Inventory uses Arabic
-            names — rebuilds every affected menu item's recipe to point at the correct current material, creating
-            only the handful of materials that were genuinely missing (verified via price + exact-quantity matching
-            against the original recipe book, not guessed). Safe to run more than once — never creates a duplicate
-            material, and any menu item not covered by this repair is left untouched.
-          </p>
-        </div>
-        <button
-          onClick={run}
-          disabled={running}
-          className="shrink-0 px-4 py-2.5 rounded-lg bg-[oklch(0.58_0.22_25/0.15)] border border-[oklch(0.58_0.22_25/0.5)] text-[oklch(0.58_0.22_25)] text-sm font-semibold disabled:opacity-60"
-        >
-          {running ? "Repairing..." : "Run Repair"}
-        </button>
-      </div>
-      {result && (
-        <div className="mt-4 p-4 rounded-lg bg-white/60 border border-black/8 text-sm space-y-1">
-          <div className="text-[oklch(0.78_0.2_155)]">
-            {result.materialsCreated} new raw material{result.materialsCreated === 1 ? "" : "s"} created ·{" "}
-            {result.itemsFixed} menu item recipe{result.itemsFixed === 1 ? "" : "s"} rebuilt
-          </div>
-          {result.stillUnresolved.length > 0 && (
-            <div className="text-[oklch(0.58_0.22_25)] text-xs mt-2">
-              Couldn't resolve these — check spelling against Inventory manually: {result.stillUnresolved.join(", ")}.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GeofencePanel() {
-  const { state, setGeofenceConfig } = useStore();
-  const [enabled, setEnabled] = useState(state.geofenceEnabled);
-  const [lat, setLat] = useState(String(state.cafeLat));
-  const [lng, setLng] = useState(String(state.cafeLng));
-  const [radius, setRadius] = useState(String(state.geofenceRadiusMeters));
-  const [locating, setLocating] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const useMyLocation = async () => {
-    setLocating(true);
-    setMsg(null);
-    const geo = await captureGeolocation();
-    setLocating(false);
-    if (!geo.ok) { setMsg("Couldn't get your location — check browser permissions."); return; }
-    setLat(String(geo.lat));
-    setLng(String(geo.lng));
-    setMsg("Captured your current location below. Save to apply it as the venue's coordinates.");
-  };
-
-  const save = async () => {
-    await setGeofenceConfig({
-      enabled,
-      lat: parseFloat(lat) || 0,
-      lng: parseFloat(lng) || 0,
-      radiusMeters: parseFloat(radius) || 50,
-    });
-    setMsg("Geofence settings saved.");
-  };
-
-  return (
-    <div className="glass rounded-2xl p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <MapPin className="w-5 h-5 text-[oklch(0.85_0.16_200)]" />
-        <h2 className="text-lg font-semibold">Shift Geofence</h2>
-      </div>
-      <p className="text-xs text-muted-foreground mb-4">
-        When enabled, cashiers (and admins) must be physically within this radius of the venue to open or close a shift. Stand at the actual venue and tap "Use My Current Location" to set it precisely.
-      </p>
-
-      <label className="flex items-center gap-2 text-sm mb-4">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        Enforce geofence on shift open/close
-      </label>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Latitude</label>
-          <input value={lat} onChange={(e) => setLat(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Longitude</label>
-          <input value={lng} onChange={(e) => setLng(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Radius (meters)</label>
-          <input type="number" value={radius} onChange={(e) => setRadius(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 mt-4">
-        <button onClick={useMyLocation} disabled={locating} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 disabled:opacity-60">
-          <Navigation className="w-3.5 h-3.5" /> {locating ? "Locating..." : "Use My Current Location"}
-        </button>
-        <button onClick={save} className="text-xs px-4 py-2 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)]">Save Geofence</button>
-      </div>
-      {msg && <div className="mt-3 text-xs text-muted-foreground">{msg}</div>}
     </div>
   );
 }
@@ -735,75 +550,6 @@ function SuppliersPanel() {
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RecurringExpensesPanel() {
-  const { state, addRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment } = useStore();
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: "", amount: 0, active: true });
-  const [payingId, setPayingId] = useState<string | null>(null);
-
-  return (
-    <div className="glass rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Receipt className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-          <h2 className="text-lg font-semibold">Fixed / Recurring Expenses</h2>
-        </div>
-        <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
-          <Plus className="w-4 h-4" /> Add Template
-        </button>
-      </div>
-      <p className="text-xs text-muted-foreground mb-4">
-        Templates for recurring costs (rent, salaries, utilities). Log the actual payment each month with "Log Payment" — that's what hits the ledger and P&amp;L, not the template itself.
-      </p>
-
-      {showAdd && (
-        <div className="mb-4 p-4 rounded-lg bg-white/60 border border-black/8 grid grid-cols-1 md:grid-cols-3 gap-2">
-          <input placeholder="Name (e.g. Rent)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
-          <input type="number" placeholder="Monthly amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: +e.target.value })} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
-          <button
-            className="py-2 rounded bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-sm"
-            onClick={async () => {
-              if (!form.name) return;
-              await addRecurringExpense(form);
-              setForm({ name: "", amount: 0, active: true });
-              setShowAdd(false);
-            }}
-          >Save Template</button>
-        </div>
-      )}
-
-      {state.recurringExpenses.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono">No recurring expense templates yet.</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {state.recurringExpenses.map((e) => (
-            <div key={e.id} className="bg-white/60 rounded-lg p-3 border border-black/8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-sm">{e.name}</div>
-                  <div className="text-xs font-mono text-muted-foreground">{fmtMoney(e.amount)}/mo</div>
-                </div>
-                <button onClick={() => deleteRecurringExpense(e.id)} className="text-muted-foreground hover:text-[oklch(0.75_0.22_25)]"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-              {payingId === e.id ? (
-                <div className="flex items-center gap-2 mt-2">
-                  <button
-                    onClick={async () => { await logRecurringExpensePayment({ name: e.name, amount: e.amount }); setPayingId(null); }}
-                    className="flex-1 text-xs py-1.5 rounded bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.75_0.22_25)]"
-                  >Confirm ${e.amount.toFixed(2)} Paid</button>
-                  <button onClick={() => setPayingId(null)} className="text-xs px-2 py-1.5 rounded bg-black/5 border border-black/10">Cancel</button>
-                </div>
-              ) : (
-                <button onClick={() => setPayingId(e.id)} className="mt-2 w-full text-xs py-1.5 rounded bg-black/5 border border-black/10 hover:bg-black/8">Log Payment</button>
-              )}
-            </div>
-          ))}
         </div>
       )}
     </div>
