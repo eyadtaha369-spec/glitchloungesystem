@@ -214,6 +214,10 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
           : `Submitted for admin approval — ${fmtMoney(total)} is pending, no stock or cash effect yet.`,
       });
       reset();
+    } catch (e) {
+      // A genuine unexpected failure (network drop, etc.) — without this,
+      // the button would silently stop spinning with no message at all.
+      setResult({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong — please try again." });
     } finally {
       setSubmitting(false);
     }
@@ -409,6 +413,8 @@ function ExpenseSubmitForm() {
           : `Submitted for admin approval — ${fmtMoney(parseFloat(amount))} is pending, no effect yet.`,
       });
       reset();
+    } catch (e) {
+      setResult({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong — please try again." });
     } finally {
       setSubmitting(false);
     }

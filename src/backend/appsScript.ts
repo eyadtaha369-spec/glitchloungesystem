@@ -34,7 +34,18 @@ export async function callAppsScript<T = unknown>(
   } catch {
     throw new Error(`Apps Script returned non-JSON (status ${res.status}): ${text.slice(0, 300)}`);
   }
-  if (!res.ok || json?.error) {
+  // Only throw for genuine dispatch/transport failures — a non-2xx HTTP
+  // status, or a top-level {error: "..."} with NO "ok" field at all
+  // (Unknown action, forbidden, an uncaught exception inside doPost).
+  // Many action handlers intentionally return a normal, gracefully-
+  // handled {ok: false, error: "..."} object for validation failures
+  // (missing payment source, insufficient stock, etc.) — throwing here
+  // for those turns every such response into an uncaught exception
+  // instead of a value the caller's `if (!res.ok)` check can see,
+  // which silently skips right past a component's error-display logic
+  // entirely (the promise rejects instead of resolving, so neither the
+  // success nor the error branch below the await ever runs).
+  if (!res.ok || (json?.error !== undefined && json?.ok === undefined)) {
     throw new Error(String(json?.error ?? `Apps Script error (status ${res.status})`));
   }
   return json as T;
