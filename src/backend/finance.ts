@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry, WasteInvoice, WasteInvoiceReason } from "@/lib/types";
+import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry, WasteInvoice, WasteInvoiceReason, SupplierLedgerEntry } from "@/lib/types";
 
 // ---------- Raw materials ----------
 export const getRawMaterialsFn = createServerFn({ method: "GET" }).handler(async () => {
@@ -214,6 +214,51 @@ export const settleExpenseFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string }>("settleExpense", { ...data, username: user.username });
+  });
+
+export const submitPurchaseInvoiceFn = createServerFn({ method: "POST" })
+  .validator((d: {
+    supplierId: string;
+    supplierName: string;
+    invoiceDate?: number;
+    paymentType: "cash" | "deferred";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    items: { materialId: string; qty: number; unitPrice: number }[];
+    shiftId?: string | null;
+  }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; invoiceId?: string; totalAmount?: number; itemCount?: number; state?: AppState }>(
+      "submitPurchaseInvoice", { ...data, username: user.username },
+    );
+  });
+
+export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
+  .validator((d: {
+    supplierId: string;
+    amount: number;
+    paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    note?: string;
+    shiftId?: string | null;
+  }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; paymentId?: string }>("recordSupplierPayment", { ...data, username: user.username });
+  });
+
+export const getSupplierBalancesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const res = await callAppsScript<{ balances: Record<string, number> }>("getSupplierBalances", { username: user.username });
+  return res.balances;
+});
+
+export const getSupplierLedgerFn = createServerFn({ method: "POST" })
+  .validator((d: { supplierId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; ledger?: { entries: SupplierLedgerEntry[]; currentBalance: number } }>(
+      "getSupplierLedger", { ...data, username: user.username },
+    );
   });
 
 // ---------- Ledger / approvals (admin) ----------

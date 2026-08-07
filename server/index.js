@@ -32,6 +32,7 @@ const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
+const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 
@@ -583,6 +584,37 @@ Object.assign(handlers, {
       description: body.username + " rebuilt the entire menu from source — " + result.materialsCreated + " new material(s) created, " + result.itemsCreated + " menu item(s) rebuilt with recipes.",
     });
     return { ok: true, materialsCreated: result.materialsCreated, itemsCreated: result.itemsCreated, unresolved: result.unresolved, state: result.state };
+  },
+  submitPurchaseInvoice(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const deps = { readObjects_, appendObject_, updateObjectById_, newId_ };
+    const result = bizSubmitPurchaseInvoice_(deps, body);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED", shiftId: body.shiftId || null,
+      description: body.username + " logged a supplier invoice: " + result.itemCount + " item(s) for " + result.totalAmount.toFixed(2) + " EGP (" + result.paymentType + ")",
+    });
+    return { ok: true, invoiceId: result.invoiceId, totalAmount: result.totalAmount, itemCount: result.itemCount, state: withStockView_(getState_()) };
+  },
+  recordSupplierPayment(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const deps = { appendObject_, newId_ };
+    const result = bizRecordSupplierPayment_(deps, body);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED", shiftId: body.shiftId || null,
+      description: body.username + " recorded a payment of " + Number(body.amount).toFixed(2) + " EGP to a supplier via " + body.paymentSource,
+    });
+    return { ok: true, paymentId: result.paymentId };
+  },
+  getSupplierBalances(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    return { balances: bizGetSupplierBalances_({ readObjects_ }) };
+  },
+  getSupplierLedger(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    if (!body.supplierId) return { ok: false, error: "Supplier is required." };
+    return { ok: true, ledger: bizGetSupplierLedger_({ readObjects_ }, body.supplierId) };
   },
   getInventorySnapshots(body) {
     requireRole_(body.username, ["admin", "cashier"]);

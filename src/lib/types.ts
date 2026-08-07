@@ -381,6 +381,23 @@ export interface LedgerEntry {
   paymentStatus: "paid" | "unpaid";
 }
 
+// A supplier account's transaction history — invoices (debit, only when
+// deferred) and payments (credit), with a running balance computed at
+// each point. Deliberately separate from LedgerEntry: a supplier
+// account is a running balance across many invoices and partial
+// payments, not a single settleable debt.
+export interface SupplierLedgerEntry {
+  ts: number;
+  type: "invoice" | "payment";
+  description: string;
+  amount: number;
+  debit: number;
+  credit: number;
+  paymentType: "cash" | "deferred" | null;
+  id: string;
+  runningBalance: number;
+}
+
 // ---------- Void workflow (anti-collusion) ----------
 
 export type VoidReason = "wrongInput" | "spilled" | "customerRejected" | "complimentary";

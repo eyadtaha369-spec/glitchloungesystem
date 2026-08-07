@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
-import type { LedgerEntry, PaymentSource } from "@/lib/glitch-store";
+import type { LedgerEntry, PaymentSource, SupplierLedgerEntry } from "@/lib/glitch-store";
 import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -51,6 +51,7 @@ export function ProcurementPage() {
       )}
 
       <SubmitPurchaseForm />
+      <SupplierAccountsPanel />
 
       {isAdmin && <PendingApprovals />}
       {isAdmin && <PurchaseHistory />}
@@ -59,7 +60,7 @@ export function ProcurementPage() {
 }
 
 function SubmitPurchaseForm() {
-  const [tab, setTab] = useState<"dailyFresh" | "stockedBatch" | "expenses">("dailyFresh");
+  const [tab, setTab] = useState<"dailyFresh" | "stockedBatch" | "expenses" | "supplierInvoice">("dailyFresh");
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-4">
@@ -67,8 +68,8 @@ function SubmitPurchaseForm() {
         <h2 className="text-lg font-semibold">Log a Purchase</h2>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
-        {([["dailyFresh", TYPE_LABEL.dailyFresh], ["stockedBatch", TYPE_LABEL.stockedBatch], ["expenses", "Expenses"]] as const).map(([t, label]) => (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+        {([["dailyFresh", TYPE_LABEL.dailyFresh], ["stockedBatch", TYPE_LABEL.stockedBatch], ["expenses", "Expenses"], ["supplierInvoice", "Supplier Invoice"]] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -83,7 +84,7 @@ function SubmitPurchaseForm() {
         ))}
       </div>
 
-      {tab === "expenses" ? <ExpenseSubmitForm /> : <MaterialPurchaseForm purchaseType={tab} />}
+      {tab === "expenses" ? <ExpenseSubmitForm /> : tab === "supplierInvoice" ? <SupplierInvoiceForm /> : <MaterialPurchaseForm purchaseType={tab} />}
     </div>
   );
 }
@@ -487,6 +488,423 @@ function ExpenseSubmitForm() {
       >
         {submitting ? "Submitting..." : isAdmin ? "Submit & Approve" : "Submit for Approval"}
       </button>
+    </div>
+  );
+}
+
+type InvoiceLineItem = { materialId: string; qty: string; unitPrice: string };
+
+function SupplierInvoiceForm() {
+  const { state, activeShift, submitPurchaseInvoice } = useStore();
+
+  const [supplierId, setSupplierId] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paymentType, setPaymentType] = useState<"cash" | "deferred">("cash");
+  const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
+  const [items, setItems] = useState<InvoiceLineItem[]>([{ materialId: "", qty: "", unitPrice: "" }]);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const supplier = state.suppliers.find((s) => s.id === supplierId);
+  const total = items.reduce((a, it) => a + (parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0), 0);
+
+  const updateItem = (idx: number, patch: Partial<InvoiceLineItem>) => {
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  };
+  const addLine = () => setItems((prev) => [...prev, { materialId: "", qty: "", unitPrice: "" }]);
+  const removeLine = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
+
+  const reset = () => {
+    setSupplierId(""); setInvoiceDate(new Date().toISOString().slice(0, 10)); setPaymentType("cash"); setPaymentSource("");
+    setItems([{ materialId: "", qty: "", unitPrice: "" }]);
+  };
+
+  const submit = async () => {
+    setResult(null);
+    if (!supplierId) { setResult({ kind: "err", text: "Select a supplier." }); return; }
+    const validItems = items.filter((it) => it.materialId && parseFloat(it.qty) > 0);
+    if (validItems.length === 0) { setResult({ kind: "err", text: "Add at least one line item with a material and quantity." }); return; }
+    if (paymentType === "cash" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Deferred instead." }); return; }
+    setSubmitting(true);
+    try {
+      const res = await submitPurchaseInvoice({
+        supplierId,
+        supplierName: supplier?.name || "",
+        invoiceDate: new Date(invoiceDate).getTime(),
+        paymentType,
+        paymentSource: paymentType === "cash" ? (paymentSource as PaymentSource) : undefined,
+        items: validItems.map((it) => ({ materialId: it.materialId, qty: parseFloat(it.qty), unitPrice: parseFloat(it.unitPrice) || 0 })),
+      });
+      if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
+      setResult({
+        kind: "ok",
+        text: paymentType === "deferred"
+          ? `Invoice logged — ${fmtMoney(res.totalAmount ?? total)} added to inventory, added to ${supplier?.name}'s outstanding balance.`
+          : `Invoice logged — ${fmtMoney(res.totalAmount ?? total)} added to inventory and paid.`,
+      });
+      reset();
+    } catch (e) {
+      setResult({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong — please try again." });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier</label>
+          <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
+            <option value="">Select supplier...</option>
+            {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Invoice Date</label>
+          <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+
+      <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Line Items</div>
+      <div className="space-y-2">
+        {items.map((it, idx) => {
+          const subtotal = (parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0);
+          return (
+            <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_100px_120px_110px_32px] gap-2 items-center bg-black/5 border border-black/8 rounded-lg p-2">
+              <SearchableMaterialSelect materials={state.materials} value={it.materialId} onChange={(id) => updateItem(idx, { materialId: id })} />
+              <input type="number" step="0.01" placeholder="Qty" value={it.qty} onChange={(e) => updateItem(idx, { qty: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
+              <input type="number" step="0.01" placeholder="Unit price" value={it.unitPrice} onChange={(e) => updateItem(idx, { unitPrice: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
+              <div className="text-sm font-mono font-semibold text-right px-1">{fmtMoney(subtotal)}</div>
+              <button type="button" onClick={() => removeLine(idx)} disabled={items.length === 1} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)] disabled:opacity-30 justify-self-center">
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button type="button" onClick={addLine} className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">+ Add Item</button>
+
+      <div className="mt-4">
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Type / نوع الدفع</label>
+        <div className="grid grid-cols-2 gap-2 mt-1">
+          <button
+            type="button"
+            onClick={() => setPaymentType("cash")}
+            className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+              paymentType === "cash"
+                ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.6)] text-[oklch(0.78_0.2_155)]"
+                : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+            }`}
+          >
+            Cash / كاش
+          </button>
+          <button
+            type="button"
+            onClick={() => { setPaymentType("deferred"); setPaymentSource(""); }}
+            className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+              paymentType === "deferred"
+                ? "bg-black/20 border-black/60 text-black"
+                : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+            }`}
+          >
+            Deferred / آجل
+          </button>
+        </div>
+      </div>
+
+      {paymentType === "cash" ? (
+        <div className="mt-3">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Source / طريقة الدفع (required)</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-1">
+            {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => {
+              const Icon = PAYMENT_SOURCE_ICONS[src];
+              return (
+                <button
+                  key={src}
+                  type="button"
+                  onClick={() => setPaymentSource(src)}
+                  className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
+                    paymentSource === src
+                      ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
+                      : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" /> {PAYMENT_SOURCE_LABELS[src]}
+                </button>
+              );
+            })}
+          </div>
+          {paymentSource === "cash_drawer" && (
+            <p className="text-[11px] text-black mt-1.5">Deducts from the active shift's expected cash.</p>
+          )}
+          {!activeShift && paymentSource === "cash_drawer" && (
+            <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-muted-foreground bg-black/5 border border-black/8 rounded-lg p-3">
+          Materials still arrive and land in inventory immediately — the full invoice amount is added to{" "}
+          {supplier?.name ? <strong>{supplier.name}</strong> : "the supplier"}'s outstanding balance instead of
+          affecting any shift's cash. Settle it later from the supplier's account statement.
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center gap-2 text-sm font-mono">
+        <span className="text-muted-foreground">Total:</span>
+        <span className="font-bold text-lg">{fmtMoney(total)}</span>
+      </div>
+
+      {result && (
+        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
+          {result.text}
+        </div>
+      )}
+
+      <button
+        onClick={submit}
+        disabled={submitting}
+        className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
+      >
+        {submitting ? "Submitting..." : "Save Invoice"}
+      </button>
+    </div>
+  );
+}
+
+function SupplierAccountsPanel() {
+  const { state, supplierBalances, refreshSupplierBalances } = useStore();
+  const [openSupplierId, setOpenSupplierId] = useState<string | null>(null);
+
+  useEffect(() => {
+    void refreshSupplierBalances();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const suppliersWithBalance = state.suppliers
+    .map((s) => ({ ...s, balance: supplierBalances[s.id] || 0 }))
+    .filter((s) => s.balance > 0.01)
+    .sort((a, b) => b.balance - a.balance);
+
+  const totalOwed = suppliersWithBalance.reduce((a, s) => a + s.balance, 0);
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Supplier Accounts — كشف حساب الموردين</h2>
+        </div>
+        {totalOwed > 0 && (
+          <div className="text-sm font-mono">
+            <span className="text-muted-foreground">Total owed: </span>
+            <span className="font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(totalOwed)}</span>
+          </div>
+        )}
+      </div>
+
+      {suppliersWithBalance.length === 0 ? (
+        <div className="text-sm text-muted-foreground text-center py-6">No outstanding balances with any supplier.</div>
+      ) : (
+        <div className="space-y-2">
+          {suppliersWithBalance.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setOpenSupplierId(s.id)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-black/5 border border-black/8 hover:bg-black/8 text-left"
+            >
+              <span className="font-semibold">{s.name}</span>
+              <span className="font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(s.balance)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Every supplier gets a statement, even with zero balance — a
+          fully paid-off history is still worth reviewing. */}
+      <div className="mt-4 pt-4 border-t border-black/8">
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">View any supplier's full statement</label>
+        <select
+          value=""
+          onChange={(e) => e.target.value && setOpenSupplierId(e.target.value)}
+          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+        >
+          <option value="">Select supplier...</option>
+          {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      {openSupplierId && <SupplierStatementModal supplierId={openSupplierId} onClose={() => setOpenSupplierId(null)} />}
+    </div>
+  );
+}
+
+function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; onClose: () => void }) {
+  const { state, getSupplierLedger, recordSupplierPayment, refreshSupplierBalances } = useStore();
+  const supplier = state.suppliers.find((s) => s.id === supplierId);
+
+  const [entries, setEntries] = useState<SupplierLedgerEntry[]>([]);
+  const [currentBalance, setCurrentBalance] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [showPayForm, setShowPayForm] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await getSupplierLedger(supplierId);
+      if (res.ok && res.ledger) {
+        setEntries(res.ledger.entries);
+        setCurrentBalance(res.ledger.currentBalance);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierId]);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col glass-strong rounded-2xl border border-black/20" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-black/8 shrink-0">
+          <div>
+            <h3 className="text-lg font-bold">{supplier?.name || "Supplier"}</h3>
+            <p className="text-xs text-muted-foreground">Account Statement</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><XCircle className="w-5 h-5" /></button>
+        </div>
+
+        <div className="px-5 py-4 border-b border-black/8 flex items-center justify-between shrink-0">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Outstanding Balance</div>
+            <div className={`text-2xl font-mono font-bold ${currentBalance > 0.01 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+              {fmtMoney(currentBalance)}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPayForm((v) => !v)}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] hover:bg-[oklch(0.78_0.2_155/0.25)]"
+          >
+            Record Payment
+          </button>
+        </div>
+
+        {showPayForm && (
+          <RecordSupplierPaymentForm
+            supplierId={supplierId}
+            onDone={async () => {
+              setShowPayForm(false);
+              await load();
+              await refreshSupplierBalances();
+            }}
+            onCancel={() => setShowPayForm(false)}
+          />
+        )}
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="text-sm text-muted-foreground text-center py-6">Loading...</div>
+          ) : entries.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-6">No transactions with this supplier yet.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
+                  <th className="py-2 pr-2">Date</th>
+                  <th className="py-2 pr-2">Type</th>
+                  <th className="py-2 pr-2">Description</th>
+                  <th className="py-2 pr-2 text-right">Debit</th>
+                  <th className="py-2 pr-2 text-right">Credit</th>
+                  <th className="py-2 text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id} className="border-b border-black/5">
+                    <td className="py-2 pr-2 text-muted-foreground font-mono">{new Date(e.ts).toLocaleDateString()}</td>
+                    <td className="py-2 pr-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${e.type === "invoice" ? "bg-[oklch(0.62_0.24_25/0.12)] text-[oklch(0.62_0.24_25)]" : "bg-[oklch(0.78_0.2_155/0.12)] text-[oklch(0.78_0.2_155)]"}`}>
+                        {e.type === "invoice" ? (e.paymentType === "cash" ? "Invoice (Cash)" : "Invoice") : "Payment"}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-2 max-w-xs truncate" title={e.description}>{e.description}</td>
+                    <td className="py-2 pr-2 text-right font-mono">{e.debit > 0 ? fmtMoney(e.debit) : "—"}</td>
+                    <td className="py-2 pr-2 text-right font-mono">{e.credit > 0 ? fmtMoney(e.credit) : "—"}</td>
+                    <td className="py-2 text-right font-mono font-semibold">{fmtMoney(e.runningBalance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierId: string; onDone: () => void; onCancel: () => void }) {
+  const { recordSupplierPayment } = useStore();
+  const [amount, setAmount] = useState("");
+  const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!(parseFloat(amount) > 0)) { setErr("Enter a valid amount."); return; }
+    if (!paymentSource) { setErr("Select a payment source."); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, note: note || undefined });
+      if (!res.ok) { setErr(res.error ?? "Failed to record payment"); return; }
+      onDone();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="px-5 py-4 border-b border-black/8 bg-black/5 shrink-0 space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount</label>
+          <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => {
+          const Icon = PAYMENT_SOURCE_ICONS[src];
+          return (
+            <button
+              key={src}
+              type="button"
+              onClick={() => setPaymentSource(src)}
+              className={`flex items-center gap-2 text-xs py-2 px-3 rounded-lg border transition ${
+                paymentSource === src
+                  ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
+                  : "bg-white/70 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              <Icon className="w-4 h-4 shrink-0" /> {PAYMENT_SOURCE_LABELS[src]}
+            </button>
+          );
+        })}
+      </div>
+      {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} disabled={submitting} className="px-3 py-1.5 rounded-lg text-xs bg-white/70 border border-black/10">Cancel</button>
+        <button onClick={() => void submit()} disabled={submitting} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] disabled:opacity-50">
+          {submitting ? "Saving..." : "Confirm Payment"}
+        </button>
+      </div>
     </div>
   );
 }

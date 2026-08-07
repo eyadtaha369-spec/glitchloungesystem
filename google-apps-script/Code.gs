@@ -176,6 +176,9 @@ function sheetObjectHeaders_(name) {
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus"],
+    PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource"],
+    PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
+    SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
@@ -2953,6 +2956,37 @@ function doPost(e) {
         });
       }
 
+      case "submitPurchaseInvoice": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const invResult = submitPurchaseInvoice_(body);
+        if (!invResult.ok) return json_(invResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED", shiftId: body.shiftId || null,
+          description: body.username + " logged a supplier invoice: " + invResult.itemCount + " item(s) for " + invResult.totalAmount.toFixed(2) + " EGP (" + invResult.paymentType + ")",
+        });
+        return json_({ ok: true, invoiceId: invResult.invoiceId, totalAmount: invResult.totalAmount, itemCount: invResult.itemCount, state: withStockView_(getState_()) });
+      }
+
+      case "recordSupplierPayment": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const payResult = recordSupplierPayment_(body);
+        if (!payResult.ok) return json_(payResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED", shiftId: body.shiftId || null,
+          description: body.username + " recorded a payment of " + Number(body.amount).toFixed(2) + " EGP to a supplier via " + body.paymentSource,
+        });
+        return json_({ ok: true, paymentId: payResult.paymentId });
+      }
+
+      case "getSupplierBalances":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ balances: getSupplierBalances_() });
+
+      case "getSupplierLedger":
+        requireRole_(body.username, ["admin", "cashier"]);
+        if (!body.supplierId) return json_({ ok: false, error: "Supplier is required." });
+        return json_({ ok: true, ledger: getSupplierLedger_(body.supplierId) });
+
       case "repairMenuRecipes": {
         requireRole_(body.username, ["admin"]);
         const repairResult = repairMenuRecipes_(body.username);
@@ -3163,6 +3197,152 @@ function menuResetItems_() {
     "Extra Hose (Regular)": { price: 10, category: "Shisha", ingredients: [] },
     "Extra Hose (Ice)": { price: 20, category: "Shisha", ingredients: [] }
   };
+}
+
+// Supplier Purchase Invoice + Supplier Ledger system. Deliberately
+// separate from the general cash Ledger's Unpaid Expenses/Settle flow
+// — a supplier account is a running balance across many invoices and
+// many partial payments, not a single debt settled in one action.
+// Cash invoices still create a normal Ledger entry (so drawer math
+// stays correct everywhere else); deferred ones only affect the
+// supplier's running balance, never the Ledger.
+function submitPurchaseInvoice_(body) {
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!body.supplierId || items.length === 0) {
+    return { ok: false, error: "Select a supplier and add at least one item." };
+  }
+  if (body.paymentType === "cash") {
+    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    if (validSources.indexOf(body.paymentSource) === -1) {
+      return { ok: false, error: "Select a payment source for a cash invoice." };
+    }
+  }
+
+  const materials = readObjects_("RawMaterials");
+  const materialById = {};
+  materials.forEach(function (m) { materialById[m.id] = m; });
+
+  let totalAmount = 0;
+  const preparedItems = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const material = materialById[it.materialId];
+    if (!material) return { ok: false, error: "One of the selected materials no longer exists." };
+    const qty = Number(it.qty);
+    const unitPrice = Number(it.unitPrice);
+    if (!(qty > 0) || !(unitPrice >= 0)) return { ok: false, error: "Every line item needs a valid quantity and unit price." };
+    const subtotal = qty * unitPrice;
+    totalAmount += subtotal;
+    preparedItems.push({ materialId: it.materialId, materialName: material.name, qty: qty, unitPrice: unitPrice, subtotal: subtotal });
+  }
+
+  const now = Date.now();
+  const invoiceId = newId_("pinv");
+  const paymentType = body.paymentType === "cash" ? "cash" : "deferred";
+  const paymentSource = paymentType === "cash" ? body.paymentSource : null;
+
+  appendObject_("PurchaseInvoices", {
+    id: invoiceId, supplierId: body.supplierId, supplierName: body.supplierName || "",
+    invoiceDate: body.invoiceDate || now, paymentType: paymentType, totalAmount: totalAmount, createdAt: now,
+    createdBy: body.username, paymentSource: paymentSource,
+  });
+
+  preparedItems.forEach(function (it) {
+    appendObject_("PurchaseInvoiceItems", {
+      id: newId_("pinvitem"), invoiceId: invoiceId, materialId: it.materialId, materialName: it.materialName,
+      qty: it.qty, unitPrice: it.unitPrice, subtotal: it.subtotal,
+    });
+    appendObject_("Batches", {
+      id: newId_("batch"), materialId: it.materialId, supplierId: body.supplierId,
+      qtyPurchased: it.qty, qtyRemaining: it.qty, unitCost: it.unitPrice, purchasedAt: now, source: "supplierInvoice",
+    });
+    updateObjectById_("RawMaterials", it.materialId, { unitCost: it.unitPrice, lastPurchaseCost: it.unitPrice });
+  });
+
+  let ledgerEntryId = null;
+  if (paymentType === "cash") {
+    ledgerEntryId = newId_("ledg");
+    appendObject_("Ledger", {
+      id: ledgerEntryId, ts: now, amount: totalAmount, direction: "outflow", type: "supplierInvoice",
+      category: "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",
+      supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
+      paidFromDrawer: paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
+      qty: null, unitCost: null, paymentSource: paymentSource, paymentStatus: "paid",
+    });
+  }
+
+  return { ok: true, invoiceId: invoiceId, totalAmount: totalAmount, itemCount: preparedItems.length, paymentType: paymentType, ledgerEntryId: ledgerEntryId };
+}
+
+function recordSupplierPayment_(body) {
+  if (!body.supplierId || !(Number(body.amount) > 0)) {
+    return { ok: false, error: "Select a supplier and enter a valid amount." };
+  }
+  const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+  if (validSources.indexOf(body.paymentSource) === -1) {
+    return { ok: false, error: "Select a payment source." };
+  }
+  const now = Date.now();
+  const paymentId = newId_("spay");
+  appendObject_("SupplierPayments", {
+    id: paymentId, supplierId: body.supplierId, ts: now, amount: Number(body.amount),
+    paymentSource: body.paymentSource, note: body.note || "", recordedBy: body.username,
+  });
+  const ledgerEntryId = newId_("ledg");
+  appendObject_("Ledger", {
+    id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
+    category: "Supplier Payment", description: "Payment to supplier" + (body.note ? " — " + body.note : ""),
+    supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
+    paidFromDrawer: body.paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
+    qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
+  });
+  return { ok: true, paymentId: paymentId, ledgerEntryId: ledgerEntryId };
+}
+
+function getSupplierBalances_() {
+  const invoices = readObjects_("PurchaseInvoices");
+  const payments = readObjects_("SupplierPayments");
+  const balances = {};
+  invoices.forEach(function (inv) {
+    if (inv.paymentType !== "deferred") return;
+    balances[inv.supplierId] = (balances[inv.supplierId] || 0) + Number(inv.totalAmount);
+  });
+  payments.forEach(function (p) {
+    balances[p.supplierId] = (balances[p.supplierId] || 0) - Number(p.amount);
+  });
+  return balances;
+}
+
+function getSupplierLedger_(supplierId) {
+  const invoices = readObjects_("PurchaseInvoices").filter(function (i) { return i.supplierId === supplierId; });
+  const payments = readObjects_("SupplierPayments").filter(function (p) { return p.supplierId === supplierId; });
+  const invoiceItems = readObjects_("PurchaseInvoiceItems");
+
+  const entries = [];
+  invoices.forEach(function (inv) {
+    const items = invoiceItems.filter(function (it) { return it.invoiceId === inv.id; });
+    const itemDesc = items.map(function (it) { return it.materialName + " x" + it.qty; }).join(", ");
+    entries.push({
+      ts: Number(inv.invoiceDate) || Number(inv.createdAt), type: "invoice", description: "Invoice — " + itemDesc,
+      amount: Number(inv.totalAmount), debit: inv.paymentType === "deferred" ? Number(inv.totalAmount) : 0,
+      credit: 0, paymentType: inv.paymentType, id: inv.id,
+    });
+  });
+  payments.forEach(function (p) {
+    entries.push({
+      ts: Number(p.ts), type: "payment", description: "Payment" + (p.note ? " — " + p.note : ""),
+      amount: Number(p.amount), debit: 0, credit: Number(p.amount), paymentType: null, id: p.id,
+    });
+  });
+  entries.sort(function (a, b) { return a.ts - b.ts; });
+
+  let running = 0;
+  const withBalance = entries.map(function (e) {
+    running += e.debit - e.credit;
+    return Object.assign({}, e, { runningBalance: running });
+  });
+
+  return { entries: withBalance.reverse(), currentBalance: running };
 }
 
 function resetMenuAndRecipes_(username) {

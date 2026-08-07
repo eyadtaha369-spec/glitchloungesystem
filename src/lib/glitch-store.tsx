@@ -8,6 +8,7 @@ import type {
   Session,
   AppState,
   Shift,
+  SupplierLedgerEntry,
   PaymentMethod,
   RawMaterial,
   Supplier,
@@ -67,6 +68,7 @@ import {
   logRecurringExpensePaymentFn,
   submitPurchaseFn,
   submitExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
+  submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
@@ -79,7 +81,7 @@ export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
   MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
-  WasteInvoice, WasteInvoiceReason, InventorySnapshot,
+  WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
 } from "./types";
 export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES } from "./types";
 export type CurrentUser = { username: string; role: Role };
@@ -212,6 +214,23 @@ interface StoreContextValue {
   unpaidExpenses: LedgerEntry[];
   refreshUnpaidExpenses: () => Promise<void>;
   settleExpense: (ledgerId: string, paymentSource: PaymentSource) => Promise<{ ok: boolean; error?: string }>;
+  submitPurchaseInvoice: (p: {
+    supplierId: string;
+    supplierName: string;
+    invoiceDate?: number;
+    paymentType: "cash" | "deferred";
+    paymentSource?: PaymentSource;
+    items: { materialId: string; qty: number; unitPrice: number }[];
+  }) => Promise<{ ok: boolean; error?: string; invoiceId?: string; totalAmount?: number; itemCount?: number }>;
+  recordSupplierPayment: (p: {
+    supplierId: string;
+    amount: number;
+    paymentSource: PaymentSource;
+    note?: string;
+  }) => Promise<{ ok: boolean; error?: string; paymentId?: string }>;
+  supplierBalances: Record<string, number>;
+  refreshSupplierBalances: () => Promise<void>;
+  getSupplierLedger: (supplierId: string) => Promise<{ ok: boolean; error?: string; ledger?: { entries: SupplierLedgerEntry[]; currentBalance: number } }>;
   approvePurchase: (ledgerId: string) => Promise<void>;
   rejectPurchase: (ledgerId: string, reason?: string) => Promise<void>;
   refreshLedger: () => Promise<void>;
@@ -258,6 +277,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [unpaidExpenses, setUnpaidExpenses] = useState<LedgerEntry[]>([]);
+  const [supplierBalances, setSupplierBalances] = useState<Record<string, number>>({});
   const [pendingApprovals, setPendingApprovals] = useState<LedgerEntry[]>([]);
   const [voidRequests, setVoidRequests] = useState<VoidRequest[]>([]);
   const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
@@ -846,6 +866,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const submitPurchaseInvoice: StoreContextValue["submitPurchaseInvoice"] = async (p) => {
+    return withPending("submitPurchaseInvoice", async () => {
+      const res = await submitPurchaseInvoiceFn({ data: { ...p, shiftId: appState.activeShiftId } });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshSupplierBalances();
+        } catch (e) {
+          console.error("Post-invoice refresh failed (invoice itself still succeeded):", e);
+        }
+      }
+      return { ok: res.ok, error: res.error, invoiceId: res.invoiceId, totalAmount: res.totalAmount, itemCount: res.itemCount };
+    });
+  };
+  const recordSupplierPayment: StoreContextValue["recordSupplierPayment"] = async (p) => {
+    return withPending("recordSupplierPayment", async () => {
+      const res = await recordSupplierPaymentFn({ data: { ...p, shiftId: appState.activeShiftId } });
+      if (res.ok) {
+        try { await refreshSupplierBalances(); } catch (e) { console.error("refreshSupplierBalances failed:", e); }
+      }
+      return { ok: res.ok, error: res.error, paymentId: res.paymentId };
+    });
+  };
+  const refreshSupplierBalances: StoreContextValue["refreshSupplierBalances"] = async () => {
+    setSupplierBalances(await getSupplierBalancesFn());
+  };
+  const getSupplierLedger: StoreContextValue["getSupplierLedger"] = async (supplierId) => {
+    const res = await getSupplierLedgerFn({ data: { supplierId } });
+    return { ok: res.ok, error: res.error, ledger: res.ledger };
+  };
   const approvePurchase: StoreContextValue["approvePurchase"] = async (ledgerId) => {
     return withPending(`approvePurchase:${ledgerId}`, async () => {
       const res = await approvePurchaseFn({ data: { ledgerId } });
@@ -1084,7 +1134,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };

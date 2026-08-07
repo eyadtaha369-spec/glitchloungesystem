@@ -29,6 +29,22 @@ CREATE TABLE IF NOT EXISTS RawMaterials (
   openingStock REAL, category TEXT, storageLocation TEXT, lastPurchaseCost REAL
 );
 
+CREATE TABLE IF NOT EXISTS PurchaseInvoices (
+  id TEXT PRIMARY KEY,
+  supplierId TEXT, supplierName TEXT, invoiceDate INTEGER, paymentType TEXT,
+  totalAmount REAL, createdAt INTEGER, createdBy TEXT, paymentSource TEXT
+);
+
+CREATE TABLE IF NOT EXISTS PurchaseInvoiceItems (
+  id TEXT PRIMARY KEY,
+  invoiceId TEXT, materialId TEXT, materialName TEXT, qty REAL, unitPrice REAL, subtotal REAL
+);
+
+CREATE TABLE IF NOT EXISTS SupplierPayments (
+  id TEXT PRIMARY KEY,
+  supplierId TEXT, ts INTEGER, amount REAL, paymentSource TEXT, note TEXT, recordedBy TEXT
+);
+
 CREATE TABLE IF NOT EXISTS Suppliers (
   id TEXT PRIMARY KEY,
   name TEXT, contact TEXT, category TEXT
