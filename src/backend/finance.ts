@@ -261,6 +261,27 @@ export const getSupplierLedgerFn = createServerFn({ method: "POST" })
     );
   });
 
+export const deletePurchaseFn = createServerFn({ method: "POST" })
+  .validator((d: { ledgerId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("deletePurchase", { ...data, username: user.username });
+  });
+
+export const updatePurchaseFn = createServerFn({ method: "POST" })
+  .validator((d: { ledgerId: string; description?: string; category?: string; supplierId?: string; qty?: number; unitCost?: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("updatePurchase", { ...data, username: user.username });
+  });
+
+export const deleteSupplierInvoiceFn = createServerFn({ method: "POST" })
+  .validator((d: { invoiceId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("deleteSupplierInvoice", { ...data, username: user.username });
+  });
+
 // ---------- Ledger / approvals (admin) ----------
 export const getLedgerFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireAdmin();

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource, SupplierLedgerEntry } from "@/lib/glitch-store";
-import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search, Pencil, Trash2 } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
   stockedBatch: "Stocked Batch (bulk delivery)",
@@ -740,7 +740,7 @@ function SupplierAccountsPanel() {
 }
 
 function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; onClose: () => void }) {
-  const { state, getSupplierLedger, recordSupplierPayment, refreshSupplierBalances } = useStore();
+  const { state, getSupplierLedger, recordSupplierPayment, refreshSupplierBalances, deleteSupplierInvoice } = useStore();
   const supplier = state.suppliers.find((s) => s.id === supplierId);
 
   const [entries, setEntries] = useState<SupplierLedgerEntry[]>([]);
@@ -819,6 +819,7 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
                   <th className="py-2 pr-2 text-right">Debit</th>
                   <th className="py-2 pr-2 text-right">Credit</th>
                   <th className="py-2 text-right">Balance</th>
+                  <th className="py-2 pl-2 text-right"></th>
                 </tr>
               </thead>
               <tbody>
@@ -834,11 +835,63 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
                     <td className="py-2 pr-2 text-right font-mono">{e.debit > 0 ? fmtMoney(e.debit) : "—"}</td>
                     <td className="py-2 pr-2 text-right font-mono">{e.credit > 0 ? fmtMoney(e.credit) : "—"}</td>
                     <td className="py-2 text-right font-mono font-semibold">{fmtMoney(e.runningBalance)}</td>
+                    <td className="py-2 pl-2 text-right">
+                      {e.type === "invoice" && (
+                        <DeleteInvoiceButton invoiceId={e.id} onDeleted={async () => { await load(); await refreshSupplierBalances(); }} />
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteInvoiceButton({ invoiceId, onDeleted }: { invoiceId: string; onDeleted: () => void }) {
+  const { deleteSupplierInvoice } = useStore();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const doDelete = async () => {
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await deleteSupplierInvoice(invoiceId);
+      if (!res.ok) { setErr(res.error ?? "Delete failed"); return; }
+      setConfirming(false);
+      onDeleted();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (!confirming) {
+    return (
+      <button onClick={() => setConfirming(true)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete invoice">
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setConfirming(false)}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Delete this invoice?</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          This will reverse the stock it added and remove it from the supplier's balance. If any item on it has
+          already been used in a sale, this will be blocked automatically.
+        </p>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setConfirming(false)} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button onClick={() => void doDelete()} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] disabled:opacity-50">
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
         </div>
       </div>
     </div>
@@ -1044,6 +1097,7 @@ function PurchaseHistory() {
                 <th className="text-left py-2 px-2">Payment Source</th>
                 <th className="text-left py-2 px-2">By</th>
                 <th className="text-right py-2 px-2">Total Price</th>
+                <th className="text-right py-2 px-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1052,12 +1106,15 @@ function PurchaseHistory() {
                 return (
                   <tr key={e.id} className="border-b border-black/8 hover:bg-black/5">
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(e.ts).toLocaleString()}</td>
-                    <td className="py-2 px-2 font-semibold">{material?.name ?? e.materialId}</td>
-                    <td className="py-2 px-2 text-right font-mono">{e.qty} {material?.unit}</td>
-                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(e.unitCost ?? 0)}</td>
+                    <td className="py-2 px-2 font-semibold">{material?.name ?? e.materialId ?? e.description ?? e.category}</td>
+                    <td className="py-2 px-2 text-right font-mono">{e.qty ?? "—"} {material?.unit}</td>
+                    <td className="py-2 px-2 text-right font-mono">{e.unitCost != null ? fmtMoney(e.unitCost) : "—"}</td>
                     <td className="py-2 px-2 text-xs">{e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource] : "—"}</td>
                     <td className="py-2 px-2 text-xs">{e.staffUsername}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{fmtMoney(e.amount)}</td>
+                    <td className="py-2 px-2 text-right">
+                      <PurchaseRowActions entry={e} />
+                    </td>
                   </tr>
                 );
               })}
@@ -1067,6 +1124,119 @@ function PurchaseHistory() {
       )}
 
       {reportOpen && <ReportModal entries={procurementEntries} materials={state.materials} onClose={() => setReportOpen(false)} />}
+    </div>
+  );
+}
+
+function PurchaseRowActions({ entry }: { entry: LedgerEntry }) {
+  const { deletePurchase } = useStore();
+  const [showEdit, setShowEdit] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const doDelete = async () => {
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await deletePurchase(entry.id);
+      if (!res.ok) { setErr(res.error ?? "Delete failed"); return; }
+      setShowConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="inline-flex items-center gap-2 relative">
+      <button onClick={() => setShowEdit(true)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]" title="Edit">
+        <Pencil className="w-3.5 h-3.5" />
+      </button>
+      <button onClick={() => setShowConfirmDelete(true)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete">
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+
+      {showEdit && <EditPurchaseModal entry={entry} onClose={() => setShowEdit(false)} />}
+
+      {showConfirmDelete && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setShowConfirmDelete(false)}>
+          <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold mb-2">Delete this entry?</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              {entry.description || entry.category} — {fmtMoney(entry.amount)}. If any of this stock has already been
+              used in a sale, this will be blocked automatically.
+            </p>
+            {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowConfirmDelete(false)} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+              <button onClick={() => void doDelete()} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] disabled:opacity-50">
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditPurchaseModal({ entry, onClose }: { entry: LedgerEntry; onClose: () => void }) {
+  const { updatePurchase } = useStore();
+  const [description, setDescription] = useState(entry.description || "");
+  const [qty, setQty] = useState(entry.qty != null ? String(entry.qty) : "");
+  const [unitCost, setUnitCost] = useState(entry.unitCost != null ? String(entry.unitCost) : "");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const hasQtyOrCost = entry.qty != null && entry.unitCost != null;
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const patch: Parameters<typeof updatePurchase>[0] = { ledgerId: entry.id, description };
+      if (hasQtyOrCost) {
+        patch.qty = parseFloat(qty);
+        patch.unitCost = parseFloat(unitCost);
+      }
+      const res = await updatePurchase(patch);
+      if (!res.ok) { setErr(res.error ?? "Update failed"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-black/20 p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-3">Edit Entry</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Description</label>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          {hasQtyOrCost && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity</label>
+                <input type="number" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost</label>
+                <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              </div>
+            </div>
+          )}
+        </div>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-3">{err}</div>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button onClick={() => void submit()} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] disabled:opacity-50">
+            {submitting ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

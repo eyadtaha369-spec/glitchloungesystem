@@ -32,6 +32,7 @@ const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
+const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_ } = require("./lib/procurement-edit");
 const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
@@ -616,6 +617,36 @@ Object.assign(handlers, {
     if (!body.supplierId) return { ok: false, error: "Supplier is required." };
     return { ok: true, ledger: bizGetSupplierLedger_({ readObjects_ }, body.supplierId) };
   },
+  deletePurchase(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const result = bizDeletePurchase_({ readObjects_, deleteObjectById_ }, body.ledgerId);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+      description: body.username + " deleted a procurement entry",
+    });
+    return { ok: true, state: withStockView_(getState_()) };
+  },
+  updatePurchase(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const result = bizUpdatePurchase_({ readObjects_, updateObjectById_ }, body);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+      description: body.username + " edited a procurement entry",
+    });
+    return { ok: true, state: withStockView_(getState_()) };
+  },
+  deleteSupplierInvoice(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const result = bizDeleteSupplierInvoice_({ readObjects_, deleteObjectById_ }, body.invoiceId);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+      description: body.username + " deleted a supplier invoice",
+    });
+    return { ok: true, state: withStockView_(getState_()) };
+  },
   getInventorySnapshots(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const all = readObjects_("InventorySnapshots");
@@ -671,7 +702,7 @@ Object.assign(handlers, {
       // The material physically arrives either way — receiving it on
       // credit (unpaid) doesn't change that it's now in stock, only
       // whether cash has left the drawer for it yet.
-      appendObject_("Batches", { id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null, qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts, source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh" });
+      appendObject_("Batches", { id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null, qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts, source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh", ledgerId: entry.id });
       // "Most Recent Purchase Unit Cost" replaces average-cost logic —
       // every approved purchase becomes the new reference cost, both for
       // display and for future FIFO batch valuation defaults.
@@ -749,7 +780,7 @@ Object.assign(handlers, {
     if (!entry) return { ok: false, error: "Entry not found" };
     if (entry.status !== "pending") return { ok: false, error: "Entry is not pending" };
     if (entry.materialId && entry.qty) {
-      appendObject_("Batches", { id: newId_("batch"), materialId: entry.materialId, supplierId: entry.supplierId, qtyPurchased: entry.qty, qtyRemaining: entry.qty, unitCost: entry.unitCost, purchasedAt: entry.ts, source: entry.type === "stockedBatch" ? "stockedBatch" : "dailyFresh" });
+      appendObject_("Batches", { id: newId_("batch"), materialId: entry.materialId, supplierId: entry.supplierId, qtyPurchased: entry.qty, qtyRemaining: entry.qty, unitCost: entry.unitCost, purchasedAt: entry.ts, source: entry.type === "stockedBatch" ? "stockedBatch" : "dailyFresh", ledgerId: entry.id });
     }
     updateObjectById_("Ledger", entry.id, { status: "approved" });
     logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_APPROVED", shiftId: entry.shiftId, description: "Approved purchase of " + entry.qty + " " + entry.materialId, before: { status: "pending" }, after: { status: "approved" } });

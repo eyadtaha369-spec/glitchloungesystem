@@ -174,7 +174,7 @@ function sheetObjectHeaders_(name) {
     RawMaterials: ["id", "name", "unit", "minStockAlert", "unitCost", "actualStock", "actualStockUpdatedAt", "actualStockUpdatedBy", "openingStock", "category", "storageLocation", "lastPurchaseCost"],
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
-    Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source"],
+    Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source", "invoiceId", "ledgerId"],
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus"],
     PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
@@ -2691,7 +2691,7 @@ function doPost(e) {
           appendObject_("Batches", {
             id: newId_("batch"), materialId: entry.materialId, supplierId: entry.supplierId,
             qtyPurchased: entry.qty, qtyRemaining: entry.qty, unitCost: entry.unitCost,
-            purchasedAt: entry.ts, source: entry.type === "stockedBatch" ? "stockedBatch" : "dailyFresh",
+            purchasedAt: entry.ts, source: entry.type === "stockedBatch" ? "stockedBatch" : "dailyFresh", ledgerId: entry.id,
           });
         }
         updateObjectById_("Ledger", entry.id, { status: "approved" });
@@ -2987,6 +2987,39 @@ function doPost(e) {
         if (!body.supplierId) return json_({ ok: false, error: "Supplier is required." });
         return json_({ ok: true, ledger: getSupplierLedger_(body.supplierId) });
 
+      case "deletePurchase": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const delResult = deletePurchase_(body.ledgerId);
+        if (!delResult.ok) return json_(delResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+          description: body.username + " deleted a procurement entry",
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
+      case "updatePurchase": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const updResult = updatePurchase_(body);
+        if (!updResult.ok) return json_(updResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+          description: body.username + " edited a procurement entry",
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
+      case "deleteSupplierInvoice": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const delInvResult = deleteSupplierInvoice_(body.invoiceId);
+        if (!delInvResult.ok) return json_(delInvResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+          description: body.username + " deleted a supplier invoice",
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
       case "repairMenuRecipes": {
         requireRole_(body.username, ["admin"]);
         const repairResult = repairMenuRecipes_(body.username);
@@ -3247,6 +3280,8 @@ function submitPurchaseInvoice_(body) {
     createdBy: body.username, paymentSource: paymentSource,
   });
 
+  const cashLedgerEntryId = paymentType === "cash" ? newId_("ledg") : null;
+
   preparedItems.forEach(function (it) {
     appendObject_("PurchaseInvoiceItems", {
       id: newId_("pinvitem"), invoiceId: invoiceId, materialId: it.materialId, materialName: it.materialName,
@@ -3255,13 +3290,14 @@ function submitPurchaseInvoice_(body) {
     appendObject_("Batches", {
       id: newId_("batch"), materialId: it.materialId, supplierId: body.supplierId,
       qtyPurchased: it.qty, qtyRemaining: it.qty, unitCost: it.unitPrice, purchasedAt: now, source: "supplierInvoice",
+      invoiceId: invoiceId, ledgerId: cashLedgerEntryId,
     });
     updateObjectById_("RawMaterials", it.materialId, { unitCost: it.unitPrice, lastPurchaseCost: it.unitPrice });
   });
 
   let ledgerEntryId = null;
   if (paymentType === "cash") {
-    ledgerEntryId = newId_("ledg");
+    ledgerEntryId = cashLedgerEntryId;
     appendObject_("Ledger", {
       id: ledgerEntryId, ts: now, amount: totalAmount, direction: "outflow", type: "supplierInvoice",
       category: "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",
@@ -3343,6 +3379,90 @@ function getSupplierLedger_(supplierId) {
   });
 
   return { entries: withBalance.reverse(), currentBalance: running };
+}
+
+// Edit/delete for procurement records — see procurement-edit.js on the
+// local server for the full reasoning. Core safety rule: if a
+// purchase's stock has already been touched by a later sale/waste
+// (qtyRemaining !== qtyPurchased), editing/deleting it is blocked.
+function findLinkedBatch_(ledgerId) {
+  const batches = readObjects_("Batches");
+  for (let i = 0; i < batches.length; i++) {
+    if (batches[i].ledgerId === ledgerId) return batches[i];
+  }
+  return null;
+}
+function batchIsUntouched_(batch) {
+  return Math.abs(Number(batch.qtyRemaining) - Number(batch.qtyPurchased)) < 1e-9;
+}
+
+function deletePurchase_(ledgerId) {
+  const entry = readObjects_("Ledger").find(function (l) { return l.id === ledgerId; });
+  if (!entry) return { ok: false, error: "Entry not found." };
+
+  const batch = findLinkedBatch_(ledgerId);
+  if (batch && !batchIsUntouched_(batch)) {
+    const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
+    return { ok: false, error: "Can't delete — " + used + " of the " + batch.qtyPurchased + " purchased has already been used in sales or waste. Nothing was changed." };
+  }
+
+  if (batch) deleteObjectById_("Batches", batch.id);
+  deleteObjectById_("Ledger", ledgerId);
+  return { ok: true, materialId: entry.materialId || null };
+}
+
+function updatePurchase_(body) {
+  const entry = readObjects_("Ledger").find(function (l) { return l.id === body.ledgerId; });
+  if (!entry) return { ok: false, error: "Entry not found." };
+
+  const qtyChanging = body.qty !== undefined && Number(body.qty) !== Number(entry.qty);
+  const costChanging = body.unitCost !== undefined && Number(body.unitCost) !== Number(entry.unitCost);
+  const batch = findLinkedBatch_(body.ledgerId);
+
+  if ((qtyChanging || costChanging) && batch && !batchIsUntouched_(batch)) {
+    const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
+    return { ok: false, error: "Can't change quantity or cost — " + used + " of the " + batch.qtyPurchased + " purchased has already been used. You can still edit the description, category, or supplier." };
+  }
+
+  const newQty = qtyChanging ? Number(body.qty) : Number(entry.qty);
+  const newCost = costChanging ? Number(body.unitCost) : Number(entry.unitCost);
+  const ledgerPatch = {};
+  if (body.description !== undefined) ledgerPatch.description = body.description;
+  if (body.category !== undefined) ledgerPatch.category = body.category;
+  if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;
+  if (qtyChanging) ledgerPatch.qty = newQty;
+  if (costChanging) ledgerPatch.unitCost = newCost;
+  if (qtyChanging || costChanging) ledgerPatch.amount = newQty * newCost;
+
+  updateObjectById_("Ledger", body.ledgerId, ledgerPatch);
+  if (batch && (qtyChanging || costChanging)) {
+    updateObjectById_("Batches", batch.id, { qtyPurchased: newQty, qtyRemaining: newQty, unitCost: newCost });
+  }
+  return { ok: true };
+}
+
+function deleteSupplierInvoice_(invoiceId) {
+  const invoice = readObjects_("PurchaseInvoices").find(function (i) { return i.id === invoiceId; });
+  if (!invoice) return { ok: false, error: "Invoice not found." };
+
+  const batches = readObjects_("Batches").filter(function (b) { return b.invoiceId === invoiceId; });
+  const touched = batches.filter(function (b) { return !batchIsUntouched_(b); });
+  if (touched.length > 0) {
+    const items = readObjects_("PurchaseInvoiceItems").filter(function (it) { return it.invoiceId === invoiceId; });
+    const names = touched.map(function (b) {
+      const item = items.find(function (it) { return it.materialId === b.materialId; });
+      return item ? item.materialName : b.materialId;
+    });
+    return { ok: false, error: "Can't delete — some items on this invoice have already been used: " + names.join(", ") + ". Nothing was changed." };
+  }
+
+  const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
+  batches.forEach(function (b) { deleteObjectById_("Batches", b.id); });
+  readObjects_("PurchaseInvoiceItems").filter(function (it) { return it.invoiceId === invoiceId; }).forEach(function (it) { deleteObjectById_("PurchaseInvoiceItems", it.id); });
+  if (linkedLedgerId) deleteObjectById_("Ledger", linkedLedgerId);
+  deleteObjectById_("PurchaseInvoices", invoiceId);
+
+  return { ok: true, supplierId: invoice.supplierId };
 }
 
 function resetMenuAndRecipes_(username) {
@@ -3521,7 +3641,7 @@ function handleSubmitPurchase_(body) {
       appendObject_("Batches", {
         id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null,
         qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts,
-        source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh",
+        source: body.purchaseType === "stockedBatch" ? "stockedBatch" : "dailyFresh", ledgerId: entry.id,
       });
       // "Most Recent Purchase Unit Cost" replaces average-cost logic —
       // every approved purchase becomes the new reference cost.

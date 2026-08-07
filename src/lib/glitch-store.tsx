@@ -69,6 +69,7 @@ import {
   submitPurchaseFn,
   submitExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
   submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
+  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
@@ -231,6 +232,9 @@ interface StoreContextValue {
   supplierBalances: Record<string, number>;
   refreshSupplierBalances: () => Promise<void>;
   getSupplierLedger: (supplierId: string) => Promise<{ ok: boolean; error?: string; ledger?: { entries: SupplierLedgerEntry[]; currentBalance: number } }>;
+  deletePurchase: (ledgerId: string) => Promise<{ ok: boolean; error?: string }>;
+  updatePurchase: (p: { ledgerId: string; description?: string; category?: string; supplierId?: string; qty?: number; unitCost?: number }) => Promise<{ ok: boolean; error?: string }>;
+  deleteSupplierInvoice: (invoiceId: string) => Promise<{ ok: boolean; error?: string }>;
   approvePurchase: (ledgerId: string) => Promise<void>;
   rejectPurchase: (ledgerId: string, reason?: string) => Promise<void>;
   refreshLedger: () => Promise<void>;
@@ -896,6 +900,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const res = await getSupplierLedgerFn({ data: { supplierId } });
     return { ok: res.ok, error: res.error, ledger: res.ledger };
   };
+  const deletePurchase: StoreContextValue["deletePurchase"] = async (ledgerId) => {
+    return withPending(`deletePurchase:${ledgerId}`, async () => {
+      const res = await deletePurchaseFn({ data: { ledgerId } });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshLedger();
+        } catch (e) { console.error("Post-delete refresh failed (delete itself still succeeded):", e); }
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const updatePurchase: StoreContextValue["updatePurchase"] = async (p) => {
+    return withPending(`updatePurchase:${p.ledgerId}`, async () => {
+      const res = await updatePurchaseFn({ data: p });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshLedger();
+        } catch (e) { console.error("Post-update refresh failed (update itself still succeeded):", e); }
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const deleteSupplierInvoice: StoreContextValue["deleteSupplierInvoice"] = async (invoiceId) => {
+    return withPending(`deleteSupplierInvoice:${invoiceId}`, async () => {
+      const res = await deleteSupplierInvoiceFn({ data: { invoiceId } });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshSupplierBalances();
+        } catch (e) { console.error("Post-delete refresh failed (delete itself still succeeded):", e); }
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
   const approvePurchase: StoreContextValue["approvePurchase"] = async (ledgerId) => {
     return withPending(`approvePurchase:${ledgerId}`, async () => {
       const res = await approvePurchaseFn({ data: { ledgerId } });
@@ -1134,7 +1174,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };

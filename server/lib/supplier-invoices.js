@@ -50,6 +50,8 @@ function bizSubmitPurchaseInvoice_(deps, body) {
     createdBy: body.username, paymentSource,
   });
 
+  const cashLedgerEntryId = paymentType === "cash" ? newId_("ledg") : null;
+
   preparedItems.forEach((it) => {
     appendObject_("PurchaseInvoiceItems", {
       id: newId_("pinvitem"), invoiceId, materialId: it.materialId, materialName: it.materialName,
@@ -61,13 +63,14 @@ function bizSubmitPurchaseInvoice_(deps, body) {
     appendObject_("Batches", {
       id: newId_("batch"), materialId: it.materialId, supplierId: body.supplierId,
       qtyPurchased: it.qty, qtyRemaining: it.qty, unitCost: it.unitPrice, purchasedAt: now, source: "supplierInvoice",
+      invoiceId, ledgerId: cashLedgerEntryId,
     });
     updateObjectById_("RawMaterials", it.materialId, { unitCost: it.unitPrice, lastPurchaseCost: it.unitPrice });
   });
 
   let ledgerEntryId = null;
   if (paymentType === "cash") {
-    ledgerEntryId = newId_("ledg");
+    ledgerEntryId = cashLedgerEntryId;
     appendObject_("Ledger", {
       id: ledgerEntryId, ts: now, amount: totalAmount, direction: "outflow", type: "supplierInvoice",
       category: "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",

@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS RecurringExpenses (
 CREATE TABLE IF NOT EXISTS Batches (
   id TEXT PRIMARY KEY,
   materialId TEXT, supplierId TEXT, qtyPurchased REAL, qtyRemaining REAL,
-  unitCost REAL, purchasedAt INTEGER, source TEXT
+  unitCost REAL, purchasedAt INTEGER, source TEXT, invoiceId TEXT, ledgerId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS Ledger (
