@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource } from "@/lib/glitch-store";
-import { Camera, CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History } from "lucide-react";
+import { Camera, CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
   stockedBatch: "Stocked Batch (bulk delivery)",
@@ -88,6 +88,72 @@ function SubmitPurchaseForm() {
   );
 }
 
+// Type-to-filter combobox — with 70+ materials (many in Arabic), a
+// plain <select> means scrolling through a long list or relying on
+// native type-to-jump, which works less reliably with Arabic/RTL text
+// than a real search box does.
+function SearchableMaterialSelect({ materials, value, onChange, placeholder }: {
+  materials: { id: string; name: string; unit: string }[];
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selected = materials.find((m) => m.id === value);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return materials;
+    return materials.filter((m) => m.name.toLowerCase().includes(q));
+  }, [materials, query]);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          value={open ? query : (selected ? `${selected.name} (${selected.unit})` : "")}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => { setQuery(""); setOpen(true); }}
+          placeholder={placeholder || "Search material..."}
+          dir="auto"
+          className="w-full bg-white/70 border border-black/10 rounded-lg pl-8 pr-3 py-2 text-sm"
+        />
+      </div>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-black/10 bg-white shadow-lg">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">No materials match "{query}"</div>
+          ) : (
+            filtered.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => { onChange(m.id); setQuery(""); setOpen(false); }}
+                dir="auto"
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-black/5 ${m.id === value ? "bg-black/5 font-semibold" : ""}`}
+              >
+                {m.name} <span className="text-muted-foreground">({m.unit})</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "stockedBatch" }) {
   const { state, activeShift, submitPurchase } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
@@ -155,10 +221,9 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Material</label>
-          <select value={materialId} onChange={(e) => setMaterialId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
-            <option value="">Select material...</option>
-            {state.materials.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
-          </select>
+          <div className="mt-1">
+            <SearchableMaterialSelect materials={state.materials} value={materialId} onChange={setMaterialId} />
+          </div>
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier (optional)</label>
