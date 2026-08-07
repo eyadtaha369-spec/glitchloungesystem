@@ -865,6 +865,8 @@ function DeleteInvoiceButton({ invoiceId, onDeleted }: { invoiceId: string; onDe
       if (!res.ok) { setErr(res.error ?? "Delete failed"); return; }
       setConfirming(false);
       onDeleted();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — please try again.");
     } finally {
       setDeleting(false);
     }
@@ -915,6 +917,8 @@ function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierI
       const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, note: note || undefined });
       if (!res.ok) { setErr(res.error ?? "Failed to record payment"); return; }
       onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -1142,6 +1146,8 @@ function PurchaseRowActions({ entry }: { entry: LedgerEntry }) {
       const res = await deletePurchase(entry.id);
       if (!res.ok) { setErr(res.error ?? "Delete failed"); return; }
       setShowConfirmDelete(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — please try again.");
     } finally {
       setDeleting(false);
     }
@@ -1202,6 +1208,8 @@ function EditPurchaseModal({ entry, onClose }: { entry: LedgerEntry; onClose: ()
       const res = await updatePurchase(patch);
       if (!res.ok) { setErr(res.error ?? "Update failed"); return; }
       onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — please try again.");
     } finally {
       setSubmitting(false);
     }
