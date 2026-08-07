@@ -195,8 +195,9 @@ interface StoreContextValue {
     supplierId?: string;
     category?: string;
     description?: string;
-    paymentSource: PaymentSource;
-    receiptFile: File;
+    paymentStatus: "paid" | "unpaid";
+    paymentSource?: PaymentSource;
+    receiptFile?: File | null;
   }) => Promise<{ ok: boolean; error?: string; status?: string }>;
   submitExpense: (p: {
     itemName: string;
@@ -770,7 +771,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const submitPurchase: StoreContextValue["submitPurchase"] = async (p) => {
     return withPending("submitPurchase", async () => {
-      const receiptBase64 = await fileToBase64(p.receiptFile);
+      const receiptBase64 = p.receiptFile ? await fileToBase64(p.receiptFile) : undefined;
       const res = await submitPurchaseFn({
         data: {
           purchaseType: p.purchaseType,
@@ -780,10 +781,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           supplierId: p.supplierId,
           category: p.category,
           description: p.description,
-          paymentSource: p.paymentSource,
+          paymentStatus: p.paymentStatus,
+          paymentSource: p.paymentStatus === "paid" ? p.paymentSource : undefined,
           shiftId: appState.activeShiftId,
           receiptBase64,
-          receiptMimeType: p.receiptFile.type || "image/jpeg",
+          receiptMimeType: p.receiptFile?.type || undefined,
         },
       });
       if (res.ok) {
@@ -791,6 +793,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Admin submissions land approved immediately — refresh state so
         // the new batch shows up in the computed stock view right away.
         if (currentUser?.role === "admin") setAppState(await getStateFn());
+        if (res.status === "approved" && p.paymentStatus === "unpaid") await refreshUnpaidExpenses();
       }
       return { ok: res.ok, error: res.error, status: res.status };
     });

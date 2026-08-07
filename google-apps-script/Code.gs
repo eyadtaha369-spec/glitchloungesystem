@@ -3285,22 +3285,26 @@ function handleSubmitPurchase_(body) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  if (!body.receiptBase64) {
-    return json_({ ok: false, error: "A receipt photo is required to submit a purchase." });
-  }
   if (!body.materialId || !body.qty || !body.unitCost) {
     return json_({ ok: false, error: "Material, quantity, and cost are required." });
   }
-  const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
-  if (validSources.indexOf(body.paymentSource) === -1) {
-    return json_({ ok: false, error: "Select a payment source (Cash Drawer, Out of Pocket, or Bank Transfer)." });
+  const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
+  let paymentSource = null;
+  if (paymentStatus === "paid") {
+    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    if (validSources.indexOf(body.paymentSource) === -1) {
+      return json_({ ok: false, error: "Select a payment source (Cash Drawer, Out of Pocket, or Bank Transfer)." });
+    }
+    paymentSource = body.paymentSource;
   }
 
-  let receiptUrl;
-  try {
-    receiptUrl = uploadReceipt_(body.receiptBase64, body.receiptMimeType, "receipt-" + Date.now() + ".jpg");
-  } catch (err) {
-    return json_({ ok: false, error: "Receipt upload failed: " + String(err) });
+  let receiptUrl = null;
+  if (body.receiptBase64) {
+    try {
+      receiptUrl = uploadReceipt_(body.receiptBase64, body.receiptMimeType, "receipt-" + Date.now() + ".jpg");
+    } catch (err) {
+      return json_({ ok: false, error: "Receipt upload failed: " + String(err) });
+    }
   }
 
   const lock = LockService.getScriptLock();
@@ -3320,8 +3324,9 @@ function handleSubmitPurchase_(body) {
       staffUsername: body.username,
       status: isAdmin ? "approved" : "pending",
       receiptUrl: receiptUrl,
-      paidFromDrawer: body.paymentSource === "cash_drawer",
-      paymentSource: body.paymentSource,
+      paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
+      paymentSource: paymentSource,
+      paymentStatus: paymentStatus,
       shiftId: body.shiftId || null,
       materialId: body.materialId,
       qty: body.qty,
@@ -3330,7 +3335,9 @@ function handleSubmitPurchase_(body) {
     appendObject_("Ledger", entry);
 
     if (isAdmin) {
-      // Auto-approved: inventory lands immediately.
+      // The material physically arrives either way — receiving it on
+      // credit (unpaid) doesn't change that it's now in stock, only
+      // whether cash has left the drawer for it yet.
       appendObject_("Batches", {
         id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null,
         qtyPurchased: body.qty, qtyRemaining: body.qty, unitCost: body.unitCost, purchasedAt: entry.ts,
@@ -3343,8 +3350,8 @@ function handleSubmitPurchase_(body) {
 
     logActivity_({
       actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
-      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " " + body.purchaseType + ": " + body.qty + " " + body.materialId + " for " + amount.toFixed(2) + " EGP",
-      after: { status: entry.status, amount: amount, materialId: body.materialId, qty: body.qty },
+      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " " + body.purchaseType + ": " + body.qty + " " + body.materialId + " for " + amount.toFixed(2) + " EGP (" + paymentStatus + ")",
+      after: { status: entry.status, amount: amount, materialId: body.materialId, qty: body.qty, paymentStatus: paymentStatus },
     });
 
     return json_({ ok: true, status: entry.status, entry: entry });

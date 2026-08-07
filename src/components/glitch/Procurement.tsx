@@ -164,6 +164,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   const [unitCost, setUnitCost] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [description, setDescription] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
@@ -180,7 +181,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   };
 
   const reset = () => {
-    setMaterialId(""); setQty(""); setUnitCost(""); setSupplierId(""); setDescription(""); setPaymentSource("");
+    setMaterialId(""); setQty(""); setUnitCost(""); setSupplierId(""); setDescription(""); setPaymentStatus("paid"); setPaymentSource("");
     onFile(null);
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -188,8 +189,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   const submit = async () => {
     setResult(null);
     if (!materialId || !qty || !unitCost) { setResult({ kind: "err", text: "Material, quantity, and unit cost are required." }); return; }
-    if (!paymentSource) { setResult({ kind: "err", text: "Select a payment source." }); return; }
-    if (!receiptFile) { setResult({ kind: "err", text: "A receipt photo is required to submit." }); return; }
+    if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
     setSubmitting(true);
     try {
       const res = await submitPurchase({
@@ -200,14 +200,17 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         supplierId: supplierId || undefined,
         category: TYPE_LABEL[purchaseType],
         description,
-        paymentSource,
+        paymentStatus,
+        paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
         receiptFile,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
         kind: "ok",
         text: res.status === "approved"
-          ? `Approved instantly — ${fmtMoney(total)} added to inventory.`
+          ? paymentStatus === "unpaid"
+            ? `Approved instantly — ${fmtMoney(total)} added to inventory, recorded as unpaid until settled.`
+            : `Approved instantly — ${fmtMoney(total)} added to inventory.`
           : `Submitted for admin approval — ${fmtMoney(total)} is pending, no stock or cash effect yet.`,
       });
       reset();
@@ -244,39 +247,70 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Description (optional)</label>
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
         </div>
+
         <div className="md:col-span-2">
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Source / طريقة الدفع (required)</label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-1">
-            {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => {
-              const Icon = PAYMENT_SOURCE_ICONS[src];
-              return (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setPaymentSource(src)}
-                  className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
-                    paymentSource === src
-                      ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
-                      : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" /> {PAYMENT_SOURCE_LABELS[src]}
-                </button>
-              );
-            })}
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Status / حالة الدفع</label>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => setPaymentStatus("paid")}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                paymentStatus === "paid"
+                  ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.6)] text-[oklch(0.78_0.2_155)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Paid
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPaymentStatus("unpaid"); setPaymentSource(""); }}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                paymentStatus === "unpaid"
+                  ? "bg-black/20 border-black/60 text-black"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Unpaid (Debt)
+            </button>
           </div>
-          {paymentSource === "cash_drawer" && (
-            <p className="text-[11px] text-black mt-1.5">Deducts from the active shift's expected cash.</p>
-          )}
-          {paymentSource === "out_of_pocket" && (
-            <p className="text-[11px] text-muted-foreground mt-1.5">Recorded as an expense — does not affect the till.</p>
-          )}
-          {paymentSource === "bank_transfer" && (
-            <p className="text-[11px] text-muted-foreground mt-1.5">Tracked as a digital expense — does not affect the till.</p>
-          )}
         </div>
-        {!activeShift && paymentSource === "cash_drawer" && (
-          <div className="md:col-span-2 text-xs text-black">No active shift — this won't be tied to a specific shift's drawer.</div>
+
+        {paymentStatus === "paid" ? (
+          <div className="md:col-span-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Source / طريقة الدفع (required)</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-1">
+              {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => {
+                const Icon = PAYMENT_SOURCE_ICONS[src];
+                return (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setPaymentSource(src)}
+                    className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
+                      paymentSource === src
+                        ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
+                        : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" /> {PAYMENT_SOURCE_LABELS[src]}
+                  </button>
+                );
+              })}
+            </div>
+            {paymentSource === "cash_drawer" && (
+              <p className="text-[11px] text-black mt-1.5">Deducts from the active shift's expected cash.</p>
+            )}
+            {!activeShift && paymentSource === "cash_drawer" && (
+              <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+            )}
+          </div>
+        ) : (
+          <div className="md:col-span-2 text-xs text-muted-foreground bg-black/5 border border-black/8 rounded-lg p-3">
+            The material still arrives and lands in inventory immediately — this just means no money has left the
+            drawer or safe yet. Won't affect any shift's cash total until it's settled on the
+            <strong> Unpaid Expenses</strong> page.
+          </div>
         )}
       </div>
 
@@ -286,7 +320,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
       </div>
 
       <div className="mt-4">
-        <label className="text-xs uppercase tracking-widest text-muted-foreground">Receipt Photo (required)</label>
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Receipt Photo (optional)</label>
         <div className="mt-2 flex items-center gap-4">
           <button
             onClick={() => fileRef.current?.click()}

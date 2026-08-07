@@ -168,10 +168,11 @@ export const submitPurchaseFn = createServerFn({ method: "POST" })
     supplierId?: string;
     category?: string;
     description?: string;
-    paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    paymentStatus: "paid" | "unpaid";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
     shiftId?: string | null;
-    receiptBase64: string;
-    receiptMimeType: string;
+    receiptBase64?: string;
+    receiptMimeType?: string;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
