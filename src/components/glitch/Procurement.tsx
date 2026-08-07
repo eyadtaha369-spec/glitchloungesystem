@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource } from "@/lib/glitch-store";
-import { Camera, CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
   stockedBatch: "Stocked Batch (bulk delivery)",
@@ -157,7 +157,6 @@ function SearchableMaterialSelect({ materials, value, onChange, placeholder }: {
 function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "stockedBatch" }) {
   const { state, activeShift, submitPurchase } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const [materialId, setMaterialId] = useState("");
   const [qty, setQty] = useState("");
@@ -166,24 +165,14 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   const [description, setDescription] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const material = state.materials.find((m) => m.id === materialId);
   const total = (parseFloat(qty) || 0) * (parseFloat(unitCost) || 0);
 
-  const onFile = (f: File | null) => {
-    setReceiptFile(f);
-    if (f) setReceiptPreview(URL.createObjectURL(f));
-    else setReceiptPreview(null);
-  };
-
   const reset = () => {
     setMaterialId(""); setQty(""); setUnitCost(""); setSupplierId(""); setDescription(""); setPaymentStatus("paid"); setPaymentSource("");
-    onFile(null);
-    if (fileRef.current) fileRef.current.value = "";
   };
 
   const submit = async () => {
@@ -202,7 +191,6 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         description,
         paymentStatus,
         paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
-        receiptFile,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
@@ -323,20 +311,6 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         <span className="font-bold text-lg">{fmtMoney(total)}</span>
       </div>
 
-      <div className="mt-4">
-        <label className="text-xs uppercase tracking-widest text-muted-foreground">Receipt Photo (optional)</label>
-        <div className="mt-2 flex items-center gap-4">
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-sm"
-          >
-            <Camera className="w-4 h-4" /> {receiptFile ? "Change Photo" : "Attach Photo"}
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
-          {receiptPreview && <img src={receiptPreview} alt="Receipt preview" className="h-16 w-16 object-cover rounded-lg border border-black/10" />}
-        </div>
-      </div>
-
       {result && (
         <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
           {result.text}
@@ -361,7 +335,6 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
 function ExpenseSubmitForm() {
   const { state, activeShift, submitExpense } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const [itemName, setItemName] = useState("");
   const [category, setCategory] = useState("");
@@ -370,21 +343,11 @@ function ExpenseSubmitForm() {
   const [supplierId, setSupplierId] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  const onFile = (f: File | null) => {
-    setReceiptFile(f);
-    if (f) setReceiptPreview(URL.createObjectURL(f));
-    else setReceiptPreview(null);
-  };
-
   const reset = () => {
     setItemName(""); setCategory(""); setAmount(""); setNotes(""); setSupplierId(""); setPaymentStatus("paid"); setPaymentSource("");
-    onFile(null);
-    if (fileRef.current) fileRef.current.value = "";
   };
 
   const submit = async () => {
@@ -401,7 +364,6 @@ function ExpenseSubmitForm() {
         supplierId: supplierId || undefined,
         paymentStatus,
         paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
-        receiptFile,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
@@ -510,20 +472,6 @@ function ExpenseSubmitForm() {
             <strong> Unpaid Expenses</strong> page.
           </div>
         )}
-      </div>
-
-      <div className="mt-4">
-        <label className="text-xs uppercase tracking-widest text-muted-foreground">Receipt Photo (optional)</label>
-        <div className="mt-2 flex items-center gap-4">
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8 text-sm"
-          >
-            <Camera className="w-4 h-4" /> {receiptFile ? "Change Photo" : "Attach Photo"}
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
-          {receiptPreview && <img src={receiptPreview} alt="Receipt preview" className="h-16 w-16 object-cover rounded-lg border border-black/10" />}
-        </div>
       </div>
 
       {result && (
