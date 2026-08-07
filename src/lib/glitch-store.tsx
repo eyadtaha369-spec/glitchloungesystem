@@ -789,11 +789,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         },
       });
       if (res.ok) {
-        await refreshLedger();
-        // Admin submissions land approved immediately — refresh state so
-        // the new batch shows up in the computed stock view right away.
-        if (currentUser?.role === "admin") setAppState(await getStateFn());
-        if (res.status === "approved" && p.paymentStatus === "unpaid") await refreshUnpaidExpenses();
+        // These are all secondary refreshes for UI freshness — none of
+        // them should ever be able to prevent the primary result below
+        // from reaching the caller and letting the button show a
+        // message, which is exactly what silently hanging would do.
+        try {
+          await refreshLedger();
+          if (currentUser?.role === "admin") setAppState(await getStateFn());
+          if (res.status === "approved" && p.paymentStatus === "unpaid") await refreshUnpaidExpenses();
+        } catch (e) {
+          console.error("Post-submit refresh failed (submission itself still succeeded):", e);
+        }
       }
       return { ok: res.ok, error: res.error, status: res.status };
     });
@@ -816,9 +822,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         },
       });
       if (res.ok) {
-        await refreshLedger();
-        if (currentUser?.role === "admin") setAppState(await getStateFn());
-        if (res.status === "approved" && p.paymentStatus === "unpaid") await refreshUnpaidExpenses();
+        try {
+          await refreshLedger();
+          if (currentUser?.role === "admin") setAppState(await getStateFn());
+          if (res.status === "approved" && p.paymentStatus === "unpaid") await refreshUnpaidExpenses();
+        } catch (e) {
+          console.error("Post-submit refresh failed (submission itself still succeeded):", e);
+        }
       }
       return { ok: res.ok, error: res.error, status: res.status };
     });
