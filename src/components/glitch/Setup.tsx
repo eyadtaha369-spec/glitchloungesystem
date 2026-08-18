@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { RawMaterial, Supplier } from "@/lib/glitch-store";
 import { getPreferredPrinter, setPreferredPrinter } from "@/lib/print";
-import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, AlertOctagon, Printer, Copy, Check, RefreshCw, Upload } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Save, Boxes, Truck, Receipt, AlertOctagon, Printer, Copy, Check, RefreshCw, Upload, History } from "lucide-react";
 
 export function SetupPage() {
   return (
@@ -16,8 +16,139 @@ export function SetupPage() {
       <PrinterSetupPanel />
       <MaterialsPanel />
       <SuppliersPanel />
+      <CloudMigrationPanel />
       <MenuRebuildPanel />
       <ProductionResetPanel />
+    </div>
+  );
+}
+
+function CloudMigrationPanel() {
+  const { migrateToCloud } = useStore();
+  const [open, setOpen] = useState(false);
+  const [cloudUrl, setCloudUrl] = useState("");
+  const [cloudSecret, setCloudSecret] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ tableSummary: Record<string, number>; accountsAdded: number } | null>(null);
+
+  const REQUIRED_PHRASE = "MIGRATE FROM CAFE";
+  const canSubmit = confirmText.trim().toUpperCase() === REQUIRED_PHRASE && password.length > 0 && cloudUrl.trim().length > 0 && cloudSecret.trim().length > 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setRunning(true);
+    setErr(null);
+    try {
+      const res = await migrateToCloud({ password, cloudUrl: cloudUrl.trim(), cloudSecret: cloudSecret.trim() });
+      if (!res.ok) { setErr((res.step === "export" ? "Export step failed: " : res.step === "import" ? "Import step failed: " : "") + (res.error ?? "Migration failed")); return; }
+      setResult({ tableSummary: res.tableSummary, accountsAdded: res.accountsAdded });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — please try again.");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.7_0.19_260/0.5)] bg-[oklch(0.7_0.19_260/0.06)]">
+      <div className="flex items-center gap-2 mb-2">
+        <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+        <h2 className="text-lg font-bold text-[oklch(0.7_0.19_260)]">Migrate This Device's Data to the Cloud</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
+        One-time setup — sends everything on <strong>this device</strong> (materials, batches, sessions, ledger,
+        suppliers, invoices, accounts, the whole menu) to the online/cloud backend, replacing what's currently
+        there. Existing cloud accounts (like the owner's web login) are never overwritten — only new accounts get
+        added. After this, point this device at the cloud instead of its own local database so every device stays
+        in sync going forward.
+      </p>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.15)] border-2 border-[oklch(0.7_0.19_260/0.6)] text-[oklch(0.7_0.19_260)] text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.7_0.19_260/0.25)]"
+      >
+        Migrate to Cloud
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
+          <div className="w-full max-w-lg glass-strong rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.6)] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {result ? (
+              <div className="p-6 space-y-2">
+                <div className="text-lg font-bold text-[oklch(0.78_0.2_155)]">Migration Complete</div>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  {Object.entries(result.tableSummary).map(([table, count]) => (
+                    <div key={table} className="flex justify-between font-mono text-xs">
+                      <span>{table}</span><span>{count}</span>
+                    </div>
+                  ))}
+                </div>
+                {result.accountsAdded > 0 && <p className="text-sm">{result.accountsAdded} new account(s) added to the cloud.</p>}
+                <p className="text-xs text-muted-foreground pt-2">
+                  Next: reconfigure this device's APPS_SCRIPT_URL to point at the cloud, then restart, so it reads
+                  and writes the same data as every other device from now on.
+                </p>
+                <button onClick={() => { setOpen(false); setResult(null); setConfirmText(""); setPassword(""); }} className="mt-2 px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Done</button>
+              </div>
+            ) : (
+              <>
+                <div className="p-5 space-y-4">
+                  <h3 className="text-lg font-bold text-[oklch(0.7_0.19_260)]">This replaces cloud business data with what's on this device.</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Get the Cloud URL and Secret from your Apps Script deployment (or wherever your online site's
+                    environment variables are configured) before starting.
+                  </p>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Cloud Apps Script URL</label>
+                    <input
+                      value={cloudUrl} onChange={(e) => setCloudUrl(e.target.value)}
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Cloud Secret</label>
+                    <input
+                      type="password" value={cloudSecret} onChange={(e) => setCloudSecret(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Type <span className="font-bold text-[oklch(0.7_0.19_260)]">{REQUIRED_PHRASE}</span> to confirm
+                    </label>
+                    <input
+                      value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      placeholder={REQUIRED_PHRASE}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Re-enter Your Admin Password</label>
+                    <input
+                      type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+                </div>
+                <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+                  <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+                  <button
+                    onClick={() => void submit()}
+                    disabled={!canSubmit || running}
+                    className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.7_0.19_260)] text-white font-bold disabled:opacity-40"
+                  >
+                    {running ? "Migrating..." : "Migrate Now"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

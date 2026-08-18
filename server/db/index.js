@@ -125,5 +125,5 @@ function setStateRaw_(jsonText) {
 module.exports = {
   db, DB_PATH,
   readObjects_, appendObject_, updateObjectById_, deleteObjectById_,
-  getStateRaw_, setStateRaw_,
+  getStateRaw_, setStateRaw_, KNOWN_TABLES,
 };

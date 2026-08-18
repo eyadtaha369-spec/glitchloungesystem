@@ -15,7 +15,7 @@
 
 const express = require("express");
 const cors = require("cors");
-const { readObjects_, updateObjectById_, appendObject_, deleteObjectById_, db } = require("./db");
+const { readObjects_, updateObjectById_, appendObject_, deleteObjectById_, db, KNOWN_TABLES } = require("./db");
 const { newId_, logActivity_ } = require("./lib/util");
 const { login_, roleForUsername_, requireRole_, getAccounts_, addAccount_, updateAccount_, deleteAccount_ } = require("./lib/auth");
 const {
@@ -646,6 +646,21 @@ Object.assign(handlers, {
       description: body.username + " deleted a supplier invoice",
     });
     return { ok: true, state: withStockView_(getState_()) };
+  },
+  exportAllData(body) {
+    requireRole_(body.username, ["admin"]);
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing exported." };
+
+    const tables = {};
+    KNOWN_TABLES.forEach((t) => { tables[t] = readObjects_(t); });
+
+    const stateRow = db.prepare("SELECT json FROM AppState WHERE id = 1").get();
+    const appState = stateRow ? JSON.parse(stateRow.json) : null;
+
+    const accounts = db.prepare("SELECT username, passwordHash, role FROM Accounts").all();
+
+    return { ok: true, tables, appState, accounts, exportedAt: Date.now() };
   },
   getInventorySnapshots(body) {
     requireRole_(body.username, ["admin", "cashier"]);

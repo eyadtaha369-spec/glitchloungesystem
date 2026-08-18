@@ -69,7 +69,7 @@ import {
   submitPurchaseFn,
   submitExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
   submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
-  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn,
+  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, migrateToCloudFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
@@ -235,6 +235,9 @@ interface StoreContextValue {
   deletePurchase: (ledgerId: string) => Promise<{ ok: boolean; error?: string }>;
   updatePurchase: (p: { ledgerId: string; description?: string; category?: string; supplierId?: string; qty?: number; unitCost?: number }) => Promise<{ ok: boolean; error?: string }>;
   deleteSupplierInvoice: (invoiceId: string) => Promise<{ ok: boolean; error?: string }>;
+  migrateToCloud: (p: { password: string; cloudUrl: string; cloudSecret: string }) => Promise<
+    { ok: true; tableSummary: Record<string, number>; accountsAdded: number } | { ok: false; error?: string; step?: "export" | "import" }
+  >;
   approvePurchase: (ledgerId: string) => Promise<void>;
   rejectPurchase: (ledgerId: string, reason?: string) => Promise<void>;
   refreshLedger: () => Promise<void>;
@@ -936,6 +939,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const migrateToCloud: StoreContextValue["migrateToCloud"] = async (p) => {
+    return withPending("migrateToCloud", async () => {
+      const res = await migrateToCloudFn({ data: p });
+      return res;
+    });
+  };
   const approvePurchase: StoreContextValue["approvePurchase"] = async (ledgerId) => {
     return withPending(`approvePurchase:${ledgerId}`, async () => {
       const res = await approvePurchaseFn({ data: { ledgerId } });
@@ -1174,7 +1183,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };

@@ -282,6 +282,54 @@ export const deleteSupplierInvoiceFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("deleteSupplierInvoice", { ...data, username: user.username });
   });
 
+// One-time migration: exports everything from THIS system (the café's
+// local server, which is what process.env.APPS_SCRIPT_URL points to
+// when this runs from the offline build) and pushes it directly to a
+// DIFFERENT URL — the actual cloud deployment — which the admin
+// provides here, since it's not the same URL this build normally
+// talks to. Two separate requests, not the usual single callAppsScript
+// round-trip.
+export const migrateToCloudFn = createServerFn({ method: "POST" })
+  .validator((d: { password: string; cloudUrl: string; cloudSecret: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+
+    const exportRes = await callAppsScript<{
+      ok: boolean; error?: string; tables?: Record<string, unknown[]>; appState?: unknown;
+      accounts?: { username: string; passwordHash: string; role: string }[]; exportedAt?: number;
+    }>("exportAllData", { username: user.username, password: data.password });
+
+    if (!exportRes.ok) return { ok: false as const, error: exportRes.error ?? "Export failed", step: "export" as const };
+
+    let importRes: { ok: boolean; error?: string; tableSummary?: Record<string, number>; accountsAdded?: number };
+    try {
+      const res = await fetch(data.cloudUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          secret: data.cloudSecret,
+          tables: exportRes.tables,
+          appState: exportRes.appState,
+          accounts: exportRes.accounts,
+          username: user.username,
+          password: data.password,
+          confirmPhrase: "MIGRATE FROM CAFE",
+          action: "importAllData",
+        }),
+        redirect: "follow",
+      });
+      const text = await res.text();
+      importRes = JSON.parse(text);
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : "Could not reach the cloud URL — check it's correct and reachable.", step: "import" as const };
+    }
+
+    if (!importRes.ok) return { ok: false as const, error: importRes.error ?? "Import failed on the cloud side", step: "import" as const };
+
+    return { ok: true as const, tableSummary: importRes.tableSummary ?? {}, accountsAdded: importRes.accountsAdded ?? 0 };
+  });
+
+
 // ---------- Ledger / approvals (admin) ----------
 export const getLedgerFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireAdmin();

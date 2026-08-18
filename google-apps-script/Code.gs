@@ -2956,6 +2956,23 @@ function doPost(e) {
         });
       }
 
+      case "importAllData": {
+        requireRole_(body.username, ["admin"]);
+        const importAuth = login_(body.username, body.password);
+        if (!importAuth.ok || importAuth.role !== "admin") {
+          return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+        }
+        if (body.confirmPhrase !== "MIGRATE FROM CAFE") {
+          return json_({ ok: false, error: "Confirmation phrase didn't match — nothing was changed." });
+        }
+        const importResult = importAllData_(body);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+          description: body.username + " migrated all data from the café's local database — " + Object.keys(importResult.tableSummary).map(function (k) { return k + ":" + importResult.tableSummary[k]; }).join(", ") + (importResult.accountsAdded > 0 ? "; " + importResult.accountsAdded + " new account(s) added" : ""),
+        });
+        return json_({ ok: true, tableSummary: importResult.tableSummary, accountsAdded: importResult.accountsAdded, state: withStockView_(getState_()) });
+      }
+
       case "submitPurchaseInvoice": {
         requireRole_(body.username, ["admin", "cashier"]);
         const invResult = submitPurchaseInvoice_(body);
@@ -3394,6 +3411,71 @@ function findLinkedBatch_(ledgerId) {
 }
 function batchIsUntouched_(batch) {
   return Math.abs(Number(batch.qtyRemaining) - Number(batch.qtyPurchased)) < 1e-9;
+}
+
+// One-time migration: café's local database is the authoritative
+// source, this REPLACES all business data on the cloud with what was
+// exported from it — see exportAllData on the local server for what's
+// included. Accounts are the one exception: MERGED, not replaced,
+// so an existing cloud-only login (e.g. the owner's web account) is
+// never silently overwritten or locked out. Password hashes are
+// plain SHA-256 hex on both systems by design, so they copy across
+// directly — no password reset needed for migrated accounts.
+const IMPORT_TABLE_NAMES = [
+  "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
+  "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
+  "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots",
+  "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments",
+];
+
+function importAllData_(payload) {
+  const summary = {};
+
+  IMPORT_TABLE_NAMES.forEach(function (tableName) {
+    const rows = payload.tables && payload.tables[tableName] ? payload.tables[tableName] : [];
+    const headers = sheetObjectHeaders_(tableName);
+    const sheet = getSheet_(tableName);
+    ensureHeaders_(sheet, headers);
+
+    // Clear existing DATA rows only — row 1 (headers) stays untouched.
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    }
+
+    if (rows.length > 0) {
+      const values = rows.map(function (obj) {
+        return headers.map(function (h) { return obj[h] === undefined || obj[h] === null ? "" : obj[h]; });
+      });
+      sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+    }
+    summary[tableName] = rows.length;
+  });
+
+  // App state — menu, rooms, active shift, etc. Already stripped of
+  // computed-only fields (stock, sessions, businessDays) by the local
+  // server's own getState_ before export, so this is safe to write
+  // as-is.
+  if (payload.appState) {
+    setState_(payload.appState);
+  }
+
+  // Accounts — merge, never overwrite. Only usernames that don't
+  // already exist on the cloud get added.
+  let accountsAdded = 0;
+  if (Array.isArray(payload.accounts)) {
+    const { sheet, rows } = accountsRows_();
+    const existingUsernames = {};
+    rows.forEach(function (r) { if (r[0]) existingUsernames[r[0]] = true; });
+    payload.accounts.forEach(function (acc) {
+      if (existingUsernames[acc.username]) return;
+      sheet.appendRow([acc.username, acc.passwordHash, acc.role]);
+      existingUsernames[acc.username] = true;
+      accountsAdded++;
+    });
+  }
+
+  return { ok: true, tableSummary: summary, accountsAdded: accountsAdded };
 }
 
 function deletePurchase_(ledgerId) {
