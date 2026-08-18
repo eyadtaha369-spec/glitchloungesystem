@@ -125,6 +125,8 @@ const emptyAppState: AppState = {
 interface StoreContextValue {
   state: State;
   ready: boolean;
+  connectionStatus: "synced" | "syncing" | "offline";
+  lastSyncedAt: number | null;
   login: (u: string, p: string) => Promise<boolean>;
   logout: () => Promise<void>;
   addAccount: (a: { username: string; password: string; role: Role }) => Promise<boolean>;
@@ -293,6 +295,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [wasteInvoices, setWasteInvoices] = useState<WasteInvoice[]>([]);
   const [inventorySnapshotMonths, setInventorySnapshotMonths] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
+  // "synced" once at least one poll has succeeded since the last
+  // attempt; "syncing" while a poll is in flight; "offline" after a
+  // poll fails — the backend (cloud or local) couldn't be reached.
+  const [connectionStatus, setConnectionStatus] = useState<"synced" | "syncing" | "offline">("syncing");
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
   // Wraps any async action: marks `key` as pending immediately (so buttons
@@ -370,12 +377,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (user) {
           const [state] = await Promise.all([getStateFn(), refreshAccounts(user), refreshFinance(user)]);
           setAppState(state);
+          setConnectionStatus("synced");
+          setLastSyncedAt(Date.now());
         }
       } finally {
         setReady(true);
       }
     })();
   }, [refreshAccounts, refreshFinance]);
+
+  // Background polling — with multiple devices now sharing the same
+  // backend (café, laptop, the owner's phone), a device otherwise
+  // only sees another device's changes when the user happens to
+  // perform an action that refreshes state. Skipped while the tab is
+  // hidden/minimized, since there's no one there to show it to.
+  useEffect(() => {
+    if (!currentUser) return;
+    const POLL_INTERVAL_MS = 12000;
+
+    const poll = async () => {
+      if (document.hidden) return;
+      setConnectionStatus((prev) => (prev === "offline" ? "syncing" : prev));
+      try {
+        const state = await getStateFn();
+        setAppState(state);
+        setConnectionStatus("synced");
+        setLastSyncedAt(Date.now());
+      } catch (e) {
+        console.error("Background sync poll failed:", e);
+        setConnectionStatus("offline");
+      }
+    };
+
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    const onVisible = () => { if (!document.hidden) void poll(); };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [currentUser]);
 
   const login: StoreContextValue["login"] = async (u, p) => {
     return withPending("login", async () => {
@@ -1175,7 +1217,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
-    state, ready, login, logout, addAccount, updateAccount, deleteAccount,
+    state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,

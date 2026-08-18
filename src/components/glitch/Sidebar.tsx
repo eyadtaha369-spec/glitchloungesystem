@@ -1,4 +1,4 @@
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -70,6 +70,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
       </nav>
 
       <div className="p-4 border-t border-black/8 space-y-3">
+        <SyncStatusBadge />
         <div className="flex items-center gap-3 px-2">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] flex items-center justify-center text-sm font-bold text-[#2b2416]">
             {state.currentUser?.username[0].toUpperCase()}
@@ -87,5 +88,35 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
         </button>
       </div>
     </aside>
+  );
+}
+
+function SyncStatusBadge() {
+  const { connectionStatus, lastSyncedAt } = useStore();
+
+  // Real CSS oklch() syntax for inline styles — space-separated with
+  // the alpha channel inside the parens (oklch(L C H / A)), NOT the
+  // underscore-and-trailing-slash convention Tailwind class names use
+  // (that's a class-name escaping scheme, invalid as a raw CSS value).
+  const config = {
+    synced: { icon: Wifi, label: "Synced", solid: "oklch(0.78 0.2 155)", tint: "oklch(0.78 0.2 155 / 0.1)" },
+    syncing: { icon: RefreshCw, label: "Syncing...", solid: "oklch(0.7 0.19 260)", tint: "oklch(0.7 0.19 260 / 0.1)" },
+    offline: { icon: WifiOff, label: "Offline", solid: "oklch(0.62 0.24 25)", tint: "oklch(0.62 0.24 25 / 0.1)" },
+  }[connectionStatus];
+
+  const Icon = config.icon;
+  const ago = lastSyncedAt ? Math.max(0, Math.round((Date.now() - lastSyncedAt) / 1000)) : null;
+  const agoText = ago === null ? "" : ago < 5 ? "just now" : ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)}m ago`;
+
+  return (
+    <div
+      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs"
+      style={{ backgroundColor: config.tint, border: `1px solid ${config.solid}` }}
+      title={connectionStatus === "offline" ? "Couldn't reach the backend — check your connection." : lastSyncedAt ? `Last synced ${agoText}` : ""}
+    >
+      <Icon className={`w-3.5 h-3.5 shrink-0 ${connectionStatus === "syncing" ? "animate-spin" : ""}`} style={{ color: config.solid }} />
+      <span className="font-semibold" style={{ color: config.solid }}>{config.label}</span>
+      {connectionStatus === "synced" && agoText && <span className="text-muted-foreground ml-auto">{agoText}</span>}
+    </div>
   );
 }
