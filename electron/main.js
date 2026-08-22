@@ -69,8 +69,10 @@ function createWindow() {
     );
   });
 
-  // Uncomment while debugging a printer/layout issue:
-  // mainWindow.webContents.openDevTools();
+  // Open automatically so the console (network errors, sync failures)
+  // is immediately visible without relying on a keyboard shortcut that
+  // may not be bound in every Electron build/window configuration.
+  mainWindow.webContents.openDevTools();
 
   mainWindow.on("closed", () => {
     mainWindow = null;
