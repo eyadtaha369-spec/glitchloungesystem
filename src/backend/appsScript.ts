@@ -12,6 +12,14 @@ export async function callAppsScript<T = unknown>(
     throw new Error("APPS_SCRIPT_URL and APPS_SCRIPT_SECRET env vars must be set in Vercel.");
   }
 
+  // TEMPORARY DIAGNOSTIC — printed to the SERVER's own terminal window
+  // (the one running "npm run dev"), not the browser console. This
+  // shows exactly what value Node actually has for this variable right
+  // now, removing all guesswork about whether .env is really being
+  // read. Safe to leave visible short-term; remove once the actual
+  // connection issue is confirmed resolved.
+  console.log(`[callAppsScript] action="${action}" using APPS_SCRIPT_URL="${url}"`);
+
   let res: Response;
   try {
     res = await fetch(url, {
