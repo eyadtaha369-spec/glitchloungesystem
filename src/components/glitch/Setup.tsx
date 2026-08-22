@@ -19,6 +19,7 @@ export function SetupPage() {
       <CloudMigrationPanel />
       <MenuRebuildPanel />
       <ProductionResetPanel />
+      <KeepInventoryResetPanel />
     </div>
   );
 }
@@ -346,6 +347,106 @@ function ProductionResetPanel() {
                     className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25)] text-white font-bold disabled:opacity-40"
                   >
                     {running ? "Wiping Data..." : "Permanently Reset"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KeepInventoryResetPanel() {
+  const { resetKeepingInventoryAndLedger } = useStore();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const REQUIRED_PHRASE = "KEEP INVENTORY";
+  const canSubmit = confirmText.trim().toUpperCase() === REQUIRED_PHRASE && password.length > 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setRunning(true);
+    setErr(null);
+    try {
+      const res = await resetKeepingInventoryAndLedger(password);
+      if (!res.ok) { setErr(res.error ?? "Reset failed"); return; }
+      setDone(true);
+      setTimeout(() => window.location.reload(), 1800);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl p-6 border-2 border-[oklch(0.82_0.16_85/0.5)] bg-[oklch(0.82_0.16_85/0.06)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertOctagon className="w-5 h-5 text-black" />
+        <h2 className="text-lg font-bold text-black">Danger Zone — Reset Test Data, Keep Inventory</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
+        Wipes test sessions, shifts, void requests, staff orders, restock log, waste invoices, and activity history —
+        resetting order counters and clearing any active shift/room. Unlike the Go-Live reset above, this{" "}
+        <strong>keeps your current stock levels, procurements, expenses, and suppliers exactly as they are</strong> —
+        nothing you've entered in Inventory or Procurement gets lost. <strong>This cannot be undone.</strong>
+      </p>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2.5 rounded-lg bg-[oklch(0.82_0.16_85/0.15)] border-2 border-[oklch(0.82_0.16_85/0.6)] text-black text-sm font-bold uppercase tracking-wide hover:bg-[oklch(0.82_0.16_85/0.25)]"
+      >
+        Reset Test Data (Keep Inventory)
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !running && setOpen(false)}>
+          <div className="w-full max-w-md glass-strong rounded-2xl border-2 border-[oklch(0.82_0.16_85/0.6)]" onClick={(e) => e.stopPropagation()}>
+            {done ? (
+              <div className="p-6 text-center space-y-2">
+                <div className="text-lg font-bold text-[oklch(0.78_0.2_155)]">Test Data Cleared</div>
+                <p className="text-sm text-muted-foreground">Your inventory and procurements are untouched. Reloading...</p>
+              </div>
+            ) : (
+              <>
+                <div className="p-5 space-y-4">
+                  <h3 className="text-lg font-bold text-black">This is permanent.</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Sessions, shifts, void requests, staff orders, restock log, waste invoices, and activity history will
+                    be deleted forever. Raw materials, current stock, all Ledger entries (Expenses and Procurements),
+                    supplier invoices, and suppliers stay exactly as they are.
+                  </p>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Type <span className="font-bold text-black">{REQUIRED_PHRASE}</span> to confirm
+                    </label>
+                    <input
+                      value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+                      placeholder={REQUIRED_PHRASE}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Re-enter Your Admin Password</label>
+                    <input
+                      type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 w-full bg-black/5 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+                </div>
+                <div className="p-4 border-t border-black/8 flex justify-end gap-2">
+                  <button onClick={() => setOpen(false)} disabled={running} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+                  <button
+                    onClick={submit}
+                    disabled={!canSubmit || running}
+                    className="px-4 py-2 rounded-lg text-sm bg-black text-white font-bold disabled:opacity-40"
+                  >
+                    {running ? "Wiping..." : "Permanently Reset"}
                   </button>
                 </div>
               </>

@@ -1175,6 +1175,38 @@ Object.assign(handlers, {
     });
     return { ok: true, state: withStockView_(state) };
   },
+  resetKeepingInventoryAndLedger(body) {
+    requireRole_(body.username, ["admin"]);
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
+
+    // Genuinely test/transactional data only — WIPED. RawMaterials,
+    // Batches, Suppliers, Ledger (both Expenses and Procurements),
+    // PurchaseInvoices/Items, SupplierPayments, RecurringExpenses, and
+    // Accounts are all deliberately left untouched, unlike Production
+    // Reset which wipes Ledger/Batches entirely.
+    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
+      .forEach((table) => db.exec(`DELETE FROM ${table}`));
+
+    const state = getState_();
+    state.rooms = state.rooms.map((r) => Object.assign({}, r, {
+      status: "available", startedAt: null, orders: [],
+      isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+      hourlyRate: 0, rateMode: null, splitInvoiceNumber: null, transferredFrom: null,
+    }));
+    state.activeShiftId = null;
+    state.businessDayId = null;
+    state.actualCashInput = 0;
+    state.activity = [];
+    state.cashRecords = [];
+    setState_(state);
+
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+      description: body.username + " reset test sessions/shifts/orders while keeping the current inventory, procurements, expenses, and suppliers intact.",
+    });
+    return { ok: true, state: withStockView_(state) };
+  },
 
   resetInventory(body) {
     requireRole_(body.username, ["admin"]);

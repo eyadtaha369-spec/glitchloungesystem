@@ -244,6 +244,16 @@ export const resetForProductionFn = createServerFn({ method: "POST" })
     });
   });
 
+export const resetKeepingInventoryAndLedgerFn = createServerFn({ method: "POST" })
+  .validator((d: { password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("resetKeepingInventoryAndLedger", {
+      username: user.username,
+      password: data.password,
+    });
+  });
+
 export const resetInventoryFn = createServerFn({ method: "POST" })
   .validator((d: { password: string }) => d)
   .handler(async ({ data }) => {

@@ -50,6 +50,7 @@ import {
   forceEndShiftFn,
   closeBusinessDayFn,
   resetForProductionFn,
+  resetKeepingInventoryAndLedgerFn,
   resetInventoryFn,
   rolloverInventoryFn,
   getInventorySnapshotsFn,
@@ -161,6 +162,7 @@ interface StoreContextValue {
   forceEndShift: (actualCash?: number) => Promise<void>;
   closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
   resetForProduction: (password: string) => Promise<{ ok: boolean; error?: string }>;
+  resetKeepingInventoryAndLedger: (password: string) => Promise<{ ok: boolean; error?: string }>;
   resetInventory: (password: string) => Promise<{ ok: boolean; error?: string }>;
   rolloverInventory: () => Promise<{ ok: boolean; error?: string; count?: number; month?: string }>;
   inventorySnapshotMonths: string[];
@@ -1152,6 +1154,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const resetKeepingInventoryAndLedger: StoreContextValue["resetKeepingInventoryAndLedger"] = async (password) => {
+    return withPending("resetKeepingInventoryAndLedger", async () => {
+      try {
+        const res = await resetKeepingInventoryAndLedgerFn({ data: { password } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Reset failed unexpectedly." };
+      }
+    });
+  };
   const resetInventory: StoreContextValue["resetInventory"] = async (password) => {
     return withPending("resetInventory", async () => {
       try {
@@ -1220,7 +1233,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
+    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,

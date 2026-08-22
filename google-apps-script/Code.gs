@@ -1293,6 +1293,47 @@ function resetForProduction_(username, password) {
   return { ok: true, state: withStockView_(state) };
 }
 
+// More selective than resetForProduction_ above — that one wipes Ledger
+// and Batches entirely (Ledger/Batches are treated as transactional
+// history there). This one keeps them: RawMaterials, Batches,
+// Suppliers, the full Ledger (both Expenses and Procurements),
+// PurchaseInvoices/Items, SupplierPayments, and RecurringExpenses are
+// all left untouched. Only genuinely test/transactional data — test
+// sessions, shifts, void requests, activity logs, staff orders,
+// restock log, business days, waste invoices, inventory snapshots —
+// gets wiped.
+function resetKeepingInventoryAndLedger_(username, password) {
+  const auth = login_(username, password);
+  if (!auth.ok || auth.role !== "admin") {
+    return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
+  }
+
+  ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
+    .forEach(function (name) { clearSheetData_(name); });
+
+  const state = getState_();
+  state.rooms = state.rooms.map(function (r) {
+    return Object.assign({}, r, {
+      status: "available", startedAt: null, orders: [],
+      isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+      hourlyRate: 0, rateMode: null, splitInvoiceNumber: null, transferredFrom: null,
+    });
+  });
+  state.activeShiftId = null;
+  state.businessDayId = null;
+  state.actualCashInput = 0;
+  state.activity = [];
+  state.cashRecords = [];
+  setState_(state);
+
+  logActivity_({
+    actorUsername: username, actorRole: "admin", actionType: "PRODUCTION_RESET",
+    description: username + " reset test sessions/shifts/orders while keeping the current inventory, procurements, expenses, and suppliers intact.",
+  });
+
+  return { ok: true, state: withStockView_(state) };
+}
+
 // Wipes the ENTIRE stock system — every raw material, every batch,
 // restock history, and waste invoice history — for a genuinely clean
 // slate. Deliberately separate from Production Reset, which preserves
@@ -2233,6 +2274,13 @@ function doPost(e) {
         const result = resetForProduction_(body.username, body.password);
         if (!result.ok) return json_({ ok: false, error: result.error });
         return json_({ ok: true, state: result.state });
+      }
+
+      case "resetKeepingInventoryAndLedger": {
+        requireRole_(body.username, ["admin"]);
+        const keepResult = resetKeepingInventoryAndLedger_(body.username, body.password);
+        if (!keepResult.ok) return json_({ ok: false, error: keepResult.error });
+        return json_({ ok: true, state: keepResult.state });
       }
 
       case "resetInventory": {
