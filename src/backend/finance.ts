@@ -294,23 +294,37 @@ export const migrateToCloudFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireAdmin();
 
+    // Deliberately hardcoded, NOT process.env.APPS_SCRIPT_URL — that
+    // variable is shared between local and cloud mode (both
+    // start-local.bat and start-cloud.bat read the exact same .env
+    // file), so it could be pointing at the cloud already by the time
+    // someone runs this migration. The export step needs the LOCAL
+    // database specifically, regardless of which mode this device is
+    // currently configured for — hardcoding the address it always
+    // needs removes that whole class of confusion.
+    const LOCAL_SERVER_URL = "http://127.0.0.1:4000/";
+
     let exportRes: {
       ok: boolean; error?: string; tables?: Record<string, unknown[]>; appState?: unknown;
       accounts?: { username: string; passwordHash: string; role: string }[]; exportedAt?: number;
     };
     try {
-      exportRes = await callAppsScript<{
-        ok: boolean; error?: string; tables?: Record<string, unknown[]>; appState?: unknown;
-        accounts?: { username: string; passwordHash: string; role: string }[]; exportedAt?: number;
-      }>("exportAllData", { username: user.username, password: data.password });
+      const exportHttpRes = await fetch(LOCAL_SERVER_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          secret: process.env.GLITCH_LOCAL_SECRET || "change-me-local-secret",
+          action: "exportAllData",
+          username: user.username,
+          password: data.password,
+        }),
+      });
+      const exportText = await exportHttpRes.text();
+      exportRes = JSON.parse(exportText);
     } catch (e) {
-      // Most likely cause: this device is currently in CLOUD mode, so
-      // this request went to the cloud instead of the local database —
-      // and the cloud has no exportAllData action at all (only the
-      // local server does), producing exactly this kind of failure.
       return {
         ok: false as const,
-        error: (e instanceof Error ? e.message : "Export failed") + " — make sure this device is running in LOCAL mode (run.vbs, not run-cloud.vbs) before migrating, since this step reads from the local database.",
+        error: (e instanceof Error ? e.message : "Export failed") + " — make sure the local server (server folder, port 4000) is actually running on this device.",
         step: "export" as const,
       };
     }
