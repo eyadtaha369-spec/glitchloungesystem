@@ -12,20 +12,35 @@ export async function callAppsScript<T = unknown>(
     throw new Error("APPS_SCRIPT_URL and APPS_SCRIPT_SECRET env vars must be set in Vercel.");
   }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    // IMPORTANT: `action` must be spread LAST. Some payloads legitimately
-    // have their own field also called "action" (e.g. reconcileUnapprovedVoid's
-    // {action: "approve" | "flag_discrepancy"}), which is a completely
-    // different thing from the dispatch action name below it — but with
-    // ...payload spread after `action`, that field silently overwrote the
-    // real dispatch name, sending e.g. "approve" as the action instead of
-    // "reconcileUnapprovedVoid". Spreading payload first and `action` last
-    // guarantees the real dispatch name always wins.
-    body: JSON.stringify({ secret, ...payload, action }),
-    redirect: "follow",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // IMPORTANT: `action` must be spread LAST. Some payloads legitimately
+      // have their own field also called "action" (e.g. reconcileUnapprovedVoid's
+      // {action: "approve" | "flag_discrepancy"}), which is a completely
+      // different thing from the dispatch action name below it — but with
+      // ...payload spread after `action`, that field silently overwrote the
+      // real dispatch name, sending e.g. "approve" as the action instead of
+      // "reconcileUnapprovedVoid". Spreading payload first and `action` last
+      // guarantees the real dispatch name always wins.
+      body: JSON.stringify({ secret, ...payload, action }),
+      redirect: "follow",
+    });
+  } catch (err) {
+    // Node's fetch wraps the ACTUAL reason (DNS failure, connection
+    // refused, a bad/expired TLS certificate, a timeout, a proxy
+    // rejecting the request) inside a generic "fetch failed" message,
+    // with the real cause nested one level down in `err.cause` — which
+    // is exactly what gets lost when only the top-level message is
+    // shown. Surfacing it here means the browser console shows the
+    // actual reason directly, instead of requiring a separate hunt
+    // through the dev server's own raw terminal output.
+    const cause = err instanceof Error && "cause" in err ? (err as any).cause : undefined;
+    const causeText = cause ? ` — ${cause.code || cause.message || String(cause)}` : "";
+    throw new Error(`Could not reach the backend at ${url}: ${err instanceof Error ? err.message : String(err)}${causeText}`);
+  }
 
   const text = await res.text();
   let json: any;
