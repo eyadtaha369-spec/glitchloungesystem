@@ -5,9 +5,9 @@
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "dotenv -e .env -- vite dev",
-    "build": "dotenv -e .env -- vite build",
-    "build:dev": "dotenv -e .env -- vite build --mode development",
+    "dev": "dotenv -e .env -o -- vite dev",
+    "build": "dotenv -e .env -o -- vite build",
+    "build:dev": "dotenv -e .env -o -- vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
