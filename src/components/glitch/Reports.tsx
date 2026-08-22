@@ -501,7 +501,7 @@ function PnLLedgerPanel() {
       </div>
 
       {range === "custom" && (
-        <div className="flex items-center gap-2 mb-4 text-sm">
+        <div className="flex items-center flex-wrap gap-2 mb-4 text-sm">
           <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="bg-white/70 border border-black/10 rounded px-2 py-1.5" />
           <span className="text-muted-foreground">to</span>
           <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="bg-white/70 border border-black/10 rounded px-2 py-1.5" />

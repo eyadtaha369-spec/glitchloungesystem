@@ -48,7 +48,7 @@ function Shell() {
   return (
     <div className="min-h-screen" dir={dir}>
       <Sidebar view={view} onChange={setView} />
-      <main className="ps-64 min-h-screen">
+      <main className="md:ps-64 min-h-screen pt-16 md:pt-0">
         <div className="p-6 lg:p-10 max-w-[1600px] mx-auto">
           {locked ? (
             <div className="glass rounded-2xl p-12 text-center border border-[oklch(0.62_0.24_25/0.4)]">

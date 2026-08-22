@@ -1,4 +1,5 @@
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw, Menu, X } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -25,16 +26,44 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
   const { state, logout } = useStore();
   const { t, lang, toggleLang } = useLanguage();
   const isAdmin = state.currentUser?.role === "admin";
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const selectView = (v: View) => {
+    onChange(v);
+    setMobileOpen(false); // picking a page closes the drawer on mobile
+  };
 
   return (
-    <aside className="no-print fixed start-0 top-0 h-screen w-64 glass-strong border-e border-black/10 flex flex-col z-30">
-      <div className="p-6 flex items-center gap-3 border-b border-black/8">
-        <img src={logo} alt="GLITCH" className="w-11 h-11 rounded-lg object-cover ring-1 ring-black/50" />
-        <div>
-          <div className="font-bold tracking-widest text-gradient-gold text-lg leading-tight">GLITCH</div>
-          <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Lounge OS</div>
+    <>
+      {/* Hamburger — mobile only, fixed so it's reachable from any scroll position */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="no-print md:hidden fixed top-3 start-3 z-40 w-11 h-11 rounded-lg glass-strong border border-black/10 flex items-center justify-center"
+        aria-label="Open menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      {/* Backdrop — mobile only, tapping it closes the drawer same as the X */}
+      {mobileOpen && (
+        <div className="no-print md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
+      )}
+
+      <aside
+        className={`no-print fixed start-0 top-0 h-screen w-64 glass-strong border-e border-black/10 flex flex-col z-30 transition-transform duration-200 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } md:translate-x-0`}
+      >
+        <div className="p-6 flex items-center gap-3 border-b border-black/8">
+          <img src={logo} alt="GLITCH" className="w-11 h-11 rounded-lg object-cover ring-1 ring-black/50" />
+          <div>
+            <div className="font-bold tracking-widest text-gradient-gold text-lg leading-tight">GLITCH</div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Lounge OS</div>
+          </div>
+          <button onClick={() => setMobileOpen(false)} className="md:hidden ms-auto w-8 h-8 flex items-center justify-center text-muted-foreground" aria-label="Close menu">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-      </div>
 
       <div className="px-6 py-3 border-b border-black/8">
         <button
@@ -54,7 +83,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
           return (
             <button
               key={item.id}
-              onClick={() => onChange(item.id)}
+              onClick={() => selectView(item.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium tracking-wide transition-all group ${
                 active
                   ? "bg-[oklch(0.7_0.19_260/0.15)] text-[#2b2416] border border-[oklch(0.7_0.19_260/0.5)] shadow-[0_0_20px_oklch(0.7_0.19_260/0.35)]"
@@ -88,6 +117,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
         </button>
       </div>
     </aside>
+    </>
   );
 }
 

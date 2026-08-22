@@ -804,13 +804,13 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
           />
         )}
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto overflow-x-auto px-5 py-4">
           {loading ? (
             <div className="text-sm text-muted-foreground text-center py-6">Loading...</div>
           ) : entries.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-6">No transactions with this supplier yet.</div>
           ) : (
-            <table className="w-full text-xs">
+            <table className="w-full text-xs min-w-[560px]">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
                   <th className="py-2 pr-2">Date</th>

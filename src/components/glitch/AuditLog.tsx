@@ -123,7 +123,7 @@ export function AuditLogPage() {
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-xs" />
           </div>
         </div>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex items-center flex-wrap gap-2">
           <span className="text-xs text-muted-foreground">to</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-xs" />
           <span className="text-xs text-muted-foreground ml-auto">{filtered.length} of {state.activityLogs.length} entries</span>
