@@ -294,12 +294,29 @@ export const migrateToCloudFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireAdmin();
 
-    const exportRes = await callAppsScript<{
+    let exportRes: {
       ok: boolean; error?: string; tables?: Record<string, unknown[]>; appState?: unknown;
       accounts?: { username: string; passwordHash: string; role: string }[]; exportedAt?: number;
-    }>("exportAllData", { username: user.username, password: data.password });
+    };
+    try {
+      exportRes = await callAppsScript<{
+        ok: boolean; error?: string; tables?: Record<string, unknown[]>; appState?: unknown;
+        accounts?: { username: string; passwordHash: string; role: string }[]; exportedAt?: number;
+      }>("exportAllData", { username: user.username, password: data.password });
+    } catch (e) {
+      // Most likely cause: this device is currently in CLOUD mode, so
+      // this request went to the cloud instead of the local database —
+      // and the cloud has no exportAllData action at all (only the
+      // local server does), producing exactly this kind of failure.
+      return {
+        ok: false as const,
+        error: (e instanceof Error ? e.message : "Export failed") + " — make sure this device is running in LOCAL mode (run.vbs, not run-cloud.vbs) before migrating, since this step reads from the local database.",
+        step: "export" as const,
+      };
+    }
 
     if (!exportRes.ok) return { ok: false as const, error: exportRes.error ?? "Export failed", step: "export" as const };
+
 
     let importRes: { ok: boolean; error?: string; tableSummary?: Record<string, number>; accountsAdded?: number };
     try {
