@@ -36,6 +36,7 @@ const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_ } = re
 const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
+const { scheduleCloudSync, getLastSyncStatus } = require("./lib/cloud-sync");
 
 const PORT = process.env.PORT || 4000;
 const SHARED_SECRET = process.env.GLITCH_LOCAL_SECRET || "change-me-local-secret";
@@ -46,6 +47,23 @@ app.use(express.json({ limit: "5mb" }));
 
 function json_(obj) {
   return obj;
+}
+
+// Shared by the password-gated exportAllData action (a human explicitly
+// requesting a one-time export) and the automated background sync loop
+// (no password involved at all, since nothing in that path is a human
+// typing anything — it's this same trusted server process reading its
+// own database on a timer).
+function buildExportSnapshot_() {
+  const tables = {};
+  KNOWN_TABLES.forEach((t) => { tables[t] = readObjects_(t); });
+
+  const stateRow = db.prepare("SELECT json FROM AppState WHERE id = 1").get();
+  const appState = stateRow ? JSON.parse(stateRow.json) : null;
+
+  const accounts = db.prepare("SELECT username, passwordHash, role FROM Accounts").all();
+
+  return { tables, appState, accounts, exportedAt: Date.now() };
 }
 
 const handlers = {
@@ -651,16 +669,7 @@ Object.assign(handlers, {
     requireRole_(body.username, ["admin"]);
     const auth = login_(body.username, body.password);
     if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing exported." };
-
-    const tables = {};
-    KNOWN_TABLES.forEach((t) => { tables[t] = readObjects_(t); });
-
-    const stateRow = db.prepare("SELECT json FROM AppState WHERE id = 1").get();
-    const appState = stateRow ? JSON.parse(stateRow.json) : null;
-
-    const accounts = db.prepare("SELECT username, passwordHash, role FROM Accounts").all();
-
-    return { ok: true, tables, appState, accounts, exportedAt: Date.now() };
+    return { ok: true, ...buildExportSnapshot_() };
   },
   getInventorySnapshots(body) {
     requireRole_(body.username, ["admin", "cashier"]);
@@ -1249,10 +1258,12 @@ app.post("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => res.json({ ok: true, actionsImplemented: Object.keys(handlers).length }));
+app.get("/sync-status", (req, res) => res.json(getLastSyncStatus()));
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("GLITCH local server listening on http://0.0.0.0:" + PORT);
   console.log("Actions implemented so far: " + Object.keys(handlers).join(", "));
   scheduleBackups();
   console.log("Automatic backups: one now, then every 24h, kept in " + BACKUP_DIR);
+  scheduleCloudSync(buildExportSnapshot_);
 });

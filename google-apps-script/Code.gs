@@ -3021,6 +3021,20 @@ function doPost(e) {
         return json_({ ok: true, tableSummary: importResult.tableSummary, accountsAdded: importResult.accountsAdded, state: withStockView_(getState_()) });
       }
 
+      // Routine, unattended sync from the café's local server — runs
+      // automatically every ~30s in the background, so it's
+      // authenticated the same way every ordinary action is (the
+      // shared secret checked once at the very top of doPost), NOT a
+      // human-entered password + confirm phrase like the one-time
+      // Migrate to Cloud tool above. The café is treated as
+      // authoritative: each sync fully replaces cloud business data
+      // with the latest local snapshot, same replace semantics as a
+      // manual migration, just repeated automatically and silently.
+      case "autoSyncFromLocal": {
+        const syncResult = importAllData_(body);
+        return json_({ ok: true, tableSummary: syncResult.tableSummary, accountsAdded: syncResult.accountsAdded });
+      }
+
       case "submitPurchaseInvoice": {
         requireRole_(body.username, ["admin", "cashier"]);
         const invResult = submitPurchaseInvoice_(body);
