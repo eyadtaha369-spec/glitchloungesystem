@@ -1016,7 +1016,7 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
   );
 }
 
-function ReceiptModal({ session, onClose }: { session: Session; onClose: () => void }) {
+export function ReceiptModal({ session, onClose, onReopen }: { session: Session; onClose: () => void; onReopen?: () => void }) {
   const startD = new Date(session.startedAt);
   const endD = new Date(session.endedAt);
   const [logoReady, setLogoReady] = useState(false);
@@ -1119,6 +1119,14 @@ function ReceiptModal({ session, onClose }: { session: Session; onClose: () => v
 
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
+          {onReopen && (
+            <button
+              onClick={onReopen}
+              className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] hover:bg-[oklch(0.62_0.24_25/0.25)]"
+            >
+              Reopen Check
+            </button>
+          )}
           <button
             onClick={() => void printSmart()}
             disabled={!logoReady}

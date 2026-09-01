@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
+import { ReceiptModal } from "./Rooms";
 
 function startOfDay(ts: number) {
   const d = new Date(ts);
@@ -567,6 +568,7 @@ function OrderHistorySection({ sessions }: { sessions: Session[] }) {
   const { state } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [open, setOpen] = useState(false);
+  const [viewingSession, setViewingSession] = useState<Session | null>(null);
   const [reopenTarget, setReopenTarget] = useState<Session | null>(null);
   const sorted = [...sessions].sort((a, b) => b.endedAt - a.endedAt);
 
@@ -588,30 +590,29 @@ function OrderHistorySection({ sessions }: { sessions: Session[] }) {
                   <th className="text-left py-2 px-2">Room/Table</th>
                   <th className="text-left py-2 px-2">Payment</th>
                   <th className="text-right py-2 px-2">Total</th>
-                  {isAdmin && <th className="text-right py-2 px-2">Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((s) => (
-                  <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
+                  <tr key={s.id} onClick={() => setViewingSession(s)} className="border-b border-black/8 hover:bg-black/5 cursor-pointer">
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">#{s.orderNumber}</td>
                     <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(s.endedAt).toLocaleString()}</td>
                     <td className="py-2 px-2 font-semibold">{s.roomName}</td>
                     <td className="py-2 px-2 text-xs">{s.paymentMethod}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
-                    {isAdmin && (
-                      <td className="py-2 px-2 text-right">
-                        <button onClick={() => setReopenTarget(s)} className="text-xs px-2 py-1 rounded bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] hover:bg-[oklch(0.7_0.19_260/0.25)]">
-                          Re-open
-                        </button>
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )
+      )}
+      {viewingSession && (
+        <ReceiptModal
+          session={viewingSession}
+          onClose={() => setViewingSession(null)}
+          onReopen={isAdmin ? () => { setReopenTarget(viewingSession); setViewingSession(null); } : undefined}
+        />
       )}
       {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
     </div>
