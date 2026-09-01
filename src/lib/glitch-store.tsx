@@ -1305,9 +1305,10 @@ export function captureGeolocation(): Promise<GeoResult> {
 }
 
 export function fmtDuration(sec: number) {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
+  const total = Math.max(0, Math.floor(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 // Mirrors the backend's computeTimeCost_ exactly (server/lib/rooms.js
