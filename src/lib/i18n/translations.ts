@@ -155,6 +155,21 @@ export const translations = {
     thankYou: { en: "Thank you — Game Over.", ar: "شكراً لكم — انتهت اللعبة." },
     kitchenOrderTicket: { en: "Kitchen Order Ticket", ar: "طلب المطبخ" },
   },
+
+  dashboard: {
+    title: { en: "Command Deck", ar: "لوحة القيادة" },
+    subtitle: { en: "Realtime Lounge Metrics", ar: "مقاييس الصالة اللحظية" },
+    activeRooms: { en: "Active Rooms", ar: "الغرف النشطة" },
+    revenueToday: { en: "Revenue Today", ar: "إيرادات اليوم" },
+    revenueThisShift: { en: "Revenue This Shift", ar: "إيرادات هذه الوردية" },
+    availableRooms: { en: "Available Rooms", ar: "الغرف المتاحة" },
+    stockAlerts: { en: "Stock Alerts", ar: "تنبيهات المخزون" },
+    revenueByRoom: { en: "Revenue By Room", ar: "الإيرادات حسب الغرفة" },
+    completedPlusLive: { en: "Completed + live", ar: "مكتملة + جارية" },
+    max: { en: "MAX", ar: "الأقصى" },
+    activityFeed: { en: "Activity Feed", ar: "سجل النشاط" },
+    noActivityYet: { en: "No activity yet.", ar: "لا يوجد نشاط بعد." },
+  },
 } as const;
 
 // Deep key type: "nav.dashboard", "common.save", etc.

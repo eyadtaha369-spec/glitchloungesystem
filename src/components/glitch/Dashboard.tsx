@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtMoney, isToday } from "@/lib/glitch-store";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
 
 export function Dashboard() {
   const { state, computeElapsed, activeShift } = useStore();
+  const { t } = useLanguage();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
@@ -19,7 +21,7 @@ export function Dashboard() {
   const visibleSessions = isAdmin
     ? state.sessions.filter((s) => isToday(s.endedAt))
     : state.sessions.filter((s) => activeShift && s.shiftId === activeShift.id);
-  const revenueLabel = isAdmin ? "Revenue Today" : "Revenue This Shift";
+  const revenueLabel = isAdmin ? t("dashboard.revenueToday") : t("dashboard.revenueThisShift");
   const revenueToday = visibleSessions.reduce((a, s) => a + s.total, 0);
 
   const stockAlerts = state.stock.filter((s) => {
@@ -44,8 +46,8 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Command Deck</h1>
-        <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">Realtime Lounge Metrics</p>
+        <h1 className="text-3xl font-bold tracking-tight">{t("dashboard.title")}</h1>
+        <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">{t("dashboard.subtitle")}</p>
       </div>
 
       <ShiftBar />
@@ -53,7 +55,7 @@ export function Dashboard() {
       {/* Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard
-          label="Active Rooms"
+          label={t("dashboard.activeRooms")}
           value={`${activeRooms.length} / ${roomsOnly.length}`}
           icon={Gamepad2}
           accent="cyan"
@@ -65,13 +67,13 @@ export function Dashboard() {
           accent="green"
         />
         <MetricCard
-          label="Available Rooms"
+          label={t("dashboard.availableRooms")}
           value={String(available)}
           icon={Circle}
           accent="blue"
         />
         <MetricCard
-          label="Stock Alerts"
+          label={t("dashboard.stockAlerts")}
           value={String(stockAlerts.length)}
           icon={AlertTriangle}
           accent={stockAlerts.length > 0 ? "red" : "blue"}
@@ -85,10 +87,10 @@ export function Dashboard() {
         <div className="lg:col-span-2 glass rounded-2xl p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-lg font-semibold">Revenue By Room</h2>
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-widest mt-0.5">Completed + live</p>
+              <h2 className="text-lg font-semibold">{t("dashboard.revenueByRoom")}</h2>
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-widest mt-0.5">{t("dashboard.completedPlusLive")}</p>
             </div>
-            <div className="text-xs text-muted-foreground font-mono">MAX {fmtMoney(maxRev)}</div>
+            <div className="text-xs text-muted-foreground font-mono">{t("dashboard.max")} {fmtMoney(maxRev)}</div>
           </div>
           <div className="space-y-3">
             {revByRoom.map(({ room, total, live }) => {
@@ -124,7 +126,7 @@ export function Dashboard() {
         <div className="glass rounded-2xl p-6 flex flex-col">
           <div className="flex items-center gap-2 mb-4">
             <Activity className="w-4 h-4 text-[oklch(0.7_0.19_260)]" />
-            <h2 className="text-lg font-semibold">Activity Feed</h2>
+            <h2 className="text-lg font-semibold">{t("dashboard.activityFeed")}</h2>
           </div>
           <div className="flex-1 overflow-y-auto space-y-2 max-h-[420px] pr-1">
             {(() => {
@@ -132,7 +134,7 @@ export function Dashboard() {
                 ? state.activity
                 : state.activity.filter((a) => activeShift && a.ts >= activeShift.openedAt);
               if (visibleActivity.length === 0) {
-                return <div className="text-sm text-muted-foreground font-mono">No activity yet.</div>;
+                return <div className="text-sm text-muted-foreground font-mono">{t("dashboard.noActivityYet")}</div>;
               }
               return visibleActivity.slice(0, 30).map((a) => (
                 <div key={a.id} className="text-sm p-3 rounded-lg bg-white/60 border border-black/8 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
