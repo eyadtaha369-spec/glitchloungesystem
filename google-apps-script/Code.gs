@@ -506,8 +506,8 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     if (r.id !== roomId) return r;
     const existing = r.orders.find((o) => o.menuItemId === menuItemId);
     const newOrders = existing
-      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
-      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price }]);
+      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty, isPrintedToKitchen: false }) : o))
+      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price, isPrintedToKitchen: false }]);
     return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
@@ -558,7 +558,7 @@ function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
     if (r.id !== roomId) return r;
     const orders = newQty <= 0
       ? r.orders.filter((o) => o.menuItemId !== menuItemId)
-      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
+      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }, delta > 0 ? { isPrintedToKitchen: false } : {}) : o));
     return Object.assign({}, r, { orders: orders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
 
@@ -581,6 +581,25 @@ function bizSetOrderLineNote_(state, roomId, menuItemId, notes) {
     if (r.id !== roomId) return r;
     return Object.assign({}, r, {
       orders: r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { notes: trimmed }) : o)),
+    });
+  });
+  return { ok: true, state: state };
+}
+
+// Called once a kitchen ticket has actually printed successfully — marks
+// exactly the line items that were on that ticket as sent, so the next
+// "Print Kitchen" click only picks up whatever's genuinely new since
+// then. See the local server's identical function for the full
+// reasoning on why this takes an explicit menuItemIds list.
+function bizMarkOrdersPrintedToKitchen_(state, roomId, menuItemIds) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state: state };
+  const idSet = {};
+  (menuItemIds || []).forEach(function (id) { idSet[id] = true; });
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== roomId) return r;
+    return Object.assign({}, r, {
+      orders: r.orders.map((o) => (idSet[o.menuItemId] ? Object.assign({}, o, { isPrintedToKitchen: true }) : o)),
     });
   });
   return { ok: true, state: state };
@@ -2227,6 +2246,14 @@ function doPost(e) {
           });
         }
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+      }
+
+      case "markOrdersPrintedToKitchen": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const stateBefore2 = getState_();
+        const result2 = bizMarkOrdersPrintedToKitchen_(stateBefore2, body.roomId, body.menuItemIds);
+        if (result2.ok) setState_(result2.state);
+        return json_({ ok: result2.ok, error: result2.error || null, state: withStockView_(result2.state) });
       }
 
       case "transferZone": {

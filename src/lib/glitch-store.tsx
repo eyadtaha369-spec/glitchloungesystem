@@ -41,6 +41,7 @@ import {
   addOrderFn,
   setOrderLineQtyFn,
   setOrderLineNoteFn,
+  markOrdersPrintedToKitchenFn,
   setRoomRateFn,
   renameRoomFn,
   addMenuItemFn,
@@ -152,6 +153,7 @@ interface StoreContextValue {
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineNote: (roomId: string, menuItemId: string, notes: string) => Promise<{ ok: boolean; error?: string }>;
+  markOrdersPrintedToKitchen: (roomId: string, menuItemIds: string[]) => Promise<{ ok: boolean; error?: string }>;
   removeOrderLine: (roomId: string, menuItemId: string) => Promise<{ ok: boolean; error?: string }>;
   addMenuItem: (m: MenuItem) => Promise<void>;
   updateMenuItem: (id: string, patch: Partial<MenuItem>) => Promise<void>;
@@ -682,6 +684,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const res = await setOrderLineNoteFn({ data: { roomId, menuItemId, notes } });
       setAppState(res.state);
       return { ok: res.ok, error: res.error };
+    });
+  };
+  const markOrdersPrintedToKitchen: StoreContextValue["markOrdersPrintedToKitchen"] = async (roomId, menuItemIds) => {
+    return withPending(`markPrinted:${roomId}`, async () => {
+      try {
+        const res = await markOrdersPrintedToKitchenFn({ data: { roomId, menuItemIds } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not update print status." };
+      }
     });
   };
   const addMenuItem: StoreContextValue["addMenuItem"] = async (item) => {
@@ -1261,7 +1274,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,

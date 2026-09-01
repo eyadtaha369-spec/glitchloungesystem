@@ -24,7 +24,7 @@ const {
   consumeFifo_, writeBatchesBack_,
 } = require("./lib/state");
 const {
-  bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_,
+  bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
@@ -259,6 +259,14 @@ const handlers = {
     requireRole_(body.username, ["admin", "cashier"]);
     const stateBefore = getState_();
     const result = bizSetOrderLineNote_(stateBefore, body.roomId, body.menuItemId, body.notes);
+    if (result.ok) setState_(result.state);
+    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+  },
+
+  markOrdersPrintedToKitchen(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const stateBefore = getState_();
+    const result = bizMarkOrdersPrintedToKitchen_(stateBefore, body.roomId, body.menuItemIds);
     if (result.ok) setState_(result.state);
     return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
   },

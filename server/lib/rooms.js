@@ -113,8 +113,8 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     if (r.id !== roomId) return r;
     const existing = r.orders.find((o) => o.menuItemId === menuItemId);
     const newOrders = existing
-      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
-      : r.orders.concat([{ menuItemId, name: item.name, qty, price: item.price }]);
+      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty, isPrintedToKitchen: false }) : o))
+      : r.orders.concat([{ menuItemId, name: item.name, qty, price: item.price, isPrintedToKitchen: false }]);
     return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
@@ -166,7 +166,7 @@ function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
     if (r.id !== roomId) return r;
     const orders = newQty <= 0
       ? r.orders.filter((o) => o.menuItemId !== menuItemId)
-      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }) : o));
+      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }, delta > 0 ? { isPrintedToKitchen: false } : {}) : o));
     return Object.assign({}, r, { orders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, room.name + ": " + (newQty <= 0 ? "removed " + line.name : "set " + line.name + " to x" + newQty));
@@ -182,6 +182,28 @@ function bizSetOrderLineNote_(state, roomId, menuItemId, notes) {
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
     return Object.assign({}, r, { orders: r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { notes: trimmed }) : o)) });
+  });
+  return { ok: true, state };
+}
+
+// Called once a kitchen ticket has actually printed successfully — marks
+// exactly the line items that were on that ticket as sent, so the next
+// "Print Kitchen" click only picks up whatever's genuinely new since
+// then. Deliberately takes an explicit menuItemIds list rather than
+// "mark everything printed", since by the time this runs on the client,
+// new items could theoretically have been added in between building the
+// ticket and confirming the print — only marking exactly what was
+// printed avoids silently marking something as sent that never actually
+// made it onto paper.
+function bizMarkOrdersPrintedToKitchen_(state, roomId, menuItemIds) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state };
+  const idSet = new Set(menuItemIds || []);
+  state.rooms = state.rooms.map((r) => {
+    if (r.id !== roomId) return r;
+    return Object.assign({}, r, {
+      orders: r.orders.map((o) => (idSet.has(o.menuItemId) ? Object.assign({}, o, { isPrintedToKitchen: true }) : o)),
+    });
   });
   return { ok: true, state };
 }
@@ -433,6 +455,6 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
 
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
-  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
   WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,
 };

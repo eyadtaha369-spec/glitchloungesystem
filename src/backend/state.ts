@@ -91,6 +91,16 @@ export const setOrderLineNoteFn = createServerFn({ method: "POST" })
     });
   });
 
+export const markOrdersPrintedToKitchenFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; menuItemIds: string[] }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("markOrdersPrintedToKitchen", {
+      ...data,
+      username: user.username,
+    });
+  });
+
 export const setRoomRateFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; singleRate: number; multiRate: number }) => d)
   .handler(async ({ data }) => {

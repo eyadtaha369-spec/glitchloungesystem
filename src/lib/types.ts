@@ -65,6 +65,15 @@ export interface OrderLine {
   qty: number;
   price: number;
   notes?: string;
+  // Whether this exact line (at its current qty) has already been sent
+  // to the kitchen. Reset to false whenever qty increases (new units
+  // added), even if some of that qty was already printed before — the
+  // kitchen sees the correct total for anything that changed, rather
+  // than tracking a partial-quantity split within a single line, which
+  // would be substantially more complex for little real benefit. A
+  // line whose qty never changes after printing stays printed and is
+  // never re-sent.
+  isPrintedToKitchen?: boolean;
 }
 
 // 4 checkout options. Mixed options split the ticket across two methods —

@@ -546,7 +546,18 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           {room.orders.map((o) => (
             <div key={o.menuItemId} className="text-muted-foreground">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate">{o.name}</span>
+                <span className="truncate flex items-center gap-1.5">
+                  {o.name}
+                  {o.isPrintedToKitchen ? (
+                    <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] shrink-0" title="Sent to kitchen">
+                      <Check className="w-2.5 h-2.5" /> Printed
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-[9px] px-1 py-0.5 rounded bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.7_0.19_260)] shrink-0" title="Not yet sent to kitchen">
+                      Pending Print
+                    </span>
+                  )}
+                </span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {o.menuItemId === "item-water" ? (
                     <button
@@ -621,6 +632,8 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         {room.orders.length > 0 && (
           <button
             onClick={async () => {
+              const unprinted = room.orders.filter((o) => !o.isPrintedToKitchen);
+              if (unprinted.length === 0) { flashWarn("No new items to print to kitchen"); return; }
               setFetchingKot(true);
               try {
                 const res = await nextKotNumber();
@@ -1168,19 +1181,42 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
 }
 
 function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room: Room; kotNumber: number | null; onClose: () => void }) {
-  const { state } = useStore();
+  const { state, markOrdersPrintedToKitchen } = useStore();
   const now = new Date();
   // Clean sequential #001, #002... resetting each shift — not a random
   // hash — so kitchen staff can spot a missed ticket at a glance. Falls
   // back to a timestamp only if the shift lookup somehow failed.
   const kotNumber = kotNumberProp !== null ? "#" + String(kotNumberProp).padStart(3, "0") : "KOT-" + String(now.getTime()).slice(-6);
   const [logoReady, setLogoReady] = useState(false);
+  const [printing, setPrinting] = useState(false);
   useEffect(() => {
     const img = new Image();
     img.onload = () => setLogoReady(true);
     img.src = logo;
     if (img.complete) setLogoReady(true);
   }, []);
+
+  // Only what's genuinely new since the last successful print — this is
+  // the entire point of the feature: re-sending the whole order every
+  // time would make it impossible for kitchen staff to tell what's
+  // actually new versus already being made.
+  const unprintedOrders = room.orders.filter((o) => !o.isPrintedToKitchen);
+
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      await printSmart();
+      // There's no reliable success/failure signal to read back from
+      // printSmart (the Electron silent-print path can fail and fall
+      // back to the native dialog, which itself has no completion
+      // callback) — clicking Print and the action completing without
+      // throwing is treated as confirmation here, same as the intent
+      // behind every other print button in this app.
+      await markOrdersPrintedToKitchen(room.id, unprintedOrders.map((o) => o.menuItemId));
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   return createPortal(
     <div className="print-root fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1207,8 +1243,8 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           </div>
 
           <div className="mt-3 space-y-3">
-            {room.orders.length === 0 && <div className="opacity-60 text-center">— no items —</div>}
-            {room.orders.map((o) => (
+            {unprintedOrders.length === 0 && <div className="opacity-60 text-center">— no new items —</div>}
+            {unprintedOrders.map((o) => (
               <div key={o.menuItemId} className="receipt-line">
                 <div className="font-bold">{o.qty}× {o.name}</div>
                 {o.notes && (
@@ -1224,11 +1260,11 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
           <button
-            onClick={() => void printSmart()}
-            disabled={!logoReady}
+            onClick={() => void handlePrint()}
+            disabled={!logoReady || printing}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-semibold disabled:opacity-60"
           >
-            <Printer className="w-4 h-4" /> {logoReady ? "Print" : "Preparing..."}
+            <Printer className="w-4 h-4" /> {printing ? "Printing..." : logoReady ? "Print" : "Preparing..."}
           </button>
         </div>
       </div>
