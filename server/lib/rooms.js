@@ -155,16 +155,27 @@ function bizSetOrderLineNote_(state, roomId, menuItemId, notes) {
   return { ok: true, state };
 }
 
-function bizExtendRoomTime_(state, roomId, deltaSec) {
+function bizExtendRoomTime_(state, roomId, deltaSec, isAdmin) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Room not found", state };
   if (room.zone !== "room") return { ok: false, error: "Time extension only applies to timed rooms", state };
   if (room.status !== "active") return { ok: false, error: "Room is not active", state };
   const delta = Math.round(Number(deltaSec) || 0);
-  if (delta <= 0) return { ok: false, error: "Time can only be extended, never reduced — enter a positive amount.", state };
+  if (delta === 0) return { ok: false, error: "Enter a non-zero amount of time.", state };
+  // Reducing time is a real under-billing risk if a cashier could do
+  // it unsupervised — same reasoning as every other admin-gated
+  // correction in this app (void approvals, price overrides, etc).
+  // Cashiers can still add time exactly as before.
+  if (delta < 0 && !isAdmin) return { ok: false, error: "Only an admin can reduce time — ask an admin to make this correction.", state };
+  if (delta < 0) {
+    const currentElapsed = effectiveDurationSec_(room, Date.now());
+    if (currentElapsed + delta < 0) {
+      return { ok: false, error: "Can't reduce by that much — the session has only run " + Math.round(currentElapsed / 60) + " min so far.", state };
+    }
+  }
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { timeAdjustmentSec: (r.timeAdjustmentSec || 0) + delta }) : r));
-  const mins = Math.round(delta / 60);
-  pushActivity_(state, room.name + " time extended by +" + mins + " min" + (mins === 1 ? "" : "s"));
+  const mins = Math.round(Math.abs(delta) / 60);
+  pushActivity_(state, room.name + " time " + (delta > 0 ? "extended by +" : "reduced by -") + mins + " min" + (mins === 1 ? "" : "s"));
   return { ok: true, state };
 }
 

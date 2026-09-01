@@ -1484,18 +1484,29 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
   extendRoomTime: ReturnType<typeof useStore>["extendRoomTime"];
   onClose: () => void;
 }) {
+  const { state } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const currentMins = Math.floor(elapsed / 60);
-  const [mode, setMode] = useState<"quick" | "custom">("quick");
+  const [mode, setMode] = useState<"quick" | "custom" | "range">("quick");
   const [customTarget, setCustomTarget] = useState(String(currentMins));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Default range to "however long it's actually run so far" — the
+  // user drags these to whatever the correct duration should have
+  // been, and we compute the delta from that, same underlying
+  // mechanism as the other two modes.
+  const nowD = new Date();
+  const fromDefault = new Date(nowD.getTime() - elapsed * 1000);
+  const [rangeFrom, setRangeFrom] = useState(`${String(fromDefault.getHours()).padStart(2, "0")}:${String(fromDefault.getMinutes()).padStart(2, "0")}`);
+  const [rangeTo, setRangeTo] = useState(`${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`);
 
   const applyDelta = async (deltaSec: number) => {
     setErr(null);
     setSubmitting(true);
     try {
       const res = await extendRoomTime(room.id, deltaSec);
-      if (!res.ok) { setErr(res.error ?? "Could not extend time"); return; }
+      if (!res.ok) { setErr(res.error ?? "Could not adjust time"); return; }
       onClose();
     } finally {
       setSubmitting(false);
@@ -1506,12 +1517,27 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
   const customDeltaSec = isNaN(targetMins) ? 0 : (targetMins * 60) - elapsed;
   const customInvalid = isNaN(targetMins) || customDeltaSec <= 0;
 
+  // Range mode: parse the two HH:MM values into a duration, treating
+  // an end time earlier than start as spanning past midnight — the
+  // duration itself is what matters, not which calendar day it falls
+  // on, since this modal only ever adjusts today's active session.
+  const parseHM = (s: string) => {
+    const [h, m] = s.split(":").map((n) => parseInt(n, 10));
+    return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+  };
+  const fromMins = parseHM(rangeFrom);
+  const toMins = parseHM(rangeTo);
+  const rangeDurationMin = fromMins !== null && toMins !== null ? (toMins >= fromMins ? toMins - fromMins : toMins + 1440 - fromMins) : null;
+  const rangeDeltaSec = rangeDurationMin !== null ? rangeDurationMin * 60 - elapsed : 0;
+  const rangeInvalid = rangeDurationMin === null || rangeDeltaSec === 0;
+  const rangeIsReduction = rangeDeltaSec < 0;
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.7_0.19_260)]">
-            <Clock className="w-4 h-4" /> Extend Time — {room.name}
+            <Clock className="w-4 h-4" /> Adjust Time — {room.name}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
         </div>
@@ -1522,12 +1548,15 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
             <div className="text-2xl font-mono font-bold">{fmtDuration(elapsed)}</div>
           </div>
 
-          <div className="flex gap-2">
-            <button onClick={() => setMode("quick")} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "quick" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => setMode("quick")} className={`py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "quick" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
               Quick Add
             </button>
-            <button onClick={() => setMode("custom")} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "custom" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
-              Set Target Time
+            <button onClick={() => setMode("custom")} className={`py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "custom" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
+              Target Time
+            </button>
+            <button onClick={() => setMode("range")} className={`py-2 rounded-lg text-xs font-bold uppercase tracking-wide border-2 ${mode === "range" ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground"}`}>
+              Time Range
             </button>
           </div>
 
@@ -1544,7 +1573,7 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
                 </button>
               ))}
             </div>
-          ) : (
+          ) : mode === "custom" ? (
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">New Total Time (minutes)</label>
               <input
@@ -1553,7 +1582,7 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
                 className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-xl font-mono text-center"
               />
               <p className="text-[11px] text-muted-foreground mt-2">
-                Must be at least the current elapsed time ({currentMins} min) — time can only be extended, never reduced.
+                Must be at least the current elapsed time ({currentMins} min) — for reducing time instead, use Time Range.
               </p>
               {!customInvalid && (
                 <p className="text-xs font-bold text-[oklch(0.78_0.2_155)] mt-1 text-center">
@@ -1566,6 +1595,39 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
                 className="w-full mt-3 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-40"
               >
                 {submitting ? "Applying..." : "Apply New Total Time"}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground">Start Time</label>
+                  <input type="time" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground">End Time</label>
+                  <input type="time" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                </div>
+              </div>
+              {rangeDurationMin !== null && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  That's a duration of <strong>{rangeDurationMin} min</strong> —{" "}
+                  {rangeIsReduction
+                    ? <span className="font-bold text-[#8B5CF6]">reduces by {Math.round(Math.abs(rangeDeltaSec) / 60)} min</span>
+                    : <span className="font-bold text-[oklch(0.78_0.2_155)]">adds {Math.round(rangeDeltaSec / 60)} min</span>}
+                </p>
+              )}
+              {rangeIsReduction && !isAdmin && (
+                <p className="text-[11px] text-[oklch(0.62_0.24_25)] mt-2 text-center">
+                  Only an admin can reduce time — ask an admin to make this correction.
+                </p>
+              )}
+              <button
+                onClick={() => void applyDelta(rangeDeltaSec)}
+                disabled={submitting || rangeInvalid || (rangeIsReduction && !isAdmin)}
+                className="w-full mt-3 py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-40"
+              >
+                {submitting ? "Applying..." : "Apply Time Range"}
               </button>
             </div>
           )}

@@ -101,14 +101,14 @@ const handlers = {
     requireRole_(body.username, ["admin", "cashier"]);
     const state0 = getState_();
     const before = state0.rooms.find((r) => r.id === body.roomId);
-    const result = bizExtendRoomTime_(state0, body.roomId, body.deltaSec);
+    const result = bizExtendRoomTime_(state0, body.roomId, body.deltaSec, roleForUsername_(body.username) === "admin");
     if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
     setState_(result.state);
     const after = result.state.rooms.find((r) => r.id === body.roomId);
     logActivity_({
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_TIME_EXTENDED",
       location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
-      description: (before ? before.name : body.roomId) + " time extended by +" + Math.round((Number(body.deltaSec) || 0) / 60) + " min",
+      description: (before ? before.name : body.roomId) + " time " + ((Number(body.deltaSec) || 0) > 0 ? "extended by +" : "reduced by -") + Math.round(Math.abs(Number(body.deltaSec) || 0) / 60) + " min",
       before: { timeAdjustmentSec: before ? before.timeAdjustmentSec : 0 },
       after: { timeAdjustmentSec: after ? after.timeAdjustmentSec : 0 },
     });
