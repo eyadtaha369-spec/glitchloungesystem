@@ -22,6 +22,37 @@ function effectiveDurationSec_(room, atTime) {
   return Math.max(0, raw - pausedSoFar + (room.timeAdjustmentSec || 0));
 }
 
+// Total elapsed time (effectiveDurationSec_) never needs to change
+// when the rate mode switches mid-session — it stays the single
+// running total for the whole room. What DOES change is how that
+// total gets priced: each completed rate segment is frozen with its
+// own duration and rate at the moment of the switch, and only the
+// remainder (total minus everything already frozen) is billed at
+// whatever the CURRENT rate is. This is what makes "1hr Single + 45min
+// Multi" work correctly without ever resetting the underlying timer.
+function computeTimeCost_(room, totalElapsedSec) {
+  const segments = room.rateSegments || [];
+  let cost = 0;
+  let frozenSec = 0;
+  segments.forEach((seg) => {
+    cost += (seg.durationSec / 3600) * seg.hourlyRate;
+    frozenSec += seg.durationSec;
+  });
+  const currentSegmentSec = Math.max(0, totalElapsedSec - frozenSec);
+  cost += (currentSegmentSec / 3600) * (room.hourlyRate || 0);
+  return cost;
+}
+
+// How much of the total elapsed time belongs to the CURRENT (still
+// running) segment — total minus everything already frozen. Used both
+// for display ("time in this mode so far") and as the floor check
+// when reducing time, so a reduction can never make the current
+// segment go negative even though the total is still positive.
+function currentSegmentElapsedSec_(room, totalElapsedSec) {
+  const frozenSec = (room.rateSegments || []).reduce((a, seg) => a + seg.durationSec, 0);
+  return Math.max(0, totalElapsedSec - frozenSec);
+}
+
 function bizStartRoom_(state, roomId, rateMode) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before starting a room.", state };
   const room = state.rooms.find((r) => r.id === roomId);
@@ -39,7 +70,7 @@ function bizStartRoom_(state, roomId, rateMode) {
   const waterItem = state.menu.find((m) => m.id === "item-water");
   const initialOrders = waterItem ? [{ menuItemId: waterItem.id, name: waterItem.name, qty: 1, price: waterItem.price }] : [];
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate, rateMode: mode, timeAdjustmentSec: 0, isPaused: false, pausedAt: null, pausedDurationSec: 0 }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate, rateMode: mode, timeAdjustmentSec: 0, isPaused: false, pausedAt: null, pausedDurationSec: 0, rateSegments: [] }) : r
   );
   pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ " + hourlyRate + " EGP/hr)" : ""));
   return { ok: true, state };
@@ -169,13 +200,40 @@ function bizExtendRoomTime_(state, roomId, deltaSec, isAdmin) {
   if (delta < 0 && !isAdmin) return { ok: false, error: "Only an admin can reduce time — ask an admin to make this correction.", state };
   if (delta < 0) {
     const currentElapsed = effectiveDurationSec_(room, Date.now());
-    if (currentElapsed + delta < 0) {
-      return { ok: false, error: "Can't reduce by that much — the session has only run " + Math.round(currentElapsed / 60) + " min so far.", state };
+    const currentSegmentSec = currentSegmentElapsedSec_(room, currentElapsed);
+    if (currentSegmentSec + delta < 0) {
+      return { ok: false, error: "Can't reduce by that much — this segment has only run " + Math.round(currentSegmentSec / 60) + " min so far.", state };
     }
   }
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { timeAdjustmentSec: (r.timeAdjustmentSec || 0) + delta }) : r));
   const mins = Math.round(Math.abs(delta) / 60);
   pushActivity_(state, room.name + " time " + (delta > 0 ? "extended by +" : "reduced by -") + mins + " min" + (mins === 1 ? "" : "s"));
+  return { ok: true, state };
+}
+
+function bizSwitchRateMode_(state, roomId, newMode) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Room not found", state };
+  if (room.zone !== "room") return { ok: false, error: "Mode switching only applies to timed rooms.", state };
+  if (room.status !== "active") return { ok: false, error: "Room is not active.", state };
+  if (newMode !== "single" && newMode !== "multi") return { ok: false, error: "Select Single or Multi.", state };
+  if (room.rateMode === newMode) return { ok: true, state }; // already in that mode, nothing to do
+
+  const now = Date.now();
+  const totalElapsed = effectiveDurationSec_(room, now);
+  const frozenDurationSec = currentSegmentElapsedSec_(room, totalElapsed);
+  const newHourlyRate = newMode === "single" ? room.singleRate : room.multiRate;
+
+  const newSegments = (room.rateSegments || []).concat([{
+    rateMode: room.rateMode, hourlyRate: room.hourlyRate, durationSec: frozenDurationSec,
+  }]);
+
+  state.rooms = state.rooms.map((r) =>
+    r.id === roomId ? Object.assign({}, r, { rateMode: newMode, hourlyRate: newHourlyRate, rateSegments: newSegments }) : r
+  );
+
+  const mins = Math.round(frozenDurationSec / 60);
+  pushActivity_(state, room.name + " switched " + room.rateMode + " → " + newMode + " (froze " + mins + " min @ " + room.hourlyRate + " EGP/hr)");
   return { ok: true, state };
 }
 
@@ -221,7 +279,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   const now = Date.now();
   const endedAt = (typeof frozenAt === "number" && frozenAt >= room.startedAt && frozenAt <= now) ? frozenAt : now;
   const durationSec = Math.max(1, Math.floor(effectiveDurationSec_(room, endedAt)));
-  const timeCost = (durationSec / 3600) * room.hourlyRate;
+  const timeCost = computeTimeCost_(room, durationSec);
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const preDiscountTotal = timeCost + ordersCost;
 
@@ -277,6 +335,9 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     discountAmount, discountLabel, timeDiscountAmount, timeDiscountLabel, ordersDiscountAmount, ordersDiscountLabel,
     splitBill: !!splitBill, paymentMethod: method,
     cashAmount, visaAmount, instapayAmount, shiftId: state.activeShiftId || null,
+    rateSegments: (room.rateSegments || []).concat(
+      room.rateMode ? [{ rateMode: room.rateMode, hourlyRate: room.hourlyRate, durationSec: currentSegmentElapsedSec_(room, durationSec) }] : []
+    ),
   };
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0 }) : r));
   const paymentLabel = method === "mixed_cash_visa" ? "Cash " + cashAmount.toFixed(2) + " EGP + Visa " + visaAmount.toFixed(2) + " EGP"
@@ -324,6 +385,6 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
 
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
-  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
-  WASTE_MARKETING_REASONS, computeDiscount_,
+  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizSwitchRateMode_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,
 };

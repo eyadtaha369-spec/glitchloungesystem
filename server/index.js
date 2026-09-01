@@ -25,7 +25,7 @@ const {
 } = require("./lib/state");
 const {
   bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_,
-  bizExtendRoomTime_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  bizExtendRoomTime_, bizSwitchRateMode_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
@@ -111,6 +111,21 @@ const handlers = {
       description: (before ? before.name : body.roomId) + " time " + ((Number(body.deltaSec) || 0) > 0 ? "extended by +" : "reduced by -") + Math.round(Math.abs(Number(body.deltaSec) || 0) / 60) + " min",
       before: { timeAdjustmentSec: before ? before.timeAdjustmentSec : 0 },
       after: { timeAdjustmentSec: after ? after.timeAdjustmentSec : 0 },
+    });
+    return json_({ ok: true, state: withStockView_(result.state) });
+  },
+
+  switchRateMode(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const state0 = getState_();
+    const before = state0.rooms.find((r) => r.id === body.roomId);
+    const result = bizSwitchRateMode_(state0, body.roomId, body.newMode);
+    if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+    setState_(result.state);
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_TIME_EXTENDED",
+      location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
+      description: (before ? before.name : body.roomId) + " switched rate mode to " + body.newMode,
     });
     return json_({ ok: true, state: withStockView_(result.state) });
   },

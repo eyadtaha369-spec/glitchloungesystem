@@ -1,6 +1,6 @@
 const { pushActivity_ } = require("./util");
 const { consumeFifo_ } = require("./state");
-const { effectiveDurationSec_, PAYMENT_METHODS, computeDiscount_ } = require("./rooms");
+const { effectiveDurationSec_, PAYMENT_METHODS, computeDiscount_, computeTimeCost_ } = require("./rooms");
 
 function bizTransferZone_(state, sourceId, targetId, rateMode) {
   const source = state.rooms.find((r) => r.id === sourceId);
@@ -19,7 +19,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   let roomCharge = 0;
   if (source.zone === "room" && source.startedAt) {
     durationSec = Math.max(1, Math.floor(effectiveDurationSec_(source, now)));
-    roomCharge = (durationSec / 3600) * source.hourlyRate;
+    roomCharge = computeTimeCost_(source, durationSec);
   }
 
   state.rooms = state.rooms.map((r) => {
@@ -116,7 +116,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     const amt = Number(customAmount) || 0;
     if (amt <= 0) return { ok: false, error: "Enter a valid split amount", state };
     const durationSec = room.startedAt ? Math.max(1, Math.floor(effectiveDurationSec_(room, Date.now()))) : 0;
-    const timeCostNow = room.hourlyRate ? (durationSec / 3600) * room.hourlyRate : 0;
+    const timeCostNow = room.hourlyRate ? computeTimeCost_(room, durationSec) : 0;
     const ordersCostNow = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
     const currentTotal = timeCostNow + ordersCostNow;
     if (amt > currentTotal + 0.01) {
