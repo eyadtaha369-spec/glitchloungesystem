@@ -506,8 +506,8 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     if (r.id !== roomId) return r;
     const existing = r.orders.find((o) => o.menuItemId === menuItemId);
     const newOrders = existing
-      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty, isPrintedToKitchen: false }) : o))
-      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price, isPrintedToKitchen: false }]);
+      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
+      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price, printedQuantity: 0 }]);
     return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
@@ -558,7 +558,7 @@ function bizSetOrderLineQty_(state, batches, roomId, menuItemId, qty) {
     if (r.id !== roomId) return r;
     const orders = newQty <= 0
       ? r.orders.filter((o) => o.menuItemId !== menuItemId)
-      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty }, delta > 0 ? { isPrintedToKitchen: false } : {}) : o));
+      : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: newQty, printedQuantity: Math.min(o.printedQuantity || 0, newQty) }) : o));
     return Object.assign({}, r, { orders: orders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
 
@@ -587,10 +587,10 @@ function bizSetOrderLineNote_(state, roomId, menuItemId, notes) {
 }
 
 // Called once a kitchen ticket has actually printed successfully — marks
-// exactly the line items that were on that ticket as sent, so the next
-// "Print Kitchen" click only picks up whatever's genuinely new since
-// then. See the local server's identical function for the full
-// reasoning on why this takes an explicit menuItemIds list.
+// exactly the line items that were on that ticket as printed UP TO
+// their current quantity (not a boolean), so a subsequent increase to
+// the same item automatically becomes the new printable delta. See the
+// local server's identical function for the full reasoning.
 function bizMarkOrdersPrintedToKitchen_(state, roomId, menuItemIds) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Room not found", state: state };
@@ -599,7 +599,7 @@ function bizMarkOrdersPrintedToKitchen_(state, roomId, menuItemIds) {
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
     return Object.assign({}, r, {
-      orders: r.orders.map((o) => (idSet[o.menuItemId] ? Object.assign({}, o, { isPrintedToKitchen: true }) : o)),
+      orders: r.orders.map((o) => (idSet[o.menuItemId] ? Object.assign({}, o, { printedQuantity: o.qty }) : o)),
     });
   });
   return { ok: true, state: state };

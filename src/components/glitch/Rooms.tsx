@@ -543,14 +543,21 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       {/* Orders */}
       {room.orders.length > 0 && (
         <div className="mt-3 text-xs font-mono space-y-1.5 max-h-40 overflow-y-auto no-print">
-          {room.orders.map((o) => (
+          {room.orders.map((o) => {
+            const printedQty = o.printedQuantity || 0;
+            const deltaQty = o.qty - printedQty;
+            return (
             <div key={o.menuItemId} className="text-muted-foreground">
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate flex items-center gap-1.5">
                   {o.name}
-                  {o.isPrintedToKitchen ? (
+                  {deltaQty <= 0 && printedQty > 0 ? (
                     <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] shrink-0" title="Sent to kitchen">
                       <Check className="w-2.5 h-2.5" /> Printed
+                    </span>
+                  ) : printedQty > 0 ? (
+                    <span className="inline-flex items-center text-[9px] px-1 py-0.5 rounded bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.7_0.19_260)] shrink-0" title={`${printedQty} already sent, ${deltaQty} new`}>
+                      +{deltaQty} New
                     </span>
                   ) : (
                     <span className="inline-flex items-center text-[9px] px-1 py-0.5 rounded bg-[oklch(0.7_0.19_260/0.15)] text-[oklch(0.7_0.19_260)] shrink-0" title="Not yet sent to kitchen">
@@ -624,7 +631,8 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -632,8 +640,8 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         {room.orders.length > 0 && (
           <button
             onClick={async () => {
-              const unprinted = room.orders.filter((o) => !o.isPrintedToKitchen);
-              if (unprinted.length === 0) { flashWarn("No new items to print to kitchen"); return; }
+              const hasNewItems = room.orders.some((o) => o.qty - (o.printedQuantity || 0) > 0);
+              if (!hasNewItems) { flashWarn("No new items to print to kitchen"); return; }
               setFetchingKot(true);
               try {
                 const res = await nextKotNumber();
@@ -1196,11 +1204,13 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
     if (img.complete) setLogoReady(true);
   }, []);
 
-  // Only what's genuinely new since the last successful print — this is
-  // the entire point of the feature: re-sending the whole order every
-  // time would make it impossible for kitchen staff to tell what's
-  // actually new versus already being made.
-  const unprintedOrders = room.orders.filter((o) => !o.isPrintedToKitchen);
+  // Only the genuinely NEW quantity since the last successful print for
+  // each item — not just "has this item changed at all", but the exact
+  // delta (qty minus printedQuantity), so re-adding 1 more of an
+  // already-printed item sends only that 1, not the full line again.
+  const deltaOrders = room.orders
+    .map((o) => ({ ...o, deltaQty: o.qty - (o.printedQuantity || 0) }))
+    .filter((o) => o.deltaQty > 0);
 
   const handlePrint = async () => {
     setPrinting(true);
@@ -1212,7 +1222,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
       // callback) — clicking Print and the action completing without
       // throwing is treated as confirmation here, same as the intent
       // behind every other print button in this app.
-      await markOrdersPrintedToKitchen(room.id, unprintedOrders.map((o) => o.menuItemId));
+      await markOrdersPrintedToKitchen(room.id, deltaOrders.map((o) => o.menuItemId));
     } finally {
       setPrinting(false);
     }
@@ -1243,10 +1253,10 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           </div>
 
           <div className="mt-3 space-y-3">
-            {unprintedOrders.length === 0 && <div className="opacity-60 text-center">— no new items —</div>}
-            {unprintedOrders.map((o) => (
+            {deltaOrders.length === 0 && <div className="opacity-60 text-center">— no new items —</div>}
+            {deltaOrders.map((o) => (
               <div key={o.menuItemId} className="receipt-line">
-                <div className="font-bold">{o.qty}× {o.name}</div>
+                <div className="font-bold">{o.deltaQty}× {o.name}</div>
                 {o.notes && (
                   <div className="pl-3 text-black italic">
                     → *{o.notes}*
