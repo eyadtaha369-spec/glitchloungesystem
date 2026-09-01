@@ -929,10 +929,8 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   if (!target) return { ok: false, error: "Target not found", state: state };
   if (target.id === source.id) return { ok: false, error: "Source and target must be different", state: state };
   if (target.zone === "split") return { ok: false, error: "Cannot transfer into a split invoice", state: state };
-  if (target.zone === "room" && target.status === "active") {
-    return { ok: false, error: target.name + " already has an active session", state: state };
-  }
-  if (target.zone === "room" && rateMode !== "single" && rateMode !== "multi") {
+  const targetAlreadyActive = target.status === "active";
+  if (target.zone === "room" && !targetAlreadyActive && rateMode !== "single" && rateMode !== "multi") {
     return { ok: false, error: "Select a Single or Multi rate to start " + target.name, state: state };
   }
 
@@ -968,8 +966,15 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
       });
       const patch = { orders: orders, transferredFrom: source.name };
       if (r.zone === "room") {
-        const rate = rateMode === "single" ? r.singleRate : r.multiRate;
-        Object.assign(patch, { status: "active", startedAt: now, hourlyRate: rate, rateMode: rateMode });
+        if (targetAlreadyActive) {
+          // Merging into a room that's already running its own timer —
+          // that timer, rate, and any frozen segments continue
+          // completely untouched. Only the orders and a frozen charge
+          // for the SOURCE's time get folded in.
+        } else {
+          const rate = rateMode === "single" ? r.singleRate : r.multiRate;
+          Object.assign(patch, { status: "active", startedAt: now, hourlyRate: rate, rateMode: rateMode, rateSegments: [] });
+        }
       } else {
         Object.assign(patch, { status: "active", startedAt: r.startedAt || now });
       }
@@ -982,7 +987,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
     state,
     source.name + " transferred to " + target.name +
       (roomCharge > 0 ? " (" + roomCharge.toFixed(2) + " EGP" + " room charge)" : "") +
-      (target.zone === "room" ? " — started " + rateMode : ""),
+      (target.zone === "room" ? (targetAlreadyActive ? " — merged into its running session" : " — started " + rateMode) : ""),
   );
   return {
     ok: true, state: state, roomCharge: roomCharge, roomName: source.name, tableName: target.name,

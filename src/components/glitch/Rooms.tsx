@@ -1687,10 +1687,11 @@ function ExtendTimeModal({ room, elapsed, extendRoomTime, onClose }: {
 
 function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]; onClose: () => void }) {
   const { transferZone } = useStore();
-  // Only offer targets that are actually eligible: rooms must be available
-  // (can't merge into an already-running timed session), lounge tables can
-  // be either.
-  const eligibleTargets = targets.filter((t) => t.zone !== "room" || t.status === "available");
+  // Every other room/table is a valid target now — merging into an
+  // already-active one is supported on the backend (its own timer
+  // keeps running untouched; only the source's orders and a frozen
+  // time charge get folded in).
+  const eligibleTargets = targets;
   const [targetId, setTargetId] = useState(eligibleTargets[0]?.id ?? "");
   const [rateMode, setRateMode] = useState<"single" | "multi">("single");
   const [submitting, setSubmitting] = useState(false);
@@ -1698,13 +1699,18 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
 
   const target = eligibleTargets.find((t) => t.id === targetId);
   const targetIsRoom = target?.zone === "room";
+  const targetIsActive = target?.status === "active";
+  // A rate mode is only meaningful when the room target needs to
+  // start fresh — merging into an already-running room keeps using
+  // whatever rate it's already on.
+  const needsRateMode = targetIsRoom && !targetIsActive;
 
   const submit = async () => {
     if (!targetId) return;
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await transferZone(room.id, targetId, targetIsRoom ? rateMode : undefined);
+      const res = await transferZone(room.id, targetId, needsRateMode ? rateMode : undefined);
       if (!res.ok) { setErr(res.error ?? "Transfer failed"); return; }
       onClose();
     } finally {
@@ -1723,19 +1729,21 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
         </div>
         <div className="p-4 space-y-3">
           <p className="text-xs text-muted-foreground">
-            {room.zone === "room"
-              ? `This freezes ${room.name}'s time charge right now, folds it into the target as a line item, and moves any remaining orders over.`
-              : `This moves ${room.name}'s orders to the target.`} {room.name} becomes available again immediately.
+            {targetIsActive
+              ? `This freezes ${room.name}'s time charge${room.zone === "room" ? "" : " (none, it has no timer)"} and merges its orders into ${target?.name}'s already-running session — ${target?.name}'s own timer keeps going untouched.`
+              : room.zone === "room"
+                ? `This freezes ${room.name}'s time charge right now, folds it into the target as a line item, and moves any remaining orders over.`
+                : `This moves ${room.name}'s orders to the target.`} {room.name} becomes available again immediately.
           </p>
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Move to</label>
             <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
               {eligibleTargets.map((t) => (
-                <option key={t.id} value={t.id}>{t.name} {t.zone === "room" ? "(room)" : `(${t.status === "active" ? "active" : "available"} table)`}</option>
+                <option key={t.id} value={t.id}>{t.name} {t.zone === "room" ? (t.status === "active" ? "(room, active — merge)" : "(room, available)") : `(${t.status === "active" ? "active" : "available"} table)`}</option>
               ))}
             </select>
           </div>
-          {targetIsRoom && (
+          {needsRateMode && (
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Starting rate for {target?.name}</label>
               <div className="mt-1 grid grid-cols-2 gap-2">
@@ -1752,6 +1760,11 @@ function TransferModal({ room, targets, onClose }: { room: Room; targets: Room[]
                   Multi {fmtMoney(target?.multiRate ?? 0)}/hr
                 </button>
               </div>
+            </div>
+          )}
+          {targetIsActive && targetIsRoom && (
+            <div className="text-[11px] text-[#8B5CF6] bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 rounded-lg p-2">
+              {target?.name} is already running {target?.rateMode} @ {fmtMoney(target?.hourlyRate ?? 0)}/hr — that continues unchanged.
             </div>
           )}
           {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
