@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS Sessions (
   discountLabel TEXT, timeDiscountAmount REAL, timeDiscountLabel TEXT,
   ordersDiscountAmount REAL, ordersDiscountLabel TEXT,
   splitBill INTEGER, paymentMethod TEXT,
-  cashAmount REAL, visaAmount REAL, instapayAmount REAL, shiftId TEXT
+  cashAmount REAL, visaAmount REAL, instapayAmount REAL, shiftId TEXT,
+  rateSegments TEXT
 );
 
 CREATE TABLE IF NOT EXISTS Shifts (

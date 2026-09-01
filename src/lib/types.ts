@@ -123,6 +123,13 @@ export interface Session {
   endedAt: number;
   durationSec: number;
   timeCost: number;
+  // Frozen rate-mode segments as they stood at checkout — how timeCost
+  // breaks down if the room ever switched Single<->Multi mid-session
+  // (e.g. "1hr Single @ 100 + 45min Multi @ 150"). Includes the final
+  // still-running-at-checkout period too, not just prior switches, so
+  // together these always sum to exactly durationSec/timeCost. Empty
+  // for a session that never switched modes, or for lounge tables.
+  rateSegments: { rateMode: "single" | "multi"; hourlyRate: number; durationSec: number }[];
   orders: OrderLine[];
   ordersCost: number;
   total: number;

@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtDuration, fmtMoney, computeTimeCost, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
 // Stable reference (never recreated) — passing `[]` inline as a prop
@@ -182,8 +182,8 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         ) : isActive ? (
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[#8B5CF6]" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(elapsed)}</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[#8B5CF6]" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(computeCurrentSegmentElapsed(room, elapsed))}</div>
             </div>
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
@@ -511,9 +511,9 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         ) : (
           <>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
               <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[#8B5CF6]" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
-                {fmtDuration(elapsed)}
+                {fmtDuration(computeCurrentSegmentElapsed(room, elapsed))}
               </div>
             </div>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
@@ -1016,6 +1016,32 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
   );
 }
 
+// Shows each rate-mode period separately (e.g. "Single 1h00m @ 100/hr"
+// + "Multi 0h45m @ 150/hr") whenever a session actually switched modes
+// mid-way — for the common case of a session that never switched,
+// falls back to the exact same single "Room Time" line this always
+// showed, so nothing changes visually for the vast majority of
+// checkouts.
+function RateSegmentBreakdown({ session }: { session: Session }) {
+  const segments = session.rateSegments || [];
+  if (segments.length <= 1) {
+    return <div className="mt-2 flex justify-between receipt-line"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>;
+  }
+  return (
+    <div className="mt-2">
+      {segments.map((seg, i) => (
+        <div key={i} className="flex justify-between receipt-line">
+          <span className="capitalize">{seg.rateMode} {fmtDuration(seg.durationSec)} @ {fmtMoney(seg.hourlyRate)}/hr</span>
+          <span>{fmtMoney((seg.durationSec / 3600) * seg.hourlyRate)}</span>
+        </div>
+      ))}
+      <div className="flex justify-between border-t border-dashed border-black/20 mt-1 pt-1 font-semibold">
+        <span>Room Time Subtotal</span><span>{fmtMoney(session.timeCost)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function ReceiptModal({ session, onClose, onReopen }: { session: Session; onClose: () => void; onReopen?: () => void }) {
   const startD = new Date(session.startedAt);
   const endD = new Date(session.endedAt);
@@ -1065,7 +1091,7 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
           {session.splitBill ? (
             <>
               <div className="mt-3 text-xs uppercase tracking-widest opacity-70">Time</div>
-              <div className="flex justify-between receipt-line"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>
+              <RateSegmentBreakdown session={session} />
 
               <div className="mt-3 text-xs uppercase tracking-widest opacity-70">Orders</div>
               {session.orders.length === 0 && <div className="opacity-60">— none —</div>}
@@ -1081,7 +1107,7 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
             </>
           ) : (
             <>
-              <div className="mt-2 flex justify-between receipt-line"><span>Room Time</span><span>{fmtMoney(session.timeCost)}</span></div>
+              <RateSegmentBreakdown session={session} />
               {session.orders.map((o) => (
                 <div key={o.menuItemId} className="flex justify-between receipt-line">
                   <span>{o.qty}× {o.name}</span>

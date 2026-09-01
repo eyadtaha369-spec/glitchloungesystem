@@ -1329,6 +1329,17 @@ export function computeTimeCost(room: Room, totalElapsedSec: number): number {
   cost += (currentSegmentSec / 3600) * (room.hourlyRate || 0);
   return cost;
 }
+// How much of the total elapsed time belongs to the CURRENT (still
+// running) rate-mode period — total minus everything already frozen
+// by a prior mode switch. This is what the on-screen timer should
+// show after a switch (starting back at zero for the new mode), while
+// computeTimeCost above still needs the TOTAL elapsed time to get the
+// combined bill right — these are two different numbers used for two
+// different purposes, both mirroring the backend exactly.
+export function computeCurrentSegmentElapsed(room: Room, totalElapsedSec: number): number {
+  const frozenSec = (room.rateSegments || []).reduce((a, seg) => a + seg.durationSec, 0);
+  return Math.max(0, totalElapsedSec - frozenSec);
+}
 export function fmtMoney(n: number) {
   return `EGP ${n.toFixed(2)}`;
 }

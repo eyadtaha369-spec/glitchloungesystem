@@ -181,7 +181,7 @@ function sheetObjectHeaders_(name) {
     SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
-    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId"],
+    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId", "rateSegments"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
@@ -207,13 +207,16 @@ function sessionToRow_(s) {
     splitBill: !!s.splitBill,
     paymentMethod: s.paymentMethod, cashAmount: s.cashAmount, visaAmount: s.visaAmount,
     instapayAmount: s.instapayAmount, shiftId: s.shiftId,
+    rateSegments: JSON.stringify(s.rateSegments || []),
   };
 }
 function rowToSession_(r) {
   let orders = [];
   try { orders = JSON.parse(r.orders || "[]"); } catch (e) { orders = []; }
+  let rateSegments = [];
+  try { rateSegments = JSON.parse(r.rateSegments || "[]"); } catch (e) { rateSegments = []; }
   return Object.assign({}, r, {
-    orders: orders, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
+    orders: orders, rateSegments: rateSegments, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
     timeDiscountAmount: Number(r.timeDiscountAmount) || 0, timeDiscountLabel: r.timeDiscountLabel || null,
     ordersDiscountAmount: Number(r.ordersDiscountAmount) || 0, ordersDiscountLabel: r.ordersDiscountLabel || null,
@@ -920,6 +923,9 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     visaAmount: visaAmount,
     instapayAmount: instapayAmount,
     shiftId: state.activeShiftId || null,
+    rateSegments: (room.rateSegments || []).concat(
+      room.rateMode ? [{ rateMode: room.rateMode, hourlyRate: room.hourlyRate, durationSec: currentSegmentElapsedSec_(room, durationSec) }] : []
+    ),
   };
   state.rooms = state.rooms.map((r) =>
     r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0 }) : r

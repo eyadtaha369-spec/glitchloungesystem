@@ -16,13 +16,20 @@ function sessionToRow_(s) {
     ordersDiscountAmount: s.ordersDiscountAmount || 0, ordersDiscountLabel: s.ordersDiscountLabel || null,
     splitBill: !!s.splitBill, paymentMethod: s.paymentMethod, cashAmount: s.cashAmount,
     visaAmount: s.visaAmount, instapayAmount: s.instapayAmount, shiftId: s.shiftId,
+    // Was being computed in bizEndRoom_ but silently dropped here before
+    // ever reaching the database — this is what makes the checkout
+    // receipt able to show each rate-mode period separately (e.g.
+    // "1hr Single + 45min Multi") instead of just the combined total.
+    rateSegments: JSON.stringify(s.rateSegments || []),
   };
 }
 function rowToSession_(r) {
   let orders = [];
   try { orders = JSON.parse(r.orders || "[]"); } catch { orders = []; }
+  let rateSegments = [];
+  try { rateSegments = JSON.parse(r.rateSegments || "[]"); } catch { rateSegments = []; }
   return Object.assign({}, r, {
-    orders, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
+    orders, rateSegments, splitBill: !!r.splitBill, orderNumber: Number(r.orderNumber) || 0,
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
     timeDiscountAmount: Number(r.timeDiscountAmount) || 0, timeDiscountLabel: r.timeDiscountLabel || null,
     ordersDiscountAmount: Number(r.ordersDiscountAmount) || 0, ordersDiscountLabel: r.ordersDiscountLabel || null,
