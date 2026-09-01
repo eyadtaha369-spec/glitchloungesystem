@@ -183,7 +183,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-black" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(elapsed)}</div>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[#8B5CF6]" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(elapsed)}</div>
             </div>
             <div className="bg-white/70 rounded-xl p-4 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
@@ -233,9 +233,11 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
 
   const cardStyle = room.isVip
     ? "animate-vip bg-gradient-to-br from-black/8 via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-black/40"
-    : room.status === "active"
-      ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
-      : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
+    : room.isPaused
+      ? "bg-[#8B5CF6]/10 border-[#8B5CF6] border-2"
+      : room.status === "active"
+        ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
+        : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
 
   const flashWarn = (msg: string) => {
     setWarn(msg);
@@ -390,7 +392,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         <div className="flex items-center gap-2 shrink-0">
           <div className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${
           room.isPaused
-            ? "bg-black/15 text-white border-black/50"
+            ? "bg-[#8B5CF6]/20 text-[#8B5CF6] border-[#8B5CF6]/60"
             : room.status === "active"
             ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
             : "bg-black/5 text-muted-foreground border-black/10"
@@ -467,7 +469,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           <>
             <div className="bg-white/70 rounded-lg p-3 border border-black/8">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-black" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
+              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[#8B5CF6]" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
                 {fmtDuration(elapsed)}
               </div>
             </div>
