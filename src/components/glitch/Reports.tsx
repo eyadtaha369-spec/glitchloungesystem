@@ -557,6 +557,110 @@ function PnLLedgerPanel() {
           </table>
         </div>
       )}
+
+      <OrderHistorySection sessions={sessionsInRange} />
+    </div>
+  );
+}
+
+function OrderHistorySection({ sessions }: { sessions: Session[] }) {
+  const { state } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const [open, setOpen] = useState(false);
+  const [reopenTarget, setReopenTarget] = useState<Session | null>(null);
+  const sorted = [...sessions].sort((a, b) => b.endedAt - a.endedAt);
+
+  return (
+    <div className="mt-6 pt-6 border-t border-black/8">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 text-sm font-semibold text-[oklch(0.7_0.19_260)]">
+        <History className="w-4 h-4" /> Order History ({sorted.length}) {open ? "▲" : "▼"}
+      </button>
+      {open && (
+        sorted.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-6">No closed checks in this range.</div>
+        ) : (
+          <div className="mt-3 overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-[#faf6ec]">
+                <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
+                  <th className="text-left py-2 px-2">#</th>
+                  <th className="text-left py-2 px-2">Closed</th>
+                  <th className="text-left py-2 px-2">Room/Table</th>
+                  <th className="text-left py-2 px-2">Payment</th>
+                  <th className="text-right py-2 px-2">Total</th>
+                  {isAdmin && <th className="text-right py-2 px-2">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((s) => (
+                  <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
+                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">#{s.orderNumber}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(s.endedAt).toLocaleString()}</td>
+                    <td className="py-2 px-2 font-semibold">{s.roomName}</td>
+                    <td className="py-2 px-2 text-xs">{s.paymentMethod}</td>
+                    <td className="py-2 px-2 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
+                    {isAdmin && (
+                      <td className="py-2 px-2 text-right">
+                        <button onClick={() => setReopenTarget(s)} className="text-xs px-2 py-1 rounded bg-[oklch(0.7_0.19_260/0.15)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] hover:bg-[oklch(0.7_0.19_260/0.25)]">
+                          Re-open
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+      {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
+    </div>
+  );
+}
+
+function ReopenCheckModal({ session, onClose }: { session: Session; onClose: () => void }) {
+  const { state, reopenSession } = useStore();
+  const room = state.rooms.find((r) => r.id === session.roomId);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await reopenSession(session.id);
+      if (!res.ok) { setErr(res.error ?? "Could not reopen this check"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Reopen check #{session.orderNumber}?</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          {room?.name ?? session.roomName} will become active again with its original orders restored, and this
+          check's {fmtMoney(session.total)} is removed from past revenue totals until it's checked out again.
+          {room?.status === "active" && (
+            <span className="block mt-2 font-bold text-[oklch(0.62_0.24_25)]">
+              {room.name} currently has a different active session — this will fail until it's freed up.
+            </span>
+          )}
+        </p>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+          >
+            {submitting ? "Reopening..." : "Reopen Check"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

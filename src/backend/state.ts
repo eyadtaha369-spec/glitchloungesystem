@@ -308,3 +308,10 @@ export const switchRateModeFn = createServerFn({ method: "POST" })
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("switchRateMode", { ...data, username: user.username });
   });
+
+export const reopenSessionFn = createServerFn({ method: "POST" })
+  .validator((d: { sessionId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("reopenSession", { ...data, username: user.username });
+  });

@@ -35,6 +35,7 @@ import {
   nextKotNumberFn,
   extendRoomTimeFn,
   switchRateModeFn,
+  reopenSessionFn,
   pauseRoomFn,
   resumeRoomFn,
   addOrderFn,
@@ -146,6 +147,7 @@ interface StoreContextValue {
   nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
+  reopenSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -585,6 +587,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not switch mode." };
+      }
+    });
+  };
+  const reopenSession: StoreContextValue["reopenSession"] = async (sessionId) => {
+    return withPending(`reopenSession:${sessionId}`, async () => {
+      try {
+        // withStockView_ on the backend re-reads sessions fresh from
+        // their own table on every getState-shaped response, so the
+        // returned state already reflects the session being removed —
+        // no separate refresh call needed.
+        const res = await reopenSessionFn({ data: { sessionId } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not reopen check." };
       }
     });
   };
@@ -1244,7 +1261,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,

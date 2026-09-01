@@ -25,7 +25,7 @@ const {
 } = require("./lib/state");
 const {
   bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_,
-  bizExtendRoomTime_, bizSwitchRateMode_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
@@ -126,6 +126,23 @@ const handlers = {
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_TIME_EXTENDED",
       location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
       description: (before ? before.name : body.roomId) + " switched rate mode to " + body.newMode,
+    });
+    return json_({ ok: true, state: withStockView_(result.state) });
+  },
+
+  reopenSession(body) {
+    requireRole_(body.username, ["admin"]);
+    const session = readSessions_().find((s) => s.id === body.sessionId);
+    if (!session) return json_({ ok: false, error: "Check not found." });
+    const state0 = getState_();
+    const result = bizReopenSession_(state0, session);
+    if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+    setState_(result.state);
+    deleteObjectById_("Sessions", session.id);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "CHECK_REOPENED",
+      location: session.roomName, shiftId: result.state.activeShiftId,
+      description: body.username + " reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction",
     });
     return json_({ ok: true, state: withStockView_(result.state) });
   },

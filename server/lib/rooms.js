@@ -237,6 +237,54 @@ function bizSwitchRateMode_(state, roomId, newMode) {
   return { ok: true, state };
 }
 
+// Restores a previously closed check back to an active room/table, so
+// an admin can correct a mistake (checked out too early, missed an
+// order, etc) instead of it being permanently locked in. Two things
+// this MUST get right given the financial stakes:
+//   1. The room/table must not currently be occupied by something
+//      else — reopening into an active session would silently
+//      corrupt whichever one loses.
+//   2. The session record is REMOVED entirely (not just hidden) once
+//      reopened, since its revenue is already reflected in past
+//      shift/report totals — leaving it in place would double-count
+//      it the moment the room is checked out again. This does mean a
+//      reopened check needs an active shift to be re-closed into,
+//      same requirement as starting any other room.
+function bizReopenSession_(state, session) {
+  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before reopening a check.", state };
+  const room = state.rooms.find((r) => r.id === session.roomId);
+  if (!room) return { ok: false, error: "The original room/table no longer exists.", state };
+  if (room.status === "active") return { ok: false, error: room.name + " is currently occupied by another active session — free it up first.", state };
+
+  const now = Date.now();
+  // For timed rooms, back-date startedAt so the elapsed clock picks up
+  // exactly where the closed check left off, then keeps ticking
+  // forward normally from here — not frozen, since the whole point of
+  // reopening is to keep using the room/table.
+  const newStartedAt = room.zone === "room" ? now - Math.round((session.durationSec || 0) * 1000) : (room.startedAt || now);
+
+  const patch = {
+    status: "active", startedAt: newStartedAt, orders: session.orders,
+    isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [],
+  };
+  if (room.zone === "room") {
+    // The Session record doesn't carry rateMode/hourlyRate, so this
+    // falls back to whatever the room's own last-used rate was (or
+    // Single if it's never been set) — clearly surfaced in the
+    // confirmation UI so whoever reopens it can switch modes
+    // immediately afterward if that's wrong for this correction.
+    patch.hourlyRate = room.hourlyRate || room.singleRate || 0;
+    patch.rateMode = room.rateMode || "single";
+  } else {
+    patch.hourlyRate = 0;
+    patch.rateMode = null;
+  }
+
+  state.rooms = state.rooms.map((r) => (r.id === room.id ? Object.assign({}, r, patch) : r));
+  pushActivity_(state, "Reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction — its prior revenue is removed from totals until it's checked out again.");
+  return { ok: true, state };
+}
+
 function bizPauseRoom_(state, roomId) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Room not found", state };
@@ -385,6 +433,6 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
 
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
-  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizSwitchRateMode_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  bizSetOrderLineQty_, bizSetOrderLineNote_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
   WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,
 };

@@ -685,11 +685,43 @@ function bizSwitchRateMode_(state, roomId, newMode) {
   return { ok: true, state: state };
 }
 
-// Flexible Time Extension — INCREASE ONLY. Either add a fixed increment
-// (+15/+30/+60 min quick buttons) or set a new target total duration, as
-// long as it doesn't go below whatever's already effectively elapsed.
-// There is no path anywhere in this function that can reduce billable
-// time — deltaSec must always be > 0.
+// Restores a previously closed check back to an active room/table —
+// see the local server's identical function for the full reasoning.
+// Two things this MUST get right: the room/table must not currently
+// be occupied by something else, and the session record is REMOVED
+// entirely once reopened (not just hidden), since its revenue is
+// already reflected in past report totals — leaving it in place would
+// double-count it the moment the room is checked out again.
+function bizReopenSession_(state, session) {
+  if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before reopening a check.", state: state };
+  const room = state.rooms.find(function (r) { return r.id === session.roomId; });
+  if (!room) return { ok: false, error: "The original room/table no longer exists.", state: state };
+  if (room.status === "active") return { ok: false, error: room.name + " is currently occupied by another active session — free it up first.", state: state };
+
+  const now = Date.now();
+  const newStartedAt = room.zone === "room" ? now - Math.round((session.durationSec || 0) * 1000) : (room.startedAt || now);
+
+  const patch = {
+    status: "active", startedAt: newStartedAt, orders: session.orders,
+    isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [],
+  };
+  if (room.zone === "room") {
+    patch.hourlyRate = room.hourlyRate || room.singleRate || 0;
+    patch.rateMode = room.rateMode || "single";
+  } else {
+    patch.hourlyRate = 0;
+    patch.rateMode = null;
+  }
+
+  state.rooms = state.rooms.map(function (r) { return r.id === room.id ? Object.assign({}, r, patch) : r; });
+  pushActivity_(state, "Reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction — its prior revenue is removed from totals until it's checked out again.");
+  return { ok: true, state: state };
+}
+
+// Flexible Time Extension/Reduction — either add a fixed increment
+// (+15/+30/+60 min quick buttons), set a new target total duration, or
+// (admin only) reduce time via a custom range. See the isAdmin gate
+// below for the reduction-specific restriction.
 function bizExtendRoomTime_(state, roomId, deltaSec, isAdmin) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room) return { ok: false, error: "Room not found", state: state };
@@ -2006,6 +2038,23 @@ function doPost(e) {
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_TIME_EXTENDED",
           location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
           description: (before ? before.name : body.roomId) + " switched rate mode to " + body.newMode,
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      case "reopenSession": {
+        requireRole_(body.username, ["admin"]);
+        const session = readSessions_().find(function (s) { return s.id === body.sessionId; });
+        if (!session) return json_({ ok: false, error: "Check not found." });
+        const state0 = getState_();
+        const result = bizReopenSession_(state0, session);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+        setState_(result.state);
+        deleteObjectById_("Sessions", session.id);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "CHECK_REOPENED",
+          location: session.roomName, shiftId: result.state.activeShiftId,
+          description: body.username + " reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction",
         });
         return json_({ ok: true, state: withStockView_(result.state) });
       }
