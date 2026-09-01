@@ -34,6 +34,7 @@ import {
   logWasteMarketingFn,
   nextKotNumberFn,
   extendRoomTimeFn,
+  switchRateModeFn,
   pauseRoomFn,
   resumeRoomFn,
   addOrderFn,
@@ -144,6 +145,7 @@ interface StoreContextValue {
   logWasteMarketing: (roomId: string, reason: string, note?: string) => Promise<{ ok: boolean; error?: string }>;
   nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
+  switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -572,6 +574,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not extend time." };
+      }
+    });
+  };
+  const switchRateMode: StoreContextValue["switchRateMode"] = async (roomId, newMode) => {
+    return withPending(`switchRateMode:${roomId}`, async () => {
+      try {
+        const res = await switchRateModeFn({ data: { roomId, newMode } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not switch mode." };
       }
     });
   };
@@ -1231,7 +1244,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
@@ -1279,6 +1292,25 @@ export function fmtDuration(sec: number) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
+}
+// Mirrors the backend's computeTimeCost_ exactly (server/lib/rooms.js
+// and Code.gs) — every completed rate-mode segment is billed at its
+// own frozen rate/duration, only the current (still-running) period
+// uses the room's live hourlyRate. Keeping this in sync with the
+// backend is what makes the live-displayed running total match the
+// actual amount charged at checkout, even after a mid-session mode
+// switch.
+export function computeTimeCost(room: Room, totalElapsedSec: number): number {
+  const segments = room.rateSegments || [];
+  let cost = 0;
+  let frozenSec = 0;
+  segments.forEach((seg) => {
+    cost += (seg.durationSec / 3600) * seg.hourlyRate;
+    frozenSec += seg.durationSec;
+  });
+  const currentSegmentSec = Math.max(0, totalElapsedSec - frozenSec);
+  cost += (currentSegmentSec / 3600) * (room.hourlyRate || 0);
+  return cost;
 }
 export function fmtMoney(n: number) {
   return `EGP ${n.toFixed(2)}`;

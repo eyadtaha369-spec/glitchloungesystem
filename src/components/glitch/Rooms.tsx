@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtDuration, fmtMoney, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, computeTimeCost, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
 // Stable reference (never recreated) — passing `[]` inline as a prop
@@ -127,7 +127,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
   const [open, setOpen] = useState(false);
   const isActive = room.status === "active";
-  const timeCost = (elapsed / 3600) * room.hourlyRate;
+  const timeCost = computeTimeCost(room, elapsed);
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const total = timeCost + ordersCost;
   const itemCount = room.orders.reduce((a, o) => a + o.qty, 0);
@@ -203,7 +203,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
 });
 
 const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckout, transferTargets, onClose }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[]; onClose: () => void }) {
-  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -213,6 +213,8 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [kotNumber, setKotNumber] = useState<number | null>(null);
   const [fetchingKot, setFetchingKot] = useState(false);
   const [warn, setWarn] = useState<string | null>(null);
+  const [switchModeConfirm, setSwitchModeConfirm] = useState<"single" | "multi" | null>(null);
+  const [switchingMode, setSwitchingMode] = useState(false);
   const [editingRate, setEditingRate] = useState(false);
   const [singleRateInput, setSingleRateInput] = useState(String(room.singleRate));
   const [multiRateInput, setMultiRateInput] = useState(String(room.multiRate));
@@ -227,7 +229,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [wasteReasonOpen, setWasteReasonOpen] = useState(false);
   const [pickingRateToStart, setPickingRateToStart] = useState(false);
 
-  const timeCost = (elapsed / 3600) * room.hourlyRate;
+  const timeCost = computeTimeCost(room, elapsed);
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const total = timeCost + ordersCost;
 
@@ -445,8 +447,49 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             </div>
           )}
           {room.status === "active" && room.rateMode && (
-            <div className="mt-1 text-[10px] uppercase tracking-widest text-[oklch(0.78_0.2_155)]">
-              Running: {room.rateMode} @ {fmtMoney(room.hourlyRate)}/hr
+            <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-widest text-[oklch(0.78_0.2_155)]">
+              <span>Running: {room.rateMode} @ {fmtMoney(room.hourlyRate)}/hr</span>
+              {!room.isPaused && (
+                <button
+                  onClick={() => setSwitchModeConfirm(room.rateMode === "single" ? "multi" : "single")}
+                  className="px-1.5 py-0.5 rounded border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] normal-case tracking-normal font-semibold hover:bg-[oklch(0.7_0.19_260/0.1)]"
+                  title={`Switch to ${room.rateMode === "single" ? "Multi" : "Single"}`}
+                >
+                  Switch to {room.rateMode === "single" ? "Multi" : "Single"}
+                </button>
+              )}
+            </div>
+          )}
+          {switchModeConfirm && (
+            <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={() => setSwitchModeConfirm(null)}>
+              <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)] p-5" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-base font-bold mb-2">Switch to {switchModeConfirm === "single" ? "Single" : "Multi"}?</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Freezes the current {room.rateMode} time at {fmtMoney(room.hourlyRate)}/hr, then starts billing the
+                  rest of this session at {fmtMoney(switchModeConfirm === "single" ? room.singleRate : room.multiRate)}/hr.
+                  The final bill will show both periods separately.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setSwitchModeConfirm(null)} disabled={switchingMode} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+                  <button
+                    onClick={async () => {
+                      if (!switchModeConfirm) return;
+                      setSwitchingMode(true);
+                      try {
+                        const res = await switchRateMode(room.id, switchModeConfirm);
+                        if (!res.ok) { flashWarn(res.error ?? "Could not switch mode"); }
+                        setSwitchModeConfirm(null);
+                      } finally {
+                        setSwitchingMode(false);
+                      }
+                    }}
+                    disabled={switchingMode}
+                    className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+                  >
+                    {switchingMode ? "Switching..." : "Confirm Switch"}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

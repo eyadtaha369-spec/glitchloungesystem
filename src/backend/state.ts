@@ -301,3 +301,10 @@ export const extendRoomTimeFn = createServerFn({ method: "POST" })
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("extendRoomTime", { ...data, username: user.username });
   });
+
+export const switchRateModeFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; newMode: "single" | "multi" }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("switchRateMode", { ...data, username: user.username });
+  });

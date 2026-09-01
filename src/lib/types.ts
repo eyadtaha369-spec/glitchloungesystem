@@ -90,10 +90,16 @@ export interface Room {
   isPaused: boolean;
   pausedAt: number | null;
   pausedDurationSec: number;
-  // Manual time extension (increase-only) — added on top of the natural
-  // elapsed calculation. Never allowed to go negative; there is no
-  // "reduce session time" mechanism anywhere in this system.
+  // Manual time extension/reduction — added on top of the natural
+  // elapsed calculation. Extending is available to admin and cashier;
+  // reducing is admin-only (a real under-billing risk if done
+  // unsupervised), and can never push elapsed time below zero.
   timeAdjustmentSec: number;
+  // Frozen rate-mode segments from switching Single<->Multi mid-session
+  // — each entry is a completed period with its own rate and duration,
+  // billed independently; only the CURRENT (still-running) period uses
+  // the room's live hourlyRate/rateMode. Empty until the first switch.
+  rateSegments: { rateMode: "single" | "multi"; hourlyRate: number; durationSec: number }[];
   // "room" = the original timed bays/VIP suite. "lounge" = a no-time-charge
   // table customers can be transferred to. "split" = an ephemeral
   // independent invoice created by extracting items off another active
