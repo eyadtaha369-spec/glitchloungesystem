@@ -14,6 +14,25 @@
 // tick — it never throws, never crashes the server, and never affects
 // any response already being sent to the café's own app.
 
+// ============================================================
+// TEMPORARILY DISABLED — 2026-09-01
+// ============================================================
+// This feature caused real data loss: it does a full replace of
+// cloud data with whatever the local database currently has, with
+// NO check for which one is actually more recent. When the local
+// database was older than the cloud (because the app had been used
+// in cloud mode for a while, then switched back to a local database
+// that didn't have that newer activity), the sync ran and
+// overwrote real cloud data — an open shift, live rooms, collected
+// cash — with the older local snapshot.
+//
+// This needs a proper redesign (e.g. only sync when local is
+// confirmed newer, or merge instead of replace) before it's safe to
+// re-enable. Hard-disabled here regardless of env vars until that
+// redesign happens — do not remove this gate without addressing the
+// root cause above.
+const SYNC_DISABLED_PENDING_SAFETY_FIX = true;
+
 const SYNC_URL = process.env.CLOUD_SYNC_URL || null;
 const SYNC_SECRET = process.env.CLOUD_SYNC_SECRET || null;
 const SYNC_INTERVAL_MS = Number(process.env.CLOUD_SYNC_INTERVAL_MS) || 30000;
@@ -54,6 +73,10 @@ async function runCloudSync(buildExportSnapshot_) {
 }
 
 function scheduleCloudSync(buildExportSnapshot_) {
+  if (SYNC_DISABLED_PENDING_SAFETY_FIX) {
+    console.log("[cloud-sync] DISABLED pending a safety redesign (caused real data loss on 2026-09-01 — full replace with no check for which side is actually newer). Not running, regardless of env vars.");
+    return;
+  }
   if (!SYNC_URL || !SYNC_SECRET) {
     console.log("[cloud-sync] CLOUD_SYNC_URL/CLOUD_SYNC_SECRET not set — background cloud sync is OFF. This device stays purely local-only.");
     return;
