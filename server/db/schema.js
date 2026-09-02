@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS BusinessDays (
 -- it never overwrites a prior entry.
 CREATE TABLE IF NOT EXISTS DailyReconciliations (
   id TEXT PRIMARY KEY,
-  dateLabel TEXT, recordedAt INTEGER, recordedBy TEXT,
+  shiftId TEXT, dateLabel TEXT, recordedAt INTEGER, recordedBy TEXT,
   totalRevenue REAL, instapayTotal REAL, visaTotal REAL, expensesTotal REAL,
   expectedCash REAL, actualCash REAL, variance REAL
 );

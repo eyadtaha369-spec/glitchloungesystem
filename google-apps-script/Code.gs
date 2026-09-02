@@ -188,7 +188,7 @@ function sheetObjectHeaders_(name) {
     WasteInvoices: ["id", "invoiceNumber", "ts", "materialId", "materialName", "unit", "wastedQty", "reason", "reasonLabel", "note", "unitCost", "totalCost", "loggedBy", "shiftId"],
     InventorySnapshots: ["id", "month", "archivedAt", "materialId", "materialName", "unit", "category", "openingBalance", "purchasesIn", "salesWasteOut", "finalSystemBalance", "finalActualCount", "unitCost", "totalValue", "archivedBy"],
     BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy"],
-    DailyReconciliations: ["id", "dateLabel", "recordedAt", "recordedBy", "totalRevenue", "instapayTotal", "visaTotal", "expensesTotal", "expectedCash", "actualCash", "variance"],
+    DailyReconciliations: ["id", "shiftId", "dateLabel", "recordedAt", "recordedBy", "totalRevenue", "instapayTotal", "visaTotal", "expensesTotal", "expectedCash", "actualCash", "variance"],
   };
   return map[name];
 }
@@ -1337,40 +1337,40 @@ function formatDateLabel_(ts) {
 }
 
 // Scoped to the calendar day, not the currently active shift — a
-// separate, admin-only executive overview, independent from the
-// existing per-shift close reconciliation elsewhere in this file.
-//
-// InstaPay and Visa are DELIBERATELY NOT computed here — per direct
-// follow-up request, the admin enters both by hand (same as Actual
-// Physical Cash Counted). See server/lib/reconciliation.js for the
-// full reasoning.
-function bizComputeDailyFinancials_(sessions, ledger, atTime) {
-  const dateLabel = formatDateLabel_(atTime || Date.now());
-  const todaySessions = sessions.filter(function (s) { return formatDateLabel_(s.endedAt) === dateLabel; });
-  const totalRevenue = todaySessions.reduce(function (a, s) { return a + (Number(s.total) || 0); }, 0);
+// Scoped to the ACTIVE SHIFT, not the calendar day — per explicit
+// confirmed decision, a "Business Day" here is defined strictly by a
+// shift's own lifecycle (open to close), completely ignoring calendar
+// dates and midnight. See server/lib/reconciliation.js for the full
+// reasoning.
+function bizComputeShiftFinancials_(sessions, ledger, shiftId) {
+  if (!shiftId) return { shiftId: null, totalRevenue: 0, expensesTotal: 0 };
+  const shiftSessions = sessions.filter(function (s) { return s.shiftId === shiftId; });
+  const totalRevenue = shiftSessions.reduce(function (a, s) { return a + (Number(s.total) || 0); }, 0);
   const expensesTotal = ledger
-    .filter(function (l) { return l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && formatDateLabel_(l.ts) === dateLabel; })
+    .filter(function (l) { return l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && l.shiftId === shiftId; })
     .reduce(function (a, l) { return a + (Number(l.amount) || 0); }, 0);
-
-  return { dateLabel: dateLabel, totalRevenue: totalRevenue, expensesTotal: expensesTotal };
+  return { shiftId: shiftId, totalRevenue: totalRevenue, expensesTotal: expensesTotal };
 }
 
-function bizBuildDailyReconciliation_(sessions, ledger, actualCash, instapayTotal, visaTotal, recordedBy, atTime) {
-  const financials = bizComputeDailyFinancials_(sessions, ledger, atTime);
+function bizBuildShiftReconciliation_(sessions, ledger, shiftId, actualCash, instapayTotal, visaTotal, recordedBy) {
+  const financials = bizComputeShiftFinancials_(sessions, ledger, shiftId);
   const instapay = Number(instapayTotal) || 0;
   const visa = Number(visaTotal) || 0;
   const actual = Number(actualCash) || 0;
 
   // Per explicit confirmed business decision: Total Revenue minus the
-  // manually entered Visa and InstaPay minus today's drawer expenses —
-  // deliberately has no term for the shift's opening float, confirmed
-  // and intentional.
+  // manually entered Visa and InstaPay minus this shift's drawer
+  // expenses — deliberately has no term for the shift's opening float,
+  // confirmed and intentional.
   const expectedCash = financials.totalRevenue - visa - instapay - financials.expensesTotal;
   const now = Date.now();
 
   return {
-    id: "dailyrecon-" + now,
-    dateLabel: financials.dateLabel,
+    id: "shiftrecon-" + now,
+    shiftId: shiftId,
+    // Kept purely as a display label — the actual financial scoping
+    // above uses shiftId, not this.
+    dateLabel: formatDateLabel_(now),
     recordedAt: now,
     recordedBy: recordedBy,
     totalRevenue: financials.totalRevenue,
@@ -2450,13 +2450,15 @@ function doPost(e) {
 
       case "saveDailyReconciliation": {
         requireRole_(body.username, ["admin"]);
+        const state = getState_();
+        if (!state.activeShiftId) return json_({ ok: false, error: "No active shift — open a shift before recording a reconciliation." });
         const sessions = readSessions_();
         const ledger = readObjects_("Ledger");
-        const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.instapayTotal, body.visaTotal, body.username, Date.now());
+        const record = bizBuildShiftReconciliation_(sessions, ledger, state.activeShiftId, body.actualCash, body.instapayTotal, body.visaTotal, body.username);
         appendObject_("DailyReconciliations", record);
         logActivity_({
-          actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED",
-          description: body.username + " recorded daily reconciliation for " + record.dateLabel +
+          actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED", shiftId: state.activeShiftId,
+          description: body.username + " recorded a shift reconciliation" +
             " — expected " + record.expectedCash.toFixed(2) + " EGP, counted " + record.actualCash.toFixed(2) + " EGP" +
             (record.variance >= 0 ? " (+" + record.variance.toFixed(2) + " over)" : " (" + record.variance.toFixed(2) + " short)"),
         });

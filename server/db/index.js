@@ -52,6 +52,7 @@ addColumnIfMissing_("Ledger", "paymentStatus", "TEXT");
 addColumnIfMissing_("Batches", "invoiceId", "TEXT");
 addColumnIfMissing_("Batches", "ledgerId", "TEXT");
 addColumnIfMissing_("Sessions", "rateSegments", "TEXT");
+addColumnIfMissing_("DailyReconciliations", "shiftId", "TEXT");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",

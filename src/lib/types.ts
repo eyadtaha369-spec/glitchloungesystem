@@ -175,13 +175,17 @@ export interface CashRecord {
 // the ACTIVE shift for cashiers (so a new shift never sees the previous
 // one's numbers); admins can see across all shifts for the day, plus the
 // full historical archive.
-// A single admin dashboard cash-reconciliation snapshot. dateLabel is the
-// calendar day (YYYY-MM-DD) this covers, not necessarily the day it was
-// recorded on. Deliberately independent from Shift's own
-// expectedCash/discrepancy — see reconciliation.js for why the formulas
-// differ on purpose.
+// A single admin cash-reconciliation snapshot, scoped to a SHIFT (not
+// a calendar date) — a "Business Day" here is defined strictly by the
+// shift's own lifecycle, so a shift spanning midnight is one
+// continuous reconciliation scope regardless of calendar date.
+// dateLabel is kept only as a display label (when this was recorded),
+// not the actual financial scoping field. Deliberately independent
+// from Shift's own expectedCash/discrepancy — see reconciliation.js
+// for why the formulas differ on purpose.
 export interface DailyReconciliation {
   id: string;
+  shiftId: string | null;
   dateLabel: string;
   recordedAt: number;
   recordedBy: string;

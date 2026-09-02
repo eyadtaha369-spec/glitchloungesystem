@@ -1399,15 +1399,20 @@ export function isToday(ts: number) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 // Live preview for the dashboard — mirrors the backend's
-// bizComputeDailyFinancials_ exactly (server/lib/reconciliation.js and
-// Code.gs). InstaPay and Visa are deliberately NOT computed here — the
-// admin enters both by hand, same as Actual Cash — so only Total
-// Revenue and today's approved drawer expenses are auto-calculated.
-export function computeDailyFinancials(sessions: Session[], ledger: LedgerEntry[]) {
-  const todaySessions = sessions.filter((s) => isToday(s.endedAt));
-  const totalRevenue = todaySessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
+// bizComputeShiftFinancials_ exactly (server/lib/reconciliation.js and
+// Code.gs). Scoped to the ACTIVE SHIFT, not the calendar day — a
+// "Business Day" is defined strictly by the shift's own lifecycle, so
+// this ignores midnight and calendar dates entirely. InstaPay and Visa
+// are deliberately NOT computed here — the admin enters both by hand,
+// same as Actual Cash — so only Total Revenue and this shift's
+// approved drawer expenses are auto-calculated. Returns zeros with no
+// active shift, since there's nothing to reconcile without one.
+export function computeShiftFinancials(sessions: Session[], ledger: LedgerEntry[], activeShiftId: string | null) {
+  if (!activeShiftId) return { totalRevenue: 0, expensesTotal: 0 };
+  const shiftSessions = sessions.filter((s) => s.shiftId === activeShiftId);
+  const totalRevenue = shiftSessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
   const expensesTotal = ledger
-    .filter((l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && isToday(l.ts))
+    .filter((l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && l.shiftId === activeShiftId)
     .reduce((a, l) => a + (Number(l.amount) || 0), 0);
   return { totalRevenue, expensesTotal };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtMoney, isToday, computeDailyFinancials } from "@/lib/glitch-store";
+import { useStore, fmtMoney, computeShiftFinancials } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
@@ -148,7 +148,7 @@ function DailyReconciliationPanel() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Awaited<ReturnType<typeof getDailyReconciliationHistory>> | null>(null);
 
-  const financials = computeDailyFinancials(state.sessions, state.ledger);
+  const financials = computeShiftFinancials(state.sessions, state.ledger, state.activeShiftId);
   const actualCash = parseFloat(actualCashInput);
   const instapayTotal = parseFloat(instapayInput) || 0;
   const visaTotal = parseFloat(visaInput) || 0;
@@ -194,7 +194,9 @@ function DailyReconciliationPanel() {
         <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> {t("dashboard.financialOverview")}
       </h2>
       <p className="text-xs text-white/40 mt-0.5">
-        Calendar day only ({new Date().toLocaleDateString()}) — a shift spanning midnight shows less here than in its own Shift Revenue total.
+        {state.activeShiftId
+          ? "Scoped to the current shift — a shift spanning midnight counts as one continuous business day, ignoring the calendar date entirely."
+          : "No active shift right now — open a shift to start a new reconciliation."}
       </p>
 
       {/* Revenue + expenses stay auto-calculated; InstaPay and Visa are
@@ -271,7 +273,7 @@ function DailyReconciliationPanel() {
       <div className="mt-4 flex items-center gap-3 flex-wrap">
         <button
           onClick={() => void handleSave()}
-          disabled={!hasActualCash || saving}
+          disabled={!hasActualCash || saving || !state.activeShiftId}
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-[oklch(0.78_0.2_155)] text-black disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <CheckCircle2 className="w-4 h-4" /> {saving ? "..." : t("dashboard.saveReconciliation")}
@@ -292,7 +294,7 @@ function DailyReconciliationPanel() {
             <div className="space-y-1.5 max-h-56 overflow-y-auto">
               {history.map((r) => (
                 <div key={r.id} className="flex items-center justify-between text-xs font-mono py-1.5 px-2 rounded bg-white/5">
-                  <span className="text-white/60">{r.dateLabel} — {r.recordedBy}</span>
+                  <span className="text-white/60">{new Date(r.recordedAt).toLocaleString()} — {r.recordedBy}</span>
                   <span className="text-white/50">{t("dashboard.expectedCash")}: {fmtMoney(r.expectedCash)}</span>
                   <span className={r.variance >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}>
                     {r.variance >= 0 ? "+" : ""}{fmtMoney(r.variance)}

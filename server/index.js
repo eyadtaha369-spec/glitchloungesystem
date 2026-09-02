@@ -28,7 +28,7 @@ const {
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
-const { bizComputeDailyFinancials_, bizBuildDailyReconciliation_ } = require("./lib/reconciliation");
+const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
@@ -318,13 +318,15 @@ const handlers = {
   // history itself is the point.
   saveDailyReconciliation(body) {
     requireRole_(body.username, ["admin"]);
+    const state = getState_();
+    if (!state.activeShiftId) return json_({ ok: false, error: "No active shift — open a shift before recording a reconciliation." });
     const sessions = readSessions_();
     const ledger = readObjects_("Ledger");
-    const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.instapayTotal, body.visaTotal, body.username, Date.now());
+    const record = bizBuildShiftReconciliation_(sessions, ledger, state.activeShiftId, body.actualCash, body.instapayTotal, body.visaTotal, body.username);
     appendObject_("DailyReconciliations", record);
     logActivity_({
-      actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED",
-      description: body.username + " recorded daily reconciliation for " + record.dateLabel +
+      actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED", shiftId: state.activeShiftId,
+      description: body.username + " recorded a shift reconciliation" +
         " — expected " + record.expectedCash.toFixed(2) + " EGP, counted " + record.actualCash.toFixed(2) + " EGP" +
         (record.variance >= 0 ? " (+" + record.variance.toFixed(2) + " over)" : " (" + record.variance.toFixed(2) + " short)"),
     });
