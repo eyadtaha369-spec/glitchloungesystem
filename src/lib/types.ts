@@ -175,6 +175,25 @@ export interface CashRecord {
 // the ACTIVE shift for cashiers (so a new shift never sees the previous
 // one's numbers); admins can see across all shifts for the day, plus the
 // full historical archive.
+// A single admin dashboard cash-reconciliation snapshot. dateLabel is the
+// calendar day (YYYY-MM-DD) this covers, not necessarily the day it was
+// recorded on. Deliberately independent from Shift's own
+// expectedCash/discrepancy — see reconciliation.js for why the formulas
+// differ on purpose.
+export interface DailyReconciliation {
+  id: string;
+  dateLabel: string;
+  recordedAt: number;
+  recordedBy: string;
+  totalRevenue: number;
+  instapayTotal: number;
+  visaTotal: number;
+  expensesTotal: number;
+  expectedCash: number;
+  actualCash: number;
+  variance: number;
+}
+
 export interface Shift {
   id: string;
   cashierUsername: string;

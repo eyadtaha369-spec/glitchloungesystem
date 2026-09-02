@@ -57,7 +57,7 @@ const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
   "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots",
-  "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments",
+  "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments", "DailyReconciliations",
 ];
 
 function assertTable(table) {

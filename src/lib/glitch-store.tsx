@@ -8,6 +8,7 @@ import type {
   Session,
   AppState,
   Shift,
+  DailyReconciliation,
   SupplierLedgerEntry,
   PaymentMethod,
   RawMaterial,
@@ -36,6 +37,8 @@ import {
   extendRoomTimeFn,
   switchRateModeFn,
   reopenSessionFn,
+  saveDailyReconciliationFn,
+  getDailyReconciliationHistoryFn,
   pauseRoomFn,
   resumeRoomFn,
   addOrderFn,
@@ -83,7 +86,7 @@ import { getActivityLogsFn } from "@/backend/audit";
 import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
 
 export type {
-  Role, StockItem, MenuItem, Room, Session, AppState, Shift, PaymentMethod,
+  Role, StockItem, MenuItem, Room, Session, AppState, Shift, DailyReconciliation, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
   MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
   WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
@@ -149,6 +152,8 @@ interface StoreContextValue {
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   reopenSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+  saveDailyReconciliation: (actualCash: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
+  getDailyReconciliationHistory: () => Promise<DailyReconciliation[]>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -624,6 +629,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not reopen check." };
       }
     });
+  };
+  const saveDailyReconciliation: StoreContextValue["saveDailyReconciliation"] = async (actualCash) => {
+    return withPending("saveDailyReconciliation", async () => {
+      try {
+        const res = await saveDailyReconciliationFn({ data: { actualCash } });
+        return { ok: res.ok, error: res.error, record: res.record };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not save reconciliation." };
+      }
+    });
+  };
+  const getDailyReconciliationHistory: StoreContextValue["getDailyReconciliationHistory"] = async () => {
+    return getDailyReconciliationHistoryFn();
   };
   const resumeRoom: StoreContextValue["resumeRoom"] = async (roomId) => {
     return withPending(`resumeRoom:${roomId}`, async () => {
@@ -1292,7 +1310,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
@@ -1379,6 +1397,23 @@ export function isToday(ts: number) {
   const d = new Date(ts);
   const now = new Date();
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+// Live preview for the dashboard — mirrors the backend's
+// bizComputeDailyFinancials_ exactly (server/lib/reconciliation.js and
+// Code.gs) so what's shown while the admin is looking at the page
+// matches what actually gets saved when they confirm. The saved record
+// is still always computed fresh server-side on save, never trusts this
+// client-side number directly.
+export function computeDailyFinancials(sessions: Session[], ledger: LedgerEntry[]) {
+  const todaySessions = sessions.filter((s) => isToday(s.endedAt));
+  const totalRevenue = todaySessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
+  const instapayTotal = todaySessions.reduce((a, s) => a + (Number(s.instapayAmount) || 0), 0);
+  const visaTotal = todaySessions.reduce((a, s) => a + (Number(s.visaAmount) || 0), 0);
+  const expensesTotal = ledger
+    .filter((l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && isToday(l.ts))
+    .reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const expectedCash = totalRevenue - visaTotal - instapayTotal - expensesTotal;
+  return { totalRevenue, instapayTotal, visaTotal, expensesTotal, expectedCash };
 }
 export function monthKey(ts: number) {
   const d = new Date(ts);

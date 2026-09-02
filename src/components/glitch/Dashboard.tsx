@@ -1,39 +1,29 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtMoney, isToday } from "@/lib/glitch-store";
+import { useStore, fmtMoney, isToday, computeDailyFinancials } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle } from "lucide-react";
+import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
 
 export function Dashboard() {
-  const { state, computeElapsed, activeShift } = useStore();
+  const { state, computeElapsed } = useStore();
   const { t } = useLanguage();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
-  const isAdmin = state.currentUser?.role === "admin";
+  // This page is admin-only (enforced in App.tsx — a cashier is redirected
+  // before ever rendering this), so every number here is the full day,
+  // with no cashier/shift-scoped variant to branch on anymore.
   const roomsOnly = state.rooms.filter((r) => r.zone === "room");
   const activeRooms = roomsOnly.filter((r) => r.status === "active");
   const available = roomsOnly.length - activeRooms.length;
-
-  // Cashiers only ever see numbers for their OWN active shift — the previous
-  // shift's sales and stats are fully hidden the moment it's closed. Admins
-  // see the full day (and can drill into full history on the Reports page).
-  const visibleSessions = isAdmin
-    ? state.sessions.filter((s) => isToday(s.endedAt))
-    : state.sessions.filter((s) => activeShift && s.shiftId === activeShift.id);
-  const revenueLabel = isAdmin ? t("dashboard.revenueToday") : t("dashboard.revenueThisShift");
-  const revenueToday = visibleSessions.reduce((a, s) => a + s.total, 0);
 
   const stockAlerts = state.stock.filter((s) => {
     const remaining = s.initialStock - s.used;
     return remaining < s.minStock || remaining < s.initialStock * 0.2;
   });
 
-  // Revenue by room (from completed sessions). Admins see all-time performance
-  // per room; cashiers only see what happened during their own shift.
-  const roomSessionPool = isAdmin ? state.sessions : visibleSessions;
   const revByRoom = state.rooms.map((r) => {
-    const past = roomSessionPool.filter((s) => s.roomId === r.id).reduce((a, s) => a + s.total, 0);
+    const past = state.sessions.filter((s) => s.roomId === r.id).reduce((a, s) => a + s.total, 0);
     let live = 0;
     if (r.status === "active" && r.startedAt) {
       const dur = computeElapsed(r);
@@ -52,6 +42,8 @@ export function Dashboard() {
 
       <ShiftBar />
 
+      <DailyReconciliationPanel />
+
       {/* Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard
@@ -59,12 +51,6 @@ export function Dashboard() {
           value={`${activeRooms.length} / ${roomsOnly.length}`}
           icon={Gamepad2}
           accent="cyan"
-        />
-        <MetricCard
-          label={revenueLabel}
-          value={fmtMoney(revenueToday)}
-          icon={DollarSign}
-          accent="green"
         />
         <MetricCard
           label={t("dashboard.availableRooms")}
@@ -129,25 +115,192 @@ export function Dashboard() {
             <h2 className="text-lg font-semibold">{t("dashboard.activityFeed")}</h2>
           </div>
           <div className="flex-1 overflow-y-auto space-y-2 max-h-[420px] pr-1">
-            {(() => {
-              const visibleActivity = isAdmin
-                ? state.activity
-                : state.activity.filter((a) => activeShift && a.ts >= activeShift.openedAt);
-              if (visibleActivity.length === 0) {
-                return <div className="text-sm text-muted-foreground font-mono">{t("dashboard.noActivityYet")}</div>;
-              }
-              return visibleActivity.slice(0, 30).map((a) => (
+            {state.activity.length === 0 ? (
+              <div className="text-sm text-muted-foreground font-mono">{t("dashboard.noActivityYet")}</div>
+            ) : (
+              state.activity.slice(0, 30).map((a) => (
                 <div key={a.id} className="text-sm p-3 rounded-lg bg-white/60 border border-black/8 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
                   <div className="text-foreground">{a.message}</div>
                   <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-wider">
                     {new Date(a.ts).toLocaleTimeString()}
                   </div>
                 </div>
-              ));
-            })()}
+              ))
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// The dark-themed executive financial overview requested — deliberately
+// scoped to this one section rather than the whole app, since a global
+// dark mode wasn't part of the request, just this panel.
+function DailyReconciliationPanel() {
+  const { state, saveDailyReconciliation, getDailyReconciliationHistory } = useStore();
+  const { t } = useLanguage();
+  const [actualCashInput, setActualCashInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getDailyReconciliationHistory>> | null>(null);
+
+  const financials = computeDailyFinancials(state.sessions, state.ledger);
+  const actualCash = parseFloat(actualCashInput);
+  const hasActualCash = actualCashInput.trim() !== "" && !isNaN(actualCash);
+  const variance = hasActualCash ? actualCash - financials.expectedCash : null;
+  const isOver = variance !== null && variance >= 0;
+
+  const loadHistory = async () => {
+    const records = await getDailyReconciliationHistory();
+    setHistory(records);
+  };
+
+  const handleToggleHistory = () => {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    if (next && !history) void loadHistory();
+  };
+
+  const handleSave = async () => {
+    if (!hasActualCash) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await saveDailyReconciliation(actualCash);
+      if (res.ok) {
+        setSaveMsg(t("dashboard.reconciliationSaved"));
+        if (historyOpen) void loadHistory();
+      } else {
+        setSaveMsg(res.error ?? "Could not save");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0b0d12] text-white p-6 shadow-[0_0_40px_rgba(0,0,0,0.3)]">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> {t("dashboard.financialOverview")}
+      </h2>
+
+      {/* KPI cards: revenue highlighted, then the three deduction breakdowns */}
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <DarkKpiCard
+          label={t("dashboard.closedOrdersTotal")}
+          value={fmtMoney(financials.totalRevenue)}
+          icon={DollarSign}
+          highlighted
+        />
+        <DarkKpiCard label={t("dashboard.instapayTotal")} value={fmtMoney(financials.instapayTotal)} icon={Smartphone} />
+        <DarkKpiCard label={t("dashboard.visaCardTotal")} value={fmtMoney(financials.visaTotal)} icon={CreditCard} />
+        <DarkKpiCard label={t("dashboard.dailyExpenses")} value={fmtMoney(financials.expensesTotal)} icon={Receipt} />
+      </div>
+
+      {/* Expected cash + actual cash input + variance */}
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="lg:col-span-1 rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="text-[10px] uppercase tracking-widest text-white/50">{t("dashboard.expectedCash")}</div>
+          <div className="mt-1 text-3xl font-bold font-mono">{fmtMoney(financials.expectedCash)}</div>
+        </div>
+
+        <div className="lg:col-span-1 rounded-xl border border-white/10 bg-white/5 p-4">
+          <label className="text-[10px] uppercase tracking-widest text-white/50">{t("dashboard.actualCashLabel")}</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={actualCashInput}
+            onChange={(e) => { setActualCashInput(e.target.value); setSaveMsg(null); }}
+            placeholder={t("dashboard.actualCashPlaceholder")}
+            className="mt-2 w-full bg-black/30 border border-white/15 rounded-lg px-3 py-2 text-xl font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-[oklch(0.78_0.2_155/0.6)]"
+          />
+        </div>
+
+        <div
+          className={`lg:col-span-1 rounded-xl border p-4 flex flex-col justify-center transition-colors ${
+            variance === null
+              ? "border-white/10 bg-white/5"
+              : isOver
+                ? "border-[oklch(0.78_0.2_155/0.5)] bg-[oklch(0.78_0.2_155/0.15)]"
+                : "border-[oklch(0.62_0.24_25/0.5)] bg-[oklch(0.62_0.24_25/0.15)]"
+          }`}
+        >
+          <div className="text-[10px] uppercase tracking-widest text-white/50">{t("dashboard.variance")}</div>
+          {variance === null ? (
+            <div className="mt-1 text-lg font-mono text-white/40">—</div>
+          ) : (
+            <div className={`mt-1 flex items-center gap-2 text-2xl font-bold font-mono ${isOver ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
+              {isOver ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+              {variance === 0 ? t("dashboard.matched") : `${variance > 0 ? "+" : ""}${fmtMoney(variance)}`}
+              {variance !== 0 && (
+                <span className="text-xs font-normal uppercase tracking-widest opacity-80">
+                  {isOver ? t("dashboard.over") : t("dashboard.shortage")}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => void handleSave()}
+          disabled={!hasActualCash || saving}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-[oklch(0.78_0.2_155)] text-black disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <CheckCircle2 className="w-4 h-4" /> {saving ? "..." : t("dashboard.saveReconciliation")}
+        </button>
+        {saveMsg && <span className="text-sm text-white/70">{saveMsg}</span>}
+        <button onClick={handleToggleHistory} className="ms-auto flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80">
+          <History className="w-3.5 h-3.5" /> {t("dashboard.reconciliationHistory")} {historyOpen ? "▲" : "▼"}
+        </button>
+      </div>
+
+      {historyOpen && (
+        <div className="mt-3 border-t border-white/10 pt-3">
+          {!history ? (
+            <div className="text-sm text-white/40">...</div>
+          ) : history.length === 0 ? (
+            <div className="text-sm text-white/40">{t("dashboard.noHistoryYet")}</div>
+          ) : (
+            <div className="space-y-1.5 max-h-56 overflow-y-auto">
+              {history.map((r) => (
+                <div key={r.id} className="flex items-center justify-between text-xs font-mono py-1.5 px-2 rounded bg-white/5">
+                  <span className="text-white/60">{r.dateLabel} — {r.recordedBy}</span>
+                  <span className="text-white/50">{t("dashboard.expectedCash")}: {fmtMoney(r.expectedCash)}</span>
+                  <span className={r.variance >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}>
+                    {r.variance >= 0 ? "+" : ""}{fmtMoney(r.variance)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DarkKpiCard({ label, value, icon: Icon, highlighted }: {
+  label: string; value: string;
+  icon: React.ComponentType<{ className?: string }>;
+  highlighted?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl p-4 border ${
+        highlighted
+          ? "border-[oklch(0.78_0.2_155/0.5)] bg-gradient-to-br from-[oklch(0.78_0.2_155/0.2)] to-transparent"
+          : "border-white/10 bg-white/5"
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div className="text-[10px] uppercase tracking-widest text-white/50">{label}</div>
+        <Icon className={`w-4 h-4 ${highlighted ? "text-[oklch(0.78_0.2_155)]" : "text-white/40"}`} />
+      </div>
+      <div className={`mt-2 font-mono font-bold ${highlighted ? "text-2xl text-[oklch(0.78_0.2_155)]" : "text-xl text-white"}`}>{value}</div>
     </div>
   );
 }

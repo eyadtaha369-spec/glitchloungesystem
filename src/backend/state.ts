@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot } from "@/lib/types";
+import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot, DailyReconciliation } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -10,6 +10,22 @@ export const getStateFn = createServerFn({ method: "GET" }).handler(async () => 
   // step is needed here.
   const res = await callAppsScript<{ state: AppState }>("getState", { username: user.username });
   return res.state;
+});
+
+export const saveDailyReconciliationFn = createServerFn({ method: "POST" })
+  .validator((d: { actualCash: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; record: DailyReconciliation }>("saveDailyReconciliation", {
+      ...data,
+      username: user.username,
+    });
+  });
+
+export const getDailyReconciliationHistoryFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireAdmin();
+  const res = await callAppsScript<{ ok: boolean; records: DailyReconciliation[] }>("getDailyReconciliationHistory", { username: user.username });
+  return res.records;
 });
 
 export const startRoomFn = createServerFn({ method: "POST" })

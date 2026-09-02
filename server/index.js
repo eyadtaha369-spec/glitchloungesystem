@@ -28,6 +28,7 @@ const {
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
+const { bizComputeDailyFinancials_, bizBuildDailyReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
@@ -306,6 +307,30 @@ const handlers = {
       });
     }
     return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+  },
+
+  // Computes fresh server-side (authoritative — never trusts a
+  // client-supplied number for what gets permanently saved) and
+  // appends a new snapshot; never overwrites a prior one, since the
+  // history itself is the point.
+  saveDailyReconciliation(body) {
+    requireRole_(body.username, ["admin"]);
+    const sessions = readSessions_();
+    const ledger = readObjects_("Ledger");
+    const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.username, Date.now());
+    appendObject_("DailyReconciliations", record);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED",
+      description: body.username + " recorded daily reconciliation for " + record.dateLabel +
+        " — expected " + record.expectedCash.toFixed(2) + " EGP, counted " + record.actualCash.toFixed(2) + " EGP" +
+        (record.variance >= 0 ? " (+" + record.variance.toFixed(2) + " over)" : " (" + record.variance.toFixed(2) + " short)"),
+    });
+    return json_({ ok: true, record });
+  },
+
+  getDailyReconciliationHistory(body) {
+    requireRole_(body.username, ["admin"]);
+    return json_({ ok: true, records: readObjects_("DailyReconciliations").sort((a, b) => b.recordedAt - a.recordedAt) });
   },
 };
 
@@ -1202,7 +1227,7 @@ Object.assign(handlers, {
 
     // Transactional / test data — WIPED. Configuration (RawMaterials,
     // Suppliers, RecurringExpenses, Accounts) is never touched here.
-    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "RestockLog", "Batches", "BusinessDays"]
+    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "RestockLog", "Batches", "BusinessDays", "DailyReconciliations"]
       .forEach((table) => db.exec(`DELETE FROM ${table}`));
 
     const state = getState_();
@@ -1234,7 +1259,7 @@ Object.assign(handlers, {
     // PurchaseInvoices/Items, SupplierPayments, RecurringExpenses, and
     // Accounts are all deliberately left untouched, unlike Production
     // Reset which wipes Ledger/Batches entirely.
-    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
+    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots", "DailyReconciliations"]
       .forEach((table) => db.exec(`DELETE FROM ${table}`));
 
     const state = getState_();

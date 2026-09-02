@@ -138,6 +138,19 @@ CREATE TABLE IF NOT EXISTS BusinessDays (
   netProfit REAL, shiftCount INTEGER, closedBy TEXT
 );
 
+-- Admin dashboard's daily cash reconciliation snapshots. dateLabel is the
+-- calendar day (YYYY-MM-DD) this snapshot covers, NOT necessarily the
+-- day it was recorded on -- an admin could reconcile after midnight for
+-- the day just ending. Multiple snapshots per day are allowed (e.g. a
+-- correction later in the day); the history keeps every one recorded,
+-- it never overwrites a prior entry.
+CREATE TABLE IF NOT EXISTS DailyReconciliations (
+  id TEXT PRIMARY KEY,
+  dateLabel TEXT, recordedAt INTEGER, recordedBy TEXT,
+  totalRevenue REAL, instapayTotal REAL, visaTotal REAL, expensesTotal REAL,
+  expectedCash REAL, actualCash REAL, variance REAL
+);
+
 -- Indexes on the columns every report/lookup actually filters by —
 -- Sheets never needed these (it scans everything), SQLite benefits a lot
 -- from them once history grows past a few hundred rows.
