@@ -1133,7 +1133,8 @@ function PurchaseHistory() {
 }
 
 function PurchaseRowActions({ entry }: { entry: LedgerEntry }) {
-  const { deletePurchase } = useStore();
+  const { state, deletePurchase } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const [showEdit, setShowEdit] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1158,18 +1159,20 @@ function PurchaseRowActions({ entry }: { entry: LedgerEntry }) {
       <button onClick={() => setShowEdit(true)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]" title="Edit">
         <Pencil className="w-3.5 h-3.5" />
       </button>
-      <button onClick={() => setShowConfirmDelete(true)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete">
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      {isAdmin && (
+        <button onClick={() => setShowConfirmDelete(true)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
 
       {showEdit && <EditPurchaseModal entry={entry} onClose={() => setShowEdit(false)} />}
 
-      {showConfirmDelete && (
+      {isAdmin && showConfirmDelete && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setShowConfirmDelete(false)}>
           <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-bold mb-2">Delete this entry?</h3>
+            <h3 className="text-base font-bold mb-2">Delete this expense of {fmtMoney(entry.amount)}?</h3>
             <p className="text-sm text-muted-foreground mb-3">
-              {entry.description || entry.category} — {fmtMoney(entry.amount)}. If any of this stock has already been
+              {entry.description || entry.category}. If any of this stock has already been
               used in a sale, this will be blocked automatically.
             </p>
             {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}

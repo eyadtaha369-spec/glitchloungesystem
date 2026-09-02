@@ -704,12 +704,17 @@ Object.assign(handlers, {
     return { ok: true, ledger: bizGetSupplierLedger_({ readObjects_ }, body.supplierId) };
   },
   deletePurchase(body) {
-    requireRole_(body.username, ["admin", "cashier"]);
+    // Admin-only per explicit request — deleting a logged expense/purchase
+    // is a real financial correction, not a routine cashier action.
+    requireRole_(body.username, ["admin"]);
+    const entryBefore = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
     const result = bizDeletePurchase_({ readObjects_, deleteObjectById_ }, body.ledgerId);
     if (!result.ok) return result;
     logActivity_({
-      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
-      description: body.username + " deleted a procurement entry",
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_DELETED",
+      description: body.username + " deleted a logged expense — " +
+        (entryBefore ? Number(entryBefore.amount).toFixed(2) + " EGP, \"" + (entryBefore.description || entryBefore.category) + "\"" : body.ledgerId),
+      before: entryBefore ? { amount: entryBefore.amount, description: entryBefore.description, category: entryBefore.category } : null,
     });
     return { ok: true, state: withStockView_(getState_()) };
   },
