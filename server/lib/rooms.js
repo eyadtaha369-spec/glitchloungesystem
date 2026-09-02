@@ -423,6 +423,53 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   return { session, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
 }
 
+// Closes a room/table as a Staff Order instead of a paid checkout.
+// Deliberately does NOT create a Session record — every revenue
+// calculation across this entire app (Dashboard, Reports, Shift
+// totals, P&L) reads only from Sessions, so simply never creating one
+// here is what guarantees this can never leak into revenue anywhere,
+// without needing to add an exclusion filter to every place that
+// currently sums Sessions. Reuses the exact same StaffOrders/Ledger
+// logging the existing standalone staff-order flow already uses, so
+// it shows up in the same place with the same admin-only visibility.
+//
+// Stock was already deducted as each order line was added to the room
+// (same FIFO consumption every other order in this app uses) — this
+// does NOT re-consume anything, it just carries over room.cogsAccrued,
+// the running total already kept in exact sync with that consumption.
+function bizEndRoomAsStaffOrder_(state, roomId, staffName, frozenAt) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room || room.status !== "active") return { ok: false, error: "Room is not active", state };
+  const trimmedName = (staffName || "").trim();
+  if (!trimmedName) return { ok: false, error: "Staff member name is required", state };
+
+  const now = Date.now();
+  const endedAt = (typeof frozenAt === "number" && room.startedAt && frozenAt >= room.startedAt && frozenAt <= now) ? frozenAt : now;
+  const durationSec = room.startedAt ? Math.max(1, Math.floor(effectiveDurationSec_(room, endedAt))) : 0;
+  const timeCost = room.startedAt ? computeTimeCost_(room, durationSec) : 0;
+  const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+  const totalAmount = timeCost + ordersCost;
+
+  const orderLines = room.orders.slice();
+  if (timeCost > 0) {
+    orderLines.push({ menuItemId: "room-time", name: "Room Time (" + Math.round(durationSec / 60) + " min)", qty: 1, price: timeCost });
+  }
+  if (orderLines.length === 0) return { ok: false, error: "Nothing to log — this room/table has no orders or time charge yet.", state };
+
+  const cogs = room.cogsAccrued || 0;
+  const staffOrder = {
+    id: "staff-" + now + "-" + Math.random().toString(36).slice(2, 7), ts: now, staffName: trimmedName,
+    items: orderLines, totalAmount, cogs, processedBy: null, shiftId: state.activeShiftId || null,
+  };
+
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, {
+    status: "available", startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
+    isPaused: false, pausedAt: null, pausedDurationSec: 0, transferredFrom: null,
+  }) : r));
+  pushActivity_(state, room.name + " closed as Staff Order for " + trimmedName + " — " + totalAmount.toFixed(2) + " EGP (excluded from revenue)");
+  return { ok: true, state, staffOrder };
+}
+
 const WASTE_MARKETING_REASONS = {
   remakeWrongOrder: "Remake — Wrong Order",
   remakeComplaint: "Remake — Customer Complaint",
@@ -461,6 +508,6 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
 
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
-  bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_,
   WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,
 };

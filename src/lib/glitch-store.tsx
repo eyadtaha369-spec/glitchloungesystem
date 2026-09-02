@@ -84,7 +84,7 @@ import {
   requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn, verifyAdminAuthFn, reconcileUnapprovedVoidFn,
 } from "@/backend/void";
 import { getActivityLogsFn } from "@/backend/audit";
-import { submitStaffOrderFn, getStaffOrdersFn } from "@/backend/staffOrders";
+import { submitStaffOrderFn, getStaffOrdersFn, endRoomAsStaffOrderFn } from "@/backend/staffOrders";
 
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, DailyReconciliation, PaymentMethod,
@@ -270,6 +270,7 @@ interface StoreContextValue {
   // Staff Orders & Consumption — standard menu prices for costing, but
   // routed to a Staff Consumption Expense, never retail revenue.
   submitStaffOrder: (params: { staffName: string; items: { menuItemId: string; qty: number }[] }) => Promise<{ ok: boolean; error?: string; staffOrder?: StaffOrder }>;
+  endRoomAsStaffOrder: (roomId: string, staffName: string, frozenAt?: number) => Promise<{ ok: boolean; error?: string; staffOrder?: StaffOrder }>;
   refreshStaffOrders: () => Promise<void>;
 
   // Cross-zone transfer & interactive split
@@ -1165,6 +1166,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const endRoomAsStaffOrder: StoreContextValue["endRoomAsStaffOrder"] = async (roomId, staffName, frozenAt) => {
+    return withPending(`endRoomAsStaffOrder:${roomId}`, async () => {
+      try {
+        const res = await endRoomAsStaffOrderFn({ data: { roomId, staffName, frozenAt } });
+        if (res.ok) {
+          setAppState(res.state);
+          await refreshStaffOrders();
+          await refreshLedger();
+        }
+        return { ok: res.ok, error: res.error, staffOrder: res.staffOrder };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not close as staff order." };
+      }
+    });
+  };
 
   // ---------- Cross-zone transfer & interactive split ----------
   const transferZone: StoreContextValue["transferZone"] = async (sourceId, targetId, rateMode) => {
@@ -1331,7 +1347,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
-    requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, refreshStaffOrders,
+    requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };
 

@@ -21,3 +21,17 @@ export const getStaffOrdersFn = createServerFn({ method: "GET" }).handler(async 
   const res = await callAppsScript<{ items: StaffOrder[] }>("getStaffOrders", { username: user.username });
   return res.items;
 });
+
+// Closes an active room/table as a Staff Order instead of a paid
+// checkout — routes through the exact same Staff Consumption Expense
+// mechanism as submitStaffOrderFn above, just triggered from an
+// in-progress room/table rather than the standalone Staff Orders page.
+export const endRoomAsStaffOrderFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string; staffName: string; frozenAt?: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; staffOrder?: StaffOrder; state: AppState }>("endRoomAsStaffOrder", {
+      ...data,
+      username: user.username,
+    });
+  });

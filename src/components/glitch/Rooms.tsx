@@ -203,7 +203,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
 });
 
 const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckout, transferTargets, onClose }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[]; onClose: () => void }) {
-  const { state, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, endRoomAsStaffOrder, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -277,6 +277,9 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [checkoutErr, setCheckoutErr] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [timeDiscountType, setTimeDiscountType] = useState<"fixed" | "percent">("fixed");
+  const [isStaffOrder, setIsStaffOrder] = useState(false);
+  const [staffOrderName, setStaffOrderName] = useState("");
+  const [staffOrderSubmitting, setStaffOrderSubmitting] = useState(false);
   const [timeDiscountInput, setTimeDiscountInput] = useState("");
   const [ordersDiscountType, setOrdersDiscountType] = useState<"fixed" | "percent">("fixed");
   const [ordersDiscountInput, setOrdersDiscountInput] = useState("");
@@ -338,6 +341,22 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       if (res.session) onCheckout(res.session);
     } finally {
       setCheckingOut(false);
+    }
+  };
+
+  const handleStaffOrderCheckout = async () => {
+    setCheckoutErr(null);
+    if (!staffOrderName.trim()) { setCheckoutErr("Enter the staff member's name."); return; }
+    setStaffOrderSubmitting(true);
+    try {
+      const res = await endRoomAsStaffOrder(room.id, staffOrderName.trim(), frozenAt ?? undefined);
+      if (!res.ok) { setCheckoutErr(res.error ?? "Could not close as staff order."); return; }
+      setCheckoutOpen(false);
+      setFrozenAt(null);
+      setIsStaffOrder(false);
+      setStaffOrderName("");
+    } finally {
+      setStaffOrderSubmitting(false);
     }
   };
 
@@ -786,11 +805,11 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       </div>
 
       {checkoutOpen && createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setFrozenAt(null); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-black/10">
               <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.62_0.24_25)]">{room.name} · Checkout</div>
-              <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
+              <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-6 space-y-5">
               {room.zone === "room" && (
@@ -799,6 +818,29 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               )}
 
+              {/* Staff Order toggle — when on, this room/table closes as a
+                  zero-revenue staff consumption expense instead of a paid
+                  checkout. The value is shown only right here, on this
+                  screen, never on any receipt or other view. */}
+              <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[oklch(0.65_0.24_305/0.1)] border border-[oklch(0.65_0.24_305/0.4)] cursor-pointer select-none">
+                <span className="flex items-center gap-2">
+                  <span className="relative">
+                    <input
+                      type="checkbox"
+                      checked={isStaffOrder}
+                      onChange={(e) => setIsStaffOrder(e.target.checked)}
+                      className="peer sr-only"
+                    />
+                    <span className="w-9 h-5 flex items-center bg-white/80 border border-black/10 rounded-full peer-checked:bg-[oklch(0.65_0.24_305/0.6)] peer-checked:border-[oklch(0.65_0.24_305)] transition" />
+                    <span className="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow transition peer-checked:translate-x-4" />
+                  </span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-[oklch(0.65_0.24_305)]">Staff Order</span>
+                </span>
+                <span className="text-[10px] text-muted-foreground normal-case font-normal max-w-[180px] text-right">Zero revenue — logged as a staff consumption expense instead</span>
+              </label>
+
+              {!isStaffOrder ? (
+              <>
               <div className="rounded-2xl bg-black/5 border border-black/8 p-4 space-y-3">
                 <div className="text-xs uppercase tracking-widest font-bold text-muted-foreground">Discounts (optional)</div>
                 <div className="grid grid-cols-2 gap-3">
@@ -929,6 +971,39 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               >
                 {checkingOut ? "Processing..." : "Confirm & Close Ticket"}
               </button>
+              </>
+              ) : (
+              <>
+              <div className="text-center py-2">
+                <div className="text-xs uppercase tracking-widest text-muted-foreground">Staff Order Value (not counted as revenue)</div>
+                <div className="text-6xl font-mono font-black mt-2 text-[oklch(0.65_0.24_305)]">{fmtMoney(checkoutPreDiscountTotal)}</div>
+              </div>
+
+              <div>
+                <label className="text-sm uppercase tracking-widest font-bold text-muted-foreground">Staff Member Name</label>
+                <input
+                  type="text" autoFocus value={staffOrderName}
+                  onChange={(e) => setStaffOrderName(e.target.value)}
+                  placeholder="Enter name"
+                  className="mt-2 w-full bg-white/80 border-2 border-black/12 rounded-xl px-4 py-4 text-xl font-mono outline-none focus:border-[oklch(0.65_0.24_305)]"
+                />
+              </div>
+
+              {checkoutErr && (
+                <div className="text-sm p-4 rounded-xl bg-[oklch(0.62_0.24_25/0.2)] border-2 border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] font-semibold">
+                  {checkoutErr}
+                </div>
+              )}
+
+              <button
+                onClick={() => void handleStaffOrderCheckout()}
+                disabled={staffOrderSubmitting}
+                className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.65_0.24_305)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.65_0.24_305/0.5)] disabled:opacity-50"
+              >
+                {staffOrderSubmitting ? "Processing..." : "Confirm Staff Order"}
+              </button>
+              </>
+              )}
             </div>
           </div>
         </div>,

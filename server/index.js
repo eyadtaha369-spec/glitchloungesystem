@@ -25,7 +25,7 @@ const {
 } = require("./lib/state");
 const {
   bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
-  bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
+  bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
@@ -210,6 +210,38 @@ const handlers = {
       });
     }
     return json_({ session: result.session, state: withStockView_(result.state) });
+  },
+
+  // Closes an active room/table as a Staff Order instead of a paid
+  // checkout — logs through the exact same StaffOrders/Ledger
+  // mechanism the existing standalone staff-order flow already uses,
+  // so it shows up in the same admin-only history with the same
+  // revenue exclusion, rather than a second, separate bookkeeping
+  // path. See bizEndRoomAsStaffOrder_ for why no Session gets created.
+  endRoomAsStaffOrder(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const result = bizEndRoomAsStaffOrder_(getState_(), body.roomId, body.staffName, body.frozenAt);
+    if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+    setState_(result.state);
+    result.staffOrder.processedBy = body.username;
+    appendObject_("StaffOrders", {
+      id: result.staffOrder.id, ts: result.staffOrder.ts, staffName: result.staffOrder.staffName,
+      items: JSON.stringify(result.staffOrder.items), totalAmount: result.staffOrder.totalAmount,
+      cogs: result.staffOrder.cogs, processedBy: body.username, shiftId: result.staffOrder.shiftId,
+    });
+    appendObject_("Ledger", {
+      id: newId_("ledg"), ts: result.staffOrder.ts, amount: result.staffOrder.totalAmount, direction: "outflow",
+      type: "manualAdjustment", category: "Staff Consumption Expense",
+      description: result.staffOrder.staffName + " — " + result.staffOrder.items.length + " item(s) (from room checkout)",
+      supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+      paidFromDrawer: false, shiftId: result.staffOrder.shiftId, materialId: null, qty: null, unitCost: null, paymentSource: null,
+    });
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STAFF_ORDER_LOGGED",
+      shiftId: result.staffOrder.shiftId,
+      description: "Room closed as staff order for " + result.staffOrder.staffName + " — " + result.staffOrder.totalAmount.toFixed(2) + " EGP (excluded from revenue)",
+    });
+    return json_({ ok: true, staffOrder: result.staffOrder, state: withStockView_(result.state) });
   },
 
   addOrder(body) {

@@ -961,6 +961,46 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   return { session: session, state: state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
 }
 
+// Closes a room/table as a Staff Order instead of a paid checkout. See
+// the local server's identical function for the full reasoning —
+// deliberately does NOT create a Session, and reuses room.cogsAccrued
+// rather than re-consuming stock that was already deducted as each
+// order line was added.
+function bizEndRoomAsStaffOrder_(state, roomId, staffName, frozenAt) {
+  const room = state.rooms.find(function (r) { return r.id === roomId; });
+  if (!room || room.status !== "active") return { ok: false, error: "Room is not active", state: state };
+  const trimmedName = (staffName || "").trim();
+  if (!trimmedName) return { ok: false, error: "Staff member name is required", state: state };
+
+  const now = Date.now();
+  const endedAt = (typeof frozenAt === "number" && room.startedAt && frozenAt >= room.startedAt && frozenAt <= now) ? frozenAt : now;
+  const durationSec = room.startedAt ? Math.max(1, Math.floor(effectiveDurationSec_(room, endedAt))) : 0;
+  const timeCost = room.startedAt ? computeTimeCost_(room, durationSec) : 0;
+  const ordersCost = room.orders.reduce(function (a, o) { return a + o.qty * o.price; }, 0);
+  const totalAmount = timeCost + ordersCost;
+
+  const orderLines = room.orders.slice();
+  if (timeCost > 0) {
+    orderLines.push({ menuItemId: "room-time", name: "Room Time (" + Math.round(durationSec / 60) + " min)", qty: 1, price: timeCost });
+  }
+  if (orderLines.length === 0) return { ok: false, error: "Nothing to log — this room/table has no orders or time charge yet.", state: state };
+
+  const cogs = room.cogsAccrued || 0;
+  const staffOrder = {
+    id: "staff-" + now + "-" + Math.random().toString(36).slice(2, 7), ts: now, staffName: trimmedName,
+    items: orderLines, totalAmount: totalAmount, cogs: cogs, processedBy: null, shiftId: state.activeShiftId || null,
+  };
+
+  state.rooms = state.rooms.map(function (r) {
+    return r.id === roomId ? Object.assign({}, r, {
+      status: "available", startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
+      isPaused: false, pausedAt: null, pausedDurationSec: 0, transferredFrom: null,
+    }) : r;
+  });
+  pushActivity_(state, room.name + " closed as Staff Order for " + trimmedName + " — " + totalAmount.toFixed(2) + " EGP (excluded from revenue)");
+  return { ok: true, state: state, staffOrder: staffOrder };
+}
+
 function bizSetActualCash_(state, n) {
   state.actualCashInput = n;
   return state;
@@ -2252,6 +2292,33 @@ function doPost(e) {
         }
         return json_({ session: result.session, state: withStockView_(result.state) });
       }
+
+      case "endRoomAsStaffOrder": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const staffResult = bizEndRoomAsStaffOrder_(getState_(), body.roomId, body.staffName, body.frozenAt);
+        if (!staffResult.ok) return json_({ ok: false, error: staffResult.error, state: withStockView_(staffResult.state) });
+        setState_(staffResult.state);
+        staffResult.staffOrder.processedBy = body.username;
+        appendObject_("StaffOrders", {
+          id: staffResult.staffOrder.id, ts: staffResult.staffOrder.ts, staffName: staffResult.staffOrder.staffName,
+          items: JSON.stringify(staffResult.staffOrder.items), totalAmount: staffResult.staffOrder.totalAmount,
+          cogs: staffResult.staffOrder.cogs, processedBy: body.username, shiftId: staffResult.staffOrder.shiftId,
+        });
+        appendObject_("Ledger", {
+          id: newId_("ledg"), ts: staffResult.staffOrder.ts, amount: staffResult.staffOrder.totalAmount, direction: "outflow",
+          type: "manualAdjustment", category: "Staff Consumption Expense",
+          description: staffResult.staffOrder.staffName + " — " + staffResult.staffOrder.items.length + " item(s) (from room checkout)",
+          supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+          paidFromDrawer: false, shiftId: staffResult.staffOrder.shiftId, materialId: null, qty: null, unitCost: null,
+        });
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "STAFF_ORDER_LOGGED",
+          shiftId: staffResult.staffOrder.shiftId,
+          description: "Room closed as staff order for " + staffResult.staffOrder.staffName + " — " + staffResult.staffOrder.totalAmount.toFixed(2) + " EGP (excluded from revenue)",
+        });
+        return json_({ ok: true, staffOrder: staffResult.staffOrder, state: withStockView_(staffResult.state) });
+      }
+
       case "addOrder": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
