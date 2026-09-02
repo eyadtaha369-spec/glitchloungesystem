@@ -2958,10 +2958,19 @@ function doPost(e) {
         const settleEntry = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
         if (!settleEntry) return json_({ ok: false, error: "Entry not found." });
         if (settleEntry.paymentStatus !== "unpaid") return json_({ ok: false, error: "This entry is not marked unpaid." });
-        const settlePatch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: body.paymentSource === "cash_drawer" };
+        const settlePaidFromDrawer = body.paymentSource === "cash_drawer";
+        const settlePatch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: settlePaidFromDrawer };
+        // The cash actually leaves the drawer NOW, at settlement — not
+        // whenever this was first logged as a debt (which could be a
+        // shift that's already closed). See the local server's
+        // identical fix for the full reasoning.
+        if (settlePaidFromDrawer) {
+          const settleState = getState_();
+          if (settleState.activeShiftId) settlePatch.shiftId = settleState.activeShiftId;
+        }
         updateObjectById_("Ledger", body.ledgerId, settlePatch);
         logActivity_({
-          actorUsername: body.username, actorRole: settleRole, actionType: "EXPENSE_LOGGED", shiftId: settleEntry.shiftId,
+          actorUsername: body.username, actorRole: settleRole, actionType: "EXPENSE_LOGGED", shiftId: settlePatch.shiftId || settleEntry.shiftId,
           description: body.username + " settled a debt: " + settleEntry.description + " — " + settleEntry.amount.toFixed(2) + " EGP now paid via " + body.paymentSource,
           before: { paymentStatus: "unpaid" }, after: settlePatch,
         });

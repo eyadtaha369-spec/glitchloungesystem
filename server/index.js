@@ -860,10 +860,23 @@ Object.assign(handlers, {
     const entry = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
     if (!entry) return { ok: false, error: "Entry not found." };
     if (entry.paymentStatus !== "unpaid") return { ok: false, error: "This entry is not marked unpaid." };
-    const patch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: body.paymentSource === "cash_drawer" };
+    const paidFromDrawer = body.paymentSource === "cash_drawer";
+    const patch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer };
+    // The cash actually leaves the drawer NOW, at settlement — not
+    // whenever this was first logged as a debt (which could be a
+    // shift that's already closed). Re-stamping shiftId to whichever
+    // shift is active right now is what makes a settled debt actually
+    // count against THAT shift's expected cash; leaving the original
+    // shiftId meant a debt settled after its original shift closed
+    // would never reduce any shift's expected cash at all, silently
+    // making every later shift look like it's short exactly that much.
+    if (paidFromDrawer) {
+      const state = getState_();
+      if (state.activeShiftId) patch.shiftId = state.activeShiftId;
+    }
     updateObjectById_("Ledger", body.ledgerId, patch);
     logActivity_({
-      actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
+      actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: patch.shiftId || entry.shiftId,
       description: body.username + " settled a debt: " + entry.description + " — " + entry.amount.toFixed(2) + " EGP now paid via " + body.paymentSource,
       before: { paymentStatus: "unpaid" }, after: patch,
     });
