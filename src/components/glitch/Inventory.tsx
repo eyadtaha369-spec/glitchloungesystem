@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useStore, fmtMoney, isToday, monthKey, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot } from "@/lib/glitch-store";
+import { useStore, fmtMoney, monthKey, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
 
@@ -9,25 +9,35 @@ export function InventoryPage() {
     activeShift, forceEndShift,
   } = useStore();
 
+  // Scoped to the ACTIVE SHIFT, not the calendar day — this section
+  // feeds the actual pre-close cash count (state.actualCashInput is the
+  // same value the real endShift action uses), so a shift spanning
+  // midnight must still count every sale made during it. Using
+  // isToday() here would have silently dropped everything sold before
+  // midnight from a shift that started the day before.
   const expectedToday = useMemo(
-    () => state.sessions.filter((s) => isToday(s.endedAt)).reduce((a, s) => a + s.total, 0),
-    [state.sessions],
+    () => (activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id).reduce((a, s) => a + s.total, 0) : 0),
+    [state.sessions, activeShift],
   );
   const discrepancy = state.actualCashInput - expectedToday;
 
-  // Item sales aggregation for today
+  // Item sales aggregation for the current shift — same reasoning as
+  // expectedToday above, this "End-Of-Day Sales Log" is part of the
+  // same close-out workflow, not a standalone historical report.
   const salesToday = useMemo(() => {
     const map = new Map<string, { name: string; qty: number; revenue: number }>();
-    state.sessions.filter((s) => isToday(s.endedAt)).forEach((s) => {
-      s.orders.forEach((o) => {
-        const cur = map.get(o.menuItemId) ?? { name: o.name, qty: 0, revenue: 0 };
-        cur.qty += o.qty;
-        cur.revenue += o.qty * o.price;
-        map.set(o.menuItemId, cur);
+    if (activeShift) {
+      state.sessions.filter((s) => s.shiftId === activeShift.id).forEach((s) => {
+        s.orders.forEach((o) => {
+          const cur = map.get(o.menuItemId) ?? { name: o.name, qty: 0, revenue: 0 };
+          cur.qty += o.qty;
+          cur.revenue += o.qty * o.price;
+          map.set(o.menuItemId, cur);
+        });
       });
-    });
+    }
     return Array.from(map.values());
-  }, [state.sessions]);
+  }, [state.sessions, activeShift]);
 
   const months = useMemo(() => {
     const set = new Set<string>();
@@ -58,7 +68,7 @@ export function InventoryPage() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-            <h2 className="text-lg font-semibold">Cash Reconciliation — Today</h2>
+            <h2 className="text-lg font-semibold">Cash Reconciliation — This Shift</h2>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -121,9 +131,9 @@ export function InventoryPage() {
 
       {/* Today's sales */}
       <div className="glass rounded-2xl p-6">
-        <h2 className="text-lg font-semibold mb-4">End-Of-Day Sales Log</h2>
+        <h2 className="text-lg font-semibold mb-4">End-Of-Shift Sales Log</h2>
         {salesToday.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono">No completed orders today.</div>
+          <div className="text-sm text-muted-foreground font-mono">No completed orders this shift.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {salesToday.map((s) => (

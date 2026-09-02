@@ -2421,7 +2421,8 @@ function doPost(e) {
         return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
       }
       case "endShift": {
-        const role = requireRole_(body.username, ["admin", "cashier"]);
+        // Admin-only, no exceptions — confirmed explicitly.
+        const role = requireRole_(body.username, ["admin"]);
         const state0 = getState_();
         const geoErr = checkGeofence_(state0, body.lat, body.lng);
         if (geoErr) {

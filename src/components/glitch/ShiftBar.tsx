@@ -5,6 +5,7 @@ import { Lock, Unlock, DollarSign } from "lucide-react";
 
 export function ShiftBar() {
   const { state, activeShift, openShift, endShift } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const [openingBalance, setOpeningBalance] = useState("0");
   const [err, setErr] = useState<string | null>(null);
   const [endOpen, setEndOpen] = useState(false);
@@ -102,12 +103,14 @@ export function ShiftBar() {
             Since {new Date(activeShift.openedAt).toLocaleTimeString()} · Opening ${activeShift.openingBalance.toFixed(2)}
           </p>
         </div>
-        <button
-          onClick={() => setEndOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold text-sm hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
-        >
-          <Lock className="w-4 h-4" /> End Shift
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setEndOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold text-sm hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
+          >
+            <Lock className="w-4 h-4" /> End Shift
+          </button>
+        )}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 text-center">

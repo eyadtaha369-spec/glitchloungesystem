@@ -292,7 +292,10 @@ const handlers = {
   },
 
   endShift(body) {
-    const role = requireRole_(body.username, ["admin", "cashier"]);
+    // Admin-only, no exceptions — confirmed explicitly, including the
+    // operational tradeoff that a cashier working alone cannot end their
+    // own shift and needs an admin to do it.
+    const role = requireRole_(body.username, ["admin"]);
     const state0 = getState_();
     const shiftIdBefore = state0.activeShiftId;
     const ledger = readObjects_("Ledger");
