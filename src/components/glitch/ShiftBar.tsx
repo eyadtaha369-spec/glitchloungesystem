@@ -117,6 +117,7 @@ export function ShiftBar() {
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Shift Revenue</div>
           <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(shiftRevenue)}</div>
+          <div className="text-[9px] text-muted-foreground/70 mt-0.5">Whole shift, since {new Date(activeShift.openedAt).toLocaleDateString()}</div>
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Orders Closed</div>

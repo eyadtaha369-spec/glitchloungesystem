@@ -193,6 +193,9 @@ function DailyReconciliationPanel() {
       <h2 className="text-lg font-semibold flex items-center gap-2">
         <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> {t("dashboard.financialOverview")}
       </h2>
+      <p className="text-xs text-white/40 mt-0.5">
+        Calendar day only ({new Date().toLocaleDateString()}) — a shift spanning midnight shows less here than in its own Shift Revenue total.
+      </p>
 
       {/* Revenue + expenses stay auto-calculated; InstaPay and Visa are
           manual entry, same style as Actual Cash — the source of truth
