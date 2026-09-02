@@ -152,7 +152,7 @@ interface StoreContextValue {
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   reopenSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
-  saveDailyReconciliation: (actualCash: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
+  saveDailyReconciliation: (actualCash: number, instapayTotal: number, visaTotal: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
   getDailyReconciliationHistory: () => Promise<DailyReconciliation[]>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
@@ -630,10 +630,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const saveDailyReconciliation: StoreContextValue["saveDailyReconciliation"] = async (actualCash) => {
+  const saveDailyReconciliation: StoreContextValue["saveDailyReconciliation"] = async (actualCash, instapayTotal, visaTotal) => {
     return withPending("saveDailyReconciliation", async () => {
       try {
-        const res = await saveDailyReconciliationFn({ data: { actualCash } });
+        const res = await saveDailyReconciliationFn({ data: { actualCash, instapayTotal, visaTotal } });
         return { ok: res.ok, error: res.error, record: res.record };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not save reconciliation." };
@@ -1400,20 +1400,16 @@ export function isToday(ts: number) {
 }
 // Live preview for the dashboard — mirrors the backend's
 // bizComputeDailyFinancials_ exactly (server/lib/reconciliation.js and
-// Code.gs) so what's shown while the admin is looking at the page
-// matches what actually gets saved when they confirm. The saved record
-// is still always computed fresh server-side on save, never trusts this
-// client-side number directly.
+// Code.gs). InstaPay and Visa are deliberately NOT computed here — the
+// admin enters both by hand, same as Actual Cash — so only Total
+// Revenue and today's approved drawer expenses are auto-calculated.
 export function computeDailyFinancials(sessions: Session[], ledger: LedgerEntry[]) {
   const todaySessions = sessions.filter((s) => isToday(s.endedAt));
   const totalRevenue = todaySessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
-  const instapayTotal = todaySessions.reduce((a, s) => a + (Number(s.instapayAmount) || 0), 0);
-  const visaTotal = todaySessions.reduce((a, s) => a + (Number(s.visaAmount) || 0), 0);
   const expensesTotal = ledger
     .filter((l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && isToday(l.ts))
     .reduce((a, l) => a + (Number(l.amount) || 0), 0);
-  const expectedCash = totalRevenue - visaTotal - instapayTotal - expensesTotal;
-  return { totalRevenue, instapayTotal, visaTotal, expensesTotal, expectedCash };
+  return { totalRevenue, expensesTotal };
 }
 export function monthKey(ts: number) {
   const d = new Date(ts);

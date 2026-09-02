@@ -141,6 +141,8 @@ function DailyReconciliationPanel() {
   const { state, saveDailyReconciliation, getDailyReconciliationHistory } = useStore();
   const { t } = useLanguage();
   const [actualCashInput, setActualCashInput] = useState("");
+  const [instapayInput, setInstapayInput] = useState("");
+  const [visaInput, setVisaInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -148,8 +150,14 @@ function DailyReconciliationPanel() {
 
   const financials = computeDailyFinancials(state.sessions, state.ledger);
   const actualCash = parseFloat(actualCashInput);
+  const instapayTotal = parseFloat(instapayInput) || 0;
+  const visaTotal = parseFloat(visaInput) || 0;
   const hasActualCash = actualCashInput.trim() !== "" && !isNaN(actualCash);
-  const variance = hasActualCash ? actualCash - financials.expectedCash : null;
+  // Expected cash now depends on the two manually entered fields, so it
+  // recomputes live as the admin types either one — same formula the
+  // server uses on save, just evaluated here for instant feedback.
+  const expectedCash = financials.totalRevenue - visaTotal - instapayTotal - financials.expensesTotal;
+  const variance = hasActualCash ? actualCash - expectedCash : null;
   const isOver = variance !== null && variance >= 0;
 
   const loadHistory = async () => {
@@ -168,7 +176,7 @@ function DailyReconciliationPanel() {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res = await saveDailyReconciliation(actualCash);
+      const res = await saveDailyReconciliation(actualCash, instapayTotal, visaTotal);
       if (res.ok) {
         setSaveMsg(t("dashboard.reconciliationSaved"));
         if (historyOpen) void loadHistory();
@@ -186,7 +194,10 @@ function DailyReconciliationPanel() {
         <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" /> {t("dashboard.financialOverview")}
       </h2>
 
-      {/* KPI cards: revenue highlighted, then the three deduction breakdowns */}
+      {/* Revenue + expenses stay auto-calculated; InstaPay and Visa are
+          manual entry, same style as Actual Cash — the source of truth
+          for those two is the bank/payment-app statement, not
+          necessarily what got typed in at checkout time. */}
       <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <DarkKpiCard
           label={t("dashboard.closedOrdersTotal")}
@@ -194,8 +205,18 @@ function DailyReconciliationPanel() {
           icon={DollarSign}
           highlighted
         />
-        <DarkKpiCard label={t("dashboard.instapayTotal")} value={fmtMoney(financials.instapayTotal)} icon={Smartphone} />
-        <DarkKpiCard label={t("dashboard.visaCardTotal")} value={fmtMoney(financials.visaTotal)} icon={CreditCard} />
+        <DarkInputCard
+          label={t("dashboard.instapayTotal")}
+          icon={Smartphone}
+          value={instapayInput}
+          onChange={(v) => { setInstapayInput(v); setSaveMsg(null); }}
+        />
+        <DarkInputCard
+          label={t("dashboard.visaCardTotal")}
+          icon={CreditCard}
+          value={visaInput}
+          onChange={(v) => { setVisaInput(v); setSaveMsg(null); }}
+        />
         <DarkKpiCard label={t("dashboard.dailyExpenses")} value={fmtMoney(financials.expensesTotal)} icon={Receipt} />
       </div>
 
@@ -203,7 +224,7 @@ function DailyReconciliationPanel() {
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-1 rounded-xl border border-white/10 bg-white/5 p-4">
           <div className="text-[10px] uppercase tracking-widest text-white/50">{t("dashboard.expectedCash")}</div>
-          <div className="mt-1 text-3xl font-bold font-mono">{fmtMoney(financials.expectedCash)}</div>
+          <div className="mt-1 text-3xl font-bold font-mono">{fmtMoney(expectedCash)}</div>
         </div>
 
         <div className="lg:col-span-1 rounded-xl border border-white/10 bg-white/5 p-4">
@@ -301,6 +322,34 @@ function DarkKpiCard({ label, value, icon: Icon, highlighted }: {
         <Icon className={`w-4 h-4 ${highlighted ? "text-[oklch(0.78_0.2_155)]" : "text-white/40"}`} />
       </div>
       <div className={`mt-2 font-mono font-bold ${highlighted ? "text-2xl text-[oklch(0.78_0.2_155)]" : "text-xl text-white"}`}>{value}</div>
+    </div>
+  );
+}
+
+// Same visual shape as DarkKpiCard, but an editable field instead of a
+// read-only value — used for InstaPay/Visa, which are manually entered
+// (their source of truth is the bank/payment-app statement, not
+// necessarily what got typed in at checkout).
+function DarkInputCard({ label, icon: Icon, value, onChange }: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="rounded-xl p-4 border border-white/10 bg-white/5">
+      <div className="flex items-start justify-between">
+        <label className="text-[10px] uppercase tracking-widest text-white/50">{label}</label>
+        <Icon className="w-4 h-4 text-white/40" />
+      </div>
+      <input
+        type="number"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="0.00"
+        className="mt-2 w-full bg-transparent text-xl font-mono font-bold text-white placeholder:text-white/30 focus:outline-none"
+      />
     </div>
   );
 }

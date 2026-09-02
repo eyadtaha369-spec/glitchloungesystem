@@ -317,7 +317,7 @@ const handlers = {
     requireRole_(body.username, ["admin"]);
     const sessions = readSessions_();
     const ledger = readObjects_("Ledger");
-    const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.username, Date.now());
+    const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.instapayTotal, body.visaTotal, body.username, Date.now());
     appendObject_("DailyReconciliations", record);
     logActivity_({
       actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED",

@@ -1338,41 +1338,48 @@ function formatDateLabel_(ts) {
 
 // Scoped to the calendar day, not the currently active shift — a
 // separate, admin-only executive overview, independent from the
-// existing per-shift close reconciliation elsewhere in this file. See
-// server/lib/reconciliation.js for the full reasoning on the formula.
+// existing per-shift close reconciliation elsewhere in this file.
+//
+// InstaPay and Visa are DELIBERATELY NOT computed here — per direct
+// follow-up request, the admin enters both by hand (same as Actual
+// Physical Cash Counted). See server/lib/reconciliation.js for the
+// full reasoning.
 function bizComputeDailyFinancials_(sessions, ledger, atTime) {
   const dateLabel = formatDateLabel_(atTime || Date.now());
   const todaySessions = sessions.filter(function (s) { return formatDateLabel_(s.endedAt) === dateLabel; });
   const totalRevenue = todaySessions.reduce(function (a, s) { return a + (Number(s.total) || 0); }, 0);
-  const instapayTotal = todaySessions.reduce(function (a, s) { return a + (Number(s.instapayAmount) || 0); }, 0);
-  const visaTotal = todaySessions.reduce(function (a, s) { return a + (Number(s.visaAmount) || 0); }, 0);
   const expensesTotal = ledger
     .filter(function (l) { return l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && formatDateLabel_(l.ts) === dateLabel; })
     .reduce(function (a, l) { return a + (Number(l.amount) || 0); }, 0);
 
-  // Per explicit confirmed business decision: Total Revenue minus Visa
-  // minus InstaPay minus today's drawer expenses — deliberately has no
-  // term for the shift's opening float, confirmed and intentional.
-  const expectedCash = totalRevenue - visaTotal - instapayTotal - expensesTotal;
-
-  return { dateLabel: dateLabel, totalRevenue: totalRevenue, instapayTotal: instapayTotal, visaTotal: visaTotal, expensesTotal: expensesTotal, expectedCash: expectedCash };
+  return { dateLabel: dateLabel, totalRevenue: totalRevenue, expensesTotal: expensesTotal };
 }
 
-function bizBuildDailyReconciliation_(sessions, ledger, actualCash, recordedBy, atTime) {
+function bizBuildDailyReconciliation_(sessions, ledger, actualCash, instapayTotal, visaTotal, recordedBy, atTime) {
   const financials = bizComputeDailyFinancials_(sessions, ledger, atTime);
+  const instapay = Number(instapayTotal) || 0;
+  const visa = Number(visaTotal) || 0;
+  const actual = Number(actualCash) || 0;
+
+  // Per explicit confirmed business decision: Total Revenue minus the
+  // manually entered Visa and InstaPay minus today's drawer expenses —
+  // deliberately has no term for the shift's opening float, confirmed
+  // and intentional.
+  const expectedCash = financials.totalRevenue - visa - instapay - financials.expensesTotal;
   const now = Date.now();
+
   return {
     id: "dailyrecon-" + now,
     dateLabel: financials.dateLabel,
     recordedAt: now,
     recordedBy: recordedBy,
     totalRevenue: financials.totalRevenue,
-    instapayTotal: financials.instapayTotal,
-    visaTotal: financials.visaTotal,
+    instapayTotal: instapay,
+    visaTotal: visa,
     expensesTotal: financials.expensesTotal,
-    expectedCash: financials.expectedCash,
-    actualCash: Number(actualCash) || 0,
-    variance: (Number(actualCash) || 0) - financials.expectedCash,
+    expectedCash: expectedCash,
+    actualCash: actual,
+    variance: actual - expectedCash,
   };
 }
 
@@ -2444,7 +2451,7 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const sessions = readSessions_();
         const ledger = readObjects_("Ledger");
-        const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.username, Date.now());
+        const record = bizBuildDailyReconciliation_(sessions, ledger, body.actualCash, body.instapayTotal, body.visaTotal, body.username, Date.now());
         appendObject_("DailyReconciliations", record);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "DAILY_RECONCILIATION_SAVED",

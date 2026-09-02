@@ -13,7 +13,7 @@ export const getStateFn = createServerFn({ method: "GET" }).handler(async () => 
 });
 
 export const saveDailyReconciliationFn = createServerFn({ method: "POST" })
-  .validator((d: { actualCash: number }) => d)
+  .validator((d: { actualCash: number; instapayTotal: number; visaTotal: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; record: DailyReconciliation }>("saveDailyReconciliation", {
