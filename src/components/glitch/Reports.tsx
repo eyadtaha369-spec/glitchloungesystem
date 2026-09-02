@@ -449,6 +449,14 @@ function PnLLedgerPanel() {
     () => state.sessions.filter((s) => s.endedAt >= from && s.endedAt <= to),
     [state.sessions, from, to],
   );
+  // Closed shifts within the selected range — lets an admin find and
+  // recalculate a specific past shift, not just today's (the existing
+  // Shift Comparison section elsewhere on this page only ever shows
+  // today's shifts).
+  const shiftsInRange = useMemo(
+    () => state.shifts.filter((sh) => sh.closedAt !== null && sh.closedAt >= from && sh.closedAt <= to).sort((a, b) => b.closedAt! - a.closedAt!),
+    [state.shifts, from, to],
+  );
 
   const totalRevenue = sessionsInRange.reduce((a, s) => a + s.total, 0);
   const totalCogs = sessionsInRange.reduce((a, s) => a + (s.cogs || 0), 0);
@@ -560,6 +568,7 @@ function PnLLedgerPanel() {
       )}
 
       <OrderHistorySection sessions={sessionsInRange} />
+      <ShiftHistorySection shifts={shiftsInRange} sessions={state.sessions} />
     </div>
   );
 }
@@ -615,6 +624,38 @@ function OrderHistorySection({ sessions }: { sessions: Session[] }) {
         />
       )}
       {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
+    </div>
+  );
+}
+
+// Reuses ShiftCard (which already has the admin-only Recalculate
+// button built in) so a shift from ANY past day, not just today, can
+// be found and corrected — the Shift Comparison section elsewhere on
+// this page only ever shows today's shifts.
+function ShiftHistorySection({ shifts, sessions }: { shifts: Shift[]; sessions: Session[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-6 pt-6 border-t border-black/8">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 text-sm font-semibold text-[oklch(0.7_0.19_260)]">
+        <History className="w-4 h-4" /> Shift History ({shifts.length}) {open ? "▲" : "▼"}
+      </button>
+      {open && (
+        shifts.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-6">No closed shifts in this range.</div>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[32rem] overflow-y-auto">
+            {shifts.map((sh) => (
+              <ShiftCard
+                key={sh.id}
+                shift={sh}
+                label={new Date(sh.openedAt).toLocaleDateString()}
+                sessions={sessions.filter((s) => s.shiftId === sh.id)}
+              />
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }
