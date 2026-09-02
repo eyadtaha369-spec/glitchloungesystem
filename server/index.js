@@ -27,7 +27,7 @@ const {
   bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_,
 } = require("./lib/rooms");
-const { bizOpenShift_, bizCloseActiveShift_ } = require("./lib/shifts");
+const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
@@ -336,6 +336,33 @@ const handlers = {
   getDailyReconciliationHistory(body) {
     requireRole_(body.username, ["admin"]);
     return json_({ ok: true, records: readObjects_("DailyReconciliations").sort((a, b) => b.recordedAt - a.recordedAt) });
+  },
+
+  // Manual correction tool for an already-closed shift, admin-only —
+  // exists specifically for cases like the settleExpense shiftId bug,
+  // where underlying data was wrong when the shift originally closed
+  // and got fixed afterward, leaving the shift's stored numbers stale.
+  // Requires the exact confirmation phrase, same pattern as the other
+  // admin-password-gated destructive tools in this app, since this
+  // rewrites a permanent financial record.
+  recalculateClosedShift(body) {
+    requireRole_(body.username, ["admin"]);
+    if (body.confirmText !== "RECALCULATE") return { ok: false, error: "Type RECALCULATE exactly to confirm." };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing was changed." };
+    const shifts = readObjects_("Shifts");
+    const shift = shifts.find((sh) => sh.id === body.shiftId);
+    const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
+    if (!result.ok) return result;
+    updateObjectById_("Shifts", body.shiftId, { expectedCash: result.after.expectedCash, discrepancy: result.after.discrepancy });
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "SHIFT_RECALCULATED", shiftId: body.shiftId,
+      description: body.username + " recalculated closed shift " + body.shiftId +
+        " — expected cash " + result.before.expectedCash.toFixed(2) + " → " + result.after.expectedCash.toFixed(2) + " EGP" +
+        ", discrepancy " + result.before.discrepancy.toFixed(2) + " → " + result.after.discrepancy.toFixed(2) + " EGP",
+      before: result.before, after: result.after,
+    });
+    return { ok: true, state: withStockView_(getState_()) };
   },
 };
 

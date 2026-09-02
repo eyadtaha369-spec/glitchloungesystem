@@ -1673,6 +1673,28 @@ function bizCloseActiveShift_(state, sessions, ledger, shifts, actualCash, force
   };
 }
 
+// Re-runs the exact same expected-cash formula bizCloseActiveShift_
+// uses, against a shift that's already closed, and overwrites its
+// stored expectedCash/discrepancy with the freshly computed result.
+// See the local server's identical function for the full reasoning.
+function bizRecalculateClosedShift_(sessions, ledger, shift) {
+  if (!shift) return { ok: false, error: "Shift not found." };
+  if (!shift.closedAt) return { ok: false, error: "This shift is still active — use End Shift instead, not this tool." };
+  const shiftSessions = sessions.filter(function (s) { return s.shiftId === shift.id; });
+  const cashSales = shiftSessions.reduce(function (a, s) { return a + (Number(s.cashAmount) || 0); }, 0);
+  const drawerExpenses = ledger
+    .filter(function (l) { return l.shiftId === shift.id && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow"; })
+    .reduce(function (a, l) { return a + Number(l.amount); }, 0);
+  const newExpectedCash = shift.openingBalance + cashSales - drawerExpenses;
+  const actualCash = Number(shift.closingActualCash) || 0;
+  const newDiscrepancy = actualCash - newExpectedCash;
+  return {
+    ok: true,
+    before: { expectedCash: shift.expectedCash, discrepancy: shift.discrepancy },
+    after: { expectedCash: newExpectedCash, discrepancy: newDiscrepancy },
+  };
+}
+
 // ---------- Staff Orders & Consumption ----------
 // Standard menu prices are used (for costing/inventory consistency), but
 // the amount is routed to a Staff Consumption EXPENSE, never counted as
@@ -2469,6 +2491,26 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const records = readObjects_("DailyReconciliations").sort(function (a, b) { return b.recordedAt - a.recordedAt; });
         return json_({ ok: true, records: records });
+      }
+
+      case "recalculateClosedShift": {
+        requireRole_(body.username, ["admin"]);
+        if (body.confirmText !== "RECALCULATE") return json_({ ok: false, error: "Type RECALCULATE exactly to confirm." });
+        const recalcAuth = login_(body.username, body.password);
+        if (!recalcAuth.ok || recalcAuth.role !== "admin") return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+        const recalcShifts = readObjects_("Shifts");
+        const recalcShift = recalcShifts.find(function (sh) { return sh.id === body.shiftId; });
+        const recalcResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), recalcShift);
+        if (!recalcResult.ok) return json_(recalcResult);
+        updateObjectById_("Shifts", body.shiftId, { expectedCash: recalcResult.after.expectedCash, discrepancy: recalcResult.after.discrepancy });
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "SHIFT_RECALCULATED", shiftId: body.shiftId,
+          description: body.username + " recalculated closed shift " + body.shiftId +
+            " — expected cash " + recalcResult.before.expectedCash.toFixed(2) + " → " + recalcResult.after.expectedCash.toFixed(2) + " EGP" +
+            ", discrepancy " + recalcResult.before.discrepancy.toFixed(2) + " → " + recalcResult.after.discrepancy.toFixed(2) + " EGP",
+          before: recalcResult.before, after: recalcResult.after,
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
       }
 
       case "forceEndShift": {

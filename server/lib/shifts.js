@@ -56,4 +56,33 @@ function bizCloseActiveShift_(state, sessions, ledger, shifts, actualCash, force
   return { ok: true, state, closedShift: { id: shiftId, expectedCash, closingActualCash, discrepancy } };
 }
 
-module.exports = { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_ };
+// Re-runs the exact same expected-cash formula bizCloseActiveShift_
+// uses, against a shift that's already closed, and overwrites its
+// stored expectedCash/discrepancy with the freshly computed result.
+// closingActualCash (what was physically counted at the time) is
+// deliberately left untouched — that's a historical fact about what
+// someone actually counted, not something to recompute. Exists purely
+// as a manual correction tool for when underlying data changes after
+// a shift closed (e.g. a debt settlement's shiftId being fixed) and
+// the stored numbers need to catch up to reflect the truth. Every
+// caller must be admin-only and log a proper before/after audit
+// entry, since this rewrites financial history.
+function bizRecalculateClosedShift_(sessions, ledger, shift) {
+  if (!shift) return { ok: false, error: "Shift not found." };
+  if (!shift.closedAt) return { ok: false, error: "This shift is still active — use End Shift instead, not this tool." };
+  const shiftSessions = sessions.filter((s) => s.shiftId === shift.id);
+  const cashSales = shiftSessions.reduce((a, s) => a + (Number(s.cashAmount) || 0), 0);
+  const drawerExpenses = ledger
+    .filter((l) => l.shiftId === shift.id && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow")
+    .reduce((a, l) => a + Number(l.amount), 0);
+  const newExpectedCash = shift.openingBalance + cashSales - drawerExpenses;
+  const actualCash = Number(shift.closingActualCash) || 0;
+  const newDiscrepancy = actualCash - newExpectedCash;
+  return {
+    ok: true,
+    before: { expectedCash: shift.expectedCash, discrepancy: shift.discrepancy },
+    after: { expectedCash: newExpectedCash, discrepancy: newDiscrepancy },
+  };
+}
+
+module.exports = { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ };

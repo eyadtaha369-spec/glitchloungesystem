@@ -668,10 +668,12 @@ function ReopenCheckModal({ session, onClose }: { session: Session; onClose: () 
 
 function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; sessions: Session[] }) {
   const { state } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const revenue = sessions.reduce((a, s) => a + s.total, 0);
   const isOpen = !shift.closedAt;
   const discrepancy = shift.discrepancy;
   const pendingVoids = state.voidRequests.filter((v) => v.shiftId === shift.id && v.status === "pending").length;
+  const [showRecalc, setShowRecalc] = useState(false);
   return (
     <div className="bg-white/60 rounded-lg p-4 border border-black/8">
       <div className="flex items-center justify-between mb-2">
@@ -705,6 +707,106 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
             <span>Discrepancy</span><span>{fmtMoney(discrepancy)}</span>
           </div>
         )}
+      </div>
+      {isAdmin && !isOpen && (
+        <button
+          onClick={() => setShowRecalc(true)}
+          className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-[oklch(0.7_0.19_260)] flex items-center gap-1"
+          title="Recalculate this shift's expected cash and discrepancy from current data"
+        >
+          <History className="w-3 h-3" /> Recalculate
+        </button>
+      )}
+      {showRecalc && <RecalculateShiftModal shift={shift} onClose={() => setShowRecalc(false)} />}
+    </div>
+  );
+}
+
+function RecalculateShiftModal({ shift, onClose }: { shift: Shift; onClose: () => void }) {
+  const { state, recalculateClosedShift } = useStore();
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  // Live preview computed client-side, same formula the backend uses —
+  // the actual applied numbers still always come from the server's own
+  // fresh computation on confirm, never this preview directly.
+  const shiftSessions = state.sessions.filter((s) => s.shiftId === shift.id);
+  const cashSales = shiftSessions.reduce((a, s) => a + (Number(s.cashAmount) || 0), 0);
+  const drawerExpenses = state.ledger
+    .filter((l) => l.shiftId === shift.id && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow")
+    .reduce((a, l) => a + Number(l.amount), 0);
+  const newExpectedCash = shift.openingBalance + cashSales - drawerExpenses;
+  const actualCash = Number(shift.closingActualCash) || 0;
+  const newDiscrepancy = actualCash - newExpectedCash;
+  const willChange = shift.expectedCash === null || Math.abs(newExpectedCash - shift.expectedCash) >= 0.005;
+
+  const canSubmit = confirmText === "RECALCULATE" && password.length > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await recalculateClosedShift(shift.id, confirmText, password);
+      if (!res.ok) { setErr(res.error ?? "Could not recalculate"); return; }
+      setDone(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Recalculate this closed shift?</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Re-runs the expected cash formula against current data and overwrites this shift's stored
+          Expected Cash and Discrepancy. The Actual Cash counted at close-out is a historical fact and
+          is never changed by this.
+        </p>
+
+        {done ? (
+          <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold mb-3">
+            Done — Expected Cash is now {fmtMoney(newExpectedCash)}, Discrepancy {fmtMoney(newDiscrepancy)}.
+          </div>
+        ) : (
+          <>
+            <div className="rounded-lg border border-black/10 bg-black/5 p-3 mb-3 text-xs font-mono space-y-1">
+              <div className="flex justify-between"><span>Expected Cash</span><span>{fmtMoney(shift.expectedCash ?? 0)} → <strong className={willChange ? "text-[oklch(0.7_0.19_260)]" : ""}>{fmtMoney(newExpectedCash)}</strong></span></div>
+              <div className="flex justify-between"><span>Discrepancy</span><span>{fmtMoney(shift.discrepancy ?? 0)} → <strong className={willChange ? "text-[oklch(0.7_0.19_260)]" : ""}>{fmtMoney(newDiscrepancy)}</strong></span></div>
+              {!willChange && <div className="text-muted-foreground pt-1">No change — current data already matches the stored values.</div>}
+            </div>
+
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Type RECALCULATE to confirm</label>
+            <input
+              value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono mb-3"
+              placeholder="RECALCULATE"
+            />
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Your admin password</label>
+            <input
+              type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+            />
+            {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-2">{err}</div>}
+          </>
+        )}
+
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">{done ? "Close" : "Cancel"}</button>
+          {!done && (
+            <button
+              onClick={() => void handleSubmit()}
+              disabled={!canSubmit || submitting}
+              className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-40"
+            >
+              {submitting ? "Recalculating..." : "Recalculate"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

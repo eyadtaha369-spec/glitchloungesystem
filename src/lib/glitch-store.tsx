@@ -37,6 +37,7 @@ import {
   extendRoomTimeFn,
   switchRateModeFn,
   reopenSessionFn,
+  recalculateClosedShiftFn,
   saveDailyReconciliationFn,
   getDailyReconciliationHistoryFn,
   pauseRoomFn,
@@ -152,6 +153,7 @@ interface StoreContextValue {
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   reopenSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+  recalculateClosedShift: (shiftId: string, confirmText: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   saveDailyReconciliation: (actualCash: number, instapayTotal: number, visaTotal: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
   getDailyReconciliationHistory: () => Promise<DailyReconciliation[]>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -627,6 +629,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not reopen check." };
+      }
+    });
+  };
+  const recalculateClosedShift: StoreContextValue["recalculateClosedShift"] = async (shiftId, confirmText, password) => {
+    return withPending(`recalculateShift:${shiftId}`, async () => {
+      try {
+        const res = await recalculateClosedShiftFn({ data: { shiftId, confirmText, password } });
+        if (res.ok && res.state) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not recalculate this shift." };
       }
     });
   };
@@ -1310,7 +1323,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,

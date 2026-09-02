@@ -341,3 +341,13 @@ export const reopenSessionFn = createServerFn({ method: "POST" })
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("reopenSession", { ...data, username: user.username });
   });
+
+export const recalculateClosedShiftFn = createServerFn({ method: "POST" })
+  .validator((d: { shiftId: string; confirmText: string; password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("recalculateClosedShift", {
+      ...data,
+      username: user.username,
+    });
+  });
