@@ -110,14 +110,10 @@ export function ShiftBar() {
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+      <div className="mt-4 grid grid-cols-2 gap-3 text-center">
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Shift Revenue</div>
           <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(shiftRevenue)}</div>
-        </div>
-        <div className="bg-white/60 rounded-lg p-3 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cash Sales</div>
-          <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(cashSalesOnly)}</div>
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Orders Closed</div>
