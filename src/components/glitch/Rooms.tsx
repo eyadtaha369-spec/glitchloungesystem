@@ -1197,6 +1197,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
   const kotNumber = kotNumberProp !== null ? "#" + String(kotNumberProp).padStart(3, "0") : "KOT-" + String(now.getTime()).slice(-6);
   const [logoReady, setLogoReady] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
   useEffect(() => {
     const img = new Image();
     img.onload = () => setLogoReady(true);
@@ -1214,15 +1215,26 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
 
   const handlePrint = async () => {
     setPrinting(true);
+    setMarkError(null);
+    // These two steps are DELIBERATELY isolated from each other. If
+    // printSmart throws (a real possibility with the Electron IPC
+    // bridge — see its own comments), that must not silently skip
+    // marking items as printed: the user may well have still seen
+    // something come out of the printer, and losing the mark-as-printed
+    // step here is exactly what would cause items to wrongly reprint
+    // next time, with no visible error anywhere to explain why.
     try {
       await printSmart();
-      // There's no reliable success/failure signal to read back from
-      // printSmart (the Electron silent-print path can fail and fall
-      // back to the native dialog, which itself has no completion
-      // callback) — clicking Print and the action completing without
-      // throwing is treated as confirmation here, same as the intent
-      // behind every other print button in this app.
-      await markOrdersPrintedToKitchen(room.id, deltaOrders.map((o) => o.menuItemId));
+    } catch (err) {
+      console.error("printSmart threw, continuing to mark items printed anyway:", err);
+    }
+    try {
+      const res = await markOrdersPrintedToKitchen(room.id, deltaOrders.map((o) => o.menuItemId));
+      if (!res.ok) {
+        setMarkError((res.error ?? "Could not update print status") + " — reopen this ticket and try Print again, or these items may reprint next time.");
+      }
+    } catch (err) {
+      setMarkError((err instanceof Error ? err.message : "Could not update print status") + " — reopen this ticket and try Print again, or these items may reprint next time.");
     } finally {
       setPrinting(false);
     }
@@ -1266,6 +1278,12 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
             ))}
           </div>
         </div>
+
+        {markError && (
+          <div className="px-4 py-2 text-xs text-[oklch(0.62_0.24_25)] bg-[oklch(0.62_0.24_25/0.1)] border-t border-[oklch(0.62_0.24_25/0.3)] no-print">
+            {markError}
+          </div>
+        )}
 
         <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>

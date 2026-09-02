@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import type {
   Role,
   PublicAccount,
@@ -309,6 +309,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [connectionStatus, setConnectionStatus] = useState<"synced" | "syncing" | "offline">("syncing");
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
+  // The poll effect below only depends on [currentUser], so it would
+  // otherwise capture a permanently-stale closure over `pending` (always
+  // the initial empty set) — this ref is kept in sync on every change so
+  // the poll can always read the true, current value without needing to
+  // tear down and recreate its interval whenever pending changes.
+  const pendingRef = useRef(pending);
+  useEffect(() => { pendingRef.current = pending; }, [pending]);
 
   // Wraps any async action: marks `key` as pending immediately (so buttons
   // can show a spinner / disable themselves the instant they're clicked),
@@ -405,9 +412,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const poll = async () => {
       if (document.hidden) return;
+      // A real mutation (like markOrdersPrintedToKitchen right after a
+      // kitchen print) already gets the definitive, authoritative state
+      // back in its own response — a slower-resolving poll response
+      // that happened to be in flight from BEFORE that mutation must
+      // never be allowed to overwrite it with older data. Skip
+      // entirely if something is already pending when this poll would
+      // start, and re-check right before applying the result too,
+      // since a mutation could begin at any point while this request
+      // is in flight.
+      if (pendingRef.current.size > 0) return;
       setConnectionStatus((prev) => (prev === "offline" ? "syncing" : prev));
       try {
         const state = await getStateFn();
+        if (pendingRef.current.size > 0) return;
         setAppState(state);
         setConnectionStatus("synced");
         setLastSyncedAt(Date.now());
