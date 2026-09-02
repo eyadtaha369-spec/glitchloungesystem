@@ -37,45 +37,40 @@ export function ReportsPage() {
     void refreshLedger();
   }, [refreshLedger]);
 
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  });
-  const isViewingToday = useMemo(() => {
-    const d = new Date();
-    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return selectedDate === todayStr;
-  }, [selectedDate]);
+  // Shift-based, not calendar-date-based — a shift spanning midnight is
+  // ONE report, never split across two calendar days. Defaults to
+  // whichever shift is currently active; falls back to the most
+  // recently closed one if none is open right now.
+  const sortedShifts = useMemo(() => [...state.shifts].sort((a, b) => b.openedAt - a.openedAt), [state.shifts]);
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+  const effectiveShiftId = selectedShiftId ?? state.activeShiftId ?? sortedShifts[0]?.id ?? null;
+  const selectedShift = useMemo(() => state.shifts.find((sh) => sh.id === effectiveShiftId) ?? null, [state.shifts, effectiveShiftId]);
+  const isViewingActiveShift = effectiveShiftId !== null && effectiveShiftId === state.activeShiftId;
 
-  const dayStart = useMemo(() => new Date(selectedDate + "T00:00:00").getTime(), [selectedDate]);
-  const dayEnd = dayStart + 86400000;
-  const inSelectedDay = (ts: number) => ts >= dayStart && ts < dayEnd;
-
-  const todaySessions = useMemo(() => state.sessions.filter((s) => inSelectedDay(s.endedAt)), [state.sessions, dayStart]);
-  const wasteEntries = useMemo(
-    () => state.ledger.filter((l) => l.category === "Marketing / Waste Expense" && inSelectedDay(l.ts)),
-    [state.ledger, dayStart],
+  const shiftSessions = useMemo(
+    () => (effectiveShiftId ? state.sessions.filter((s) => s.shiftId === effectiveShiftId) : []),
+    [state.sessions, effectiveShiftId],
   );
-  const todayShifts = useMemo(
-    () => state.shifts.filter((sh) => inSelectedDay(sh.openedAt)).sort((a, b) => a.openedAt - b.openedAt),
-    [state.shifts, dayStart],
+  const wasteEntries = useMemo(
+    () => (effectiveShiftId ? state.ledger.filter((l) => l.category === "Marketing / Waste Expense" && l.shiftId === effectiveShiftId) : []),
+    [state.ledger, effectiveShiftId],
   );
 
   // Exact aggregation: cashAmount + visaAmount + instapayAmount always sums
   // to session.total for every session (pure or mixed), so summing these
-  // three fields across all of today's sessions IS the definitive Total
-  // Daily Revenue — no separate "combined" calculation needed.
-  const cashRevenue = todaySessions.reduce((a, s) => a + s.cashAmount, 0);
-  const visaRevenue = todaySessions.reduce((a, s) => a + s.visaAmount, 0);
-  const instapayRevenue = todaySessions.reduce((a, s) => a + s.instapayAmount, 0);
+  // three fields across the shift's sessions IS the definitive Total
+  // Shift Revenue — no separate "combined" calculation needed.
+  const cashRevenue = shiftSessions.reduce((a, s) => a + s.cashAmount, 0);
+  const visaRevenue = shiftSessions.reduce((a, s) => a + s.visaAmount, 0);
+  const instapayRevenue = shiftSessions.reduce((a, s) => a + s.instapayAmount, 0);
   const totalRevenue = cashRevenue + visaRevenue + instapayRevenue;
 
-  // Material consumption today, derived from today's orders × recipes —
+  // Material consumption for this shift, derived from its orders × recipes —
   // NOT from stock.used, since that's cumulative since last restock, not
-  // scoped to today.
+  // scoped to any one shift.
   const consumption = useMemo(() => {
     const map = new Map<string, number>();
-    todaySessions.forEach((s) => {
+    shiftSessions.forEach((s) => {
       s.orders.forEach((o) => {
         const item = state.menu.find((m) => m.id === o.menuItemId);
         if (!item) return;
@@ -88,7 +83,7 @@ export function ReportsPage() {
       const stk = state.stock.find((s) => s.id === stockId);
       return { name: stk?.name ?? stockId, unit: stk?.unit ?? "", qty };
     }).sort((a, b) => b.qty - a.qty);
-  }, [todaySessions, state.menu, state.stock]);
+  }, [shiftSessions, state.menu, state.stock]);
 
   return (
     <div className="space-y-6">
@@ -96,21 +91,33 @@ export function ReportsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Owner Reports</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
-            All shifts · {isViewingToday ? "Today" : new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+            {selectedShift ? `${selectedShift.cashierUsername} · ${new Date(selectedShift.openedAt).toLocaleString()}${isViewingActiveShift ? " (active)" : ""}` : "No shifts yet"}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div>
-            <label className="text-[10px] uppercase tracking-widest text-muted-foreground block">End of Day — Select Date</label>
-            <input
-              type="date" value={selectedDate} max={new Date().toISOString().slice(0, 10)}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="mt-0.5 bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
-            />
+            <label className="text-[10px] uppercase tracking-widest text-muted-foreground block">Shift</label>
+            <select
+              value={effectiveShiftId ?? ""}
+              onChange={(e) => setSelectedShiftId(e.target.value || null)}
+              className="mt-0.5 bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono max-w-[280px]"
+            >
+              {state.activeShiftId && (
+                <option value={state.activeShiftId}>
+                  Active now — {state.shifts.find((sh) => sh.id === state.activeShiftId)?.cashierUsername ?? "?"}
+                </option>
+              )}
+              {sortedShifts.filter((sh) => sh.id !== state.activeShiftId).map((sh) => (
+                <option key={sh.id} value={sh.id}>
+                  {sh.cashierUsername} — {new Date(sh.openedAt).toLocaleString()}
+                </option>
+              ))}
+            </select>
           </div>
           <button
-            onClick={() => generateDailyReport(todayShifts, todaySessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, selectedDate, wasteEntries.reduce((a, e) => a + e.amount, 0))}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-black to-black text-[#2b2416] text-sm font-semibold self-end"
+            onClick={() => selectedShift && generateDailyReport(selectedShift, shiftSessions, consumption, totalRevenue, cashRevenue, visaRevenue, instapayRevenue, wasteEntries.reduce((a, e) => a + e.amount, 0))}
+            disabled={!selectedShift}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-black to-black text-[#2b2416] text-sm font-semibold self-end disabled:opacity-40"
           >
             <FileDown className="w-4 h-4" /> Generate Report
           </button>
@@ -118,22 +125,20 @@ export function ReportsPage() {
       </div>
 
       <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
-        <span>{todaySessions.length} order{todaySessions.length === 1 ? "" : "s"} on this day</span>
-        <span>·</span>
-        <span>{todayShifts.length} shift{todayShifts.length === 1 ? "" : "s"}</span>
+        <span>{shiftSessions.length} order{shiftSessions.length === 1 ? "" : "s"} this shift</span>
       </div>
 
       <BusinessDayPanel />
 
       <WasteMarketingPanel allEntries={state.ledger.filter((l) => l.category === "Marketing / Waste Expense")} />
 
-      {/* Total Daily Revenue — the definitive benchmark, before any expenses */}
+      {/* Total Shift Revenue — the definitive benchmark, before any expenses */}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
         <div className="flex items-center gap-2 mb-1">
           <TrendingUp className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-          <h2 className="text-lg font-semibold">Total Daily Revenue</h2>
+          <h2 className="text-lg font-semibold">Total Shift Revenue</h2>
         </div>
-        <p className="text-xs text-muted-foreground mb-4">Cash + Visa + InstaPay, combined across every pure and mixed-method sale — before expenses.</p>
+        <p className="text-xs text-muted-foreground mb-4">Cash + Visa + InstaPay, combined across every pure and mixed-method sale this shift — before expenses.</p>
         <div className="text-4xl font-mono font-bold mb-4">{fmtMoney(totalRevenue)}</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
@@ -151,19 +156,17 @@ export function ReportsPage() {
         </div>
       </div>
 
-      {/* Shift comparison */}
+      {/* This shift's own reconciliation card */}
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <Users2 className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-          <h2 className="text-lg font-semibold">Shift Comparison — Today</h2>
+          <h2 className="text-lg font-semibold">Shift Reconciliation</h2>
         </div>
-        {todayShifts.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono">No shifts opened today.</div>
+        {!selectedShift ? (
+          <div className="text-sm text-muted-foreground font-mono">No shift selected.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {todayShifts.map((sh, idx) => (
-              <ShiftCard key={sh.id} shift={sh} label={`Shift ${idx + 1}`} sessions={state.sessions.filter((s) => s.shiftId === sh.id)} />
-            ))}
+            <ShiftCard shift={selectedShift} label={isViewingActiveShift ? "Active Shift" : "Closed Shift"} sessions={shiftSessions} />
           </div>
         )}
       </div>
@@ -172,10 +175,10 @@ export function ReportsPage() {
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <Boxes className="w-5 h-5 text-black" />
-          <h2 className="text-lg font-semibold">Material Consumption — Today</h2>
+          <h2 className="text-lg font-semibold">Material Consumption — This Shift</h2>
         </div>
         {consumption.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono">No orders completed today.</div>
+          <div className="text-sm text-muted-foreground font-mono">No orders completed this shift.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {consumption.map((c) => (
@@ -1001,21 +1004,23 @@ function HistoryLog() {
 }
 
 function generateDailyReport(
-  shifts: Shift[],
+  shift: Shift,
   sessions: Session[],
   consumption: { name: string; unit: string; qty: number }[],
   totalRevenue: number,
   cashRevenue: number,
   visaRevenue: number,
   instapayRevenue: number,
-  selectedDate: string,
   wasteExpense: number,
 ) {
   const win = window.open("", "_blank", "width=900,height=1200");
   if (!win) return;
-  const today = new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const opened = new Date(shift.openedAt);
+  const closed = shift.closedAt ? new Date(shift.closedAt) : null;
+  const openedLabel = opened.toLocaleString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const closedLabel = closed ? closed.toLocaleString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Still open";
   win.document.write(`
-<!DOCTYPE html><html><head><title>GLITCH Daily Report ${today}</title>
+<!DOCTYPE html><html><head><title>GLITCH Shift Report — ${shift.cashierUsername}</title>
 <style>
   body { font-family: ui-sans-serif, system-ui, sans-serif; padding: 32px; color: #111; }
   h1 { margin: 0 0 4px; letter-spacing: 4px; }
@@ -1026,37 +1031,43 @@ function generateDailyReport(
   .totals { margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px; }
   .totals div { display: flex; justify-content: space-between; padding: 4px 0; font-family: ui-monospace, monospace; }
   .grand { font-weight: bold; border-top: 2px solid #111; margin-top: 6px; padding-top: 8px !important; font-size: 15px; }
+  .meta { font-family: ui-monospace, monospace; font-size: 11px; color: #666; margin-top: 4px; }
 </style></head><body>
 <h1>GLITCH LOUNGE</h1>
-<div class="sub">End of Day Sales Log — ${today}</div>
+<div class="sub">Shift Report — ${shift.cashierUsername}</div>
+<div class="meta">
+  Shift ID: ${shift.id}<br/>
+  Start: ${openedLabel}<br/>
+  End: ${closedLabel}
+</div>
 <div class="totals">
-  <div class="grand"><span>TOTAL DAILY REVENUE</span><span>${totalRevenue.toFixed(2)} EGP</span></div>
+  <div class="grand"><span>TOTAL SHIFT REVENUE</span><span>${totalRevenue.toFixed(2)} EGP</span></div>
   <div><span>&nbsp;&nbsp;Cash</span><span>${cashRevenue.toFixed(2)} EGP</span></div>
   <div><span>&nbsp;&nbsp;Visa</span><span>${visaRevenue.toFixed(2)} EGP</span></div>
   <div><span>&nbsp;&nbsp;InstaPay</span><span>${instapayRevenue.toFixed(2)} EGP</span></div>
   <div><span>Order Count</span><span>${sessions.length}</span></div>
   <div><span>Wasted / Marketing Expense (excluded above)</span><span>${wasteExpense.toFixed(2)} EGP</span></div>
 </div>
-<h3 style="margin-top:24px">Shift Comparison</h3>
+<h3 style="margin-top:24px">Shift Reconciliation</h3>
 <table>
   <thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening EGP</th><th>Expected</th><th>Actual</th><th>Discrepancy</th></tr></thead>
   <tbody>
-    ${shifts.map((sh) => `<tr>
-      <td>${sh.cashierUsername}</td>
-      <td>${new Date(sh.openedAt).toLocaleTimeString()}</td>
-      <td>${sh.closedAt ? new Date(sh.closedAt).toLocaleTimeString() : "Open"}</td>
-      <td>${sh.openingBalance.toFixed(2)} EGP</td>
-      <td>${sh.expectedCash !== null ? sh.expectedCash.toFixed(2) + " EGP" : "—"}</td>
-      <td>${sh.closingActualCash !== null ? sh.closingActualCash.toFixed(2) + " EGP" : "—"}</td>
-      <td>${sh.discrepancy !== null ? sh.discrepancy.toFixed(2) + " EGP" : "—"}</td>
-    </tr>`).join("")}
+    <tr>
+      <td>${shift.cashierUsername}</td>
+      <td>${opened.toLocaleString()}</td>
+      <td>${closed ? closed.toLocaleString() : "Open"}</td>
+      <td>${shift.openingBalance.toFixed(2)} EGP</td>
+      <td>${shift.expectedCash !== null ? shift.expectedCash.toFixed(2) + " EGP" : "—"}</td>
+      <td>${shift.closingActualCash !== null ? shift.closingActualCash.toFixed(2) + " EGP" : "—"}</td>
+      <td>${shift.discrepancy !== null ? shift.discrepancy.toFixed(2) + " EGP" : "—"}</td>
+    </tr>
   </tbody>
 </table>
 <h3 style="margin-top:24px">Material Consumption</h3>
 <table>
   <thead><tr><th>Item</th><th>Consumed</th></tr></thead>
   <tbody>
-    ${consumption.map((c) => `<tr><td>${c.name}</td><td>${c.qty}${c.unit}</td></tr>`).join("") || "<tr><td colspan=2>No orders today</td></tr>"}
+    ${consumption.map((c) => `<tr><td>${c.name}</td><td>${c.qty}${c.unit}</td></tr>`).join("") || "<tr><td colspan=2>No orders this shift</td></tr>"}
   </tbody>
 </table>
 <h3 style="margin-top:24px">Sessions (${sessions.length})</h3>
@@ -1065,7 +1076,7 @@ function generateDailyReport(
   <tbody>
     ${sessions.map((s) => `<tr>
       <td>${s.roomName}</td>
-      <td>${new Date(s.endedAt).toLocaleTimeString()}</td>
+      <td>${new Date(s.endedAt).toLocaleString()}</td>
       <td>${s.paymentMethod.toUpperCase()}</td>
       <td>${s.cashAmount.toFixed(2)} EGP</td>
       <td>${s.visaAmount.toFixed(2)} EGP</td>
