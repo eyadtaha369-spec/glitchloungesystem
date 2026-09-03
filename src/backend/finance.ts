@@ -278,8 +278,36 @@ export const updatePurchaseFn = createServerFn({ method: "POST" })
 export const deleteSupplierInvoiceFn = createServerFn({ method: "POST" })
   .validator((d: { invoiceId: string }) => d)
   .handler(async ({ data }) => {
-    const user = await requireUser();
+    const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("deleteSupplierInvoice", { ...data, username: user.username });
+  });
+
+// Admin-only, requires the exact confirmation phrase plus password —
+// bypasses the "stock already used" safety check the normal delete
+// enforces. See bizForceDeleteSupplierInvoice_ for the full reasoning.
+export const forceDeleteSupplierInvoiceFn = createServerFn({ method: "POST" })
+  .validator((d: { invoiceId: string; confirmText: string; password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("forceDeleteSupplierInvoice", { ...data, username: user.username });
+  });
+
+export const updateSupplierInvoiceFn = createServerFn({ method: "POST" })
+  .validator((d: {
+    invoiceId: string;
+    items?: { id: string; qty: number; unitPrice: number }[];
+    invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
+  }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("updateSupplierInvoice", { ...data, username: user.username });
+  });
+
+export const deleteSupplierPaymentFn = createServerFn({ method: "POST" })
+  .validator((d: { paymentId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("deleteSupplierPayment", { ...data, username: user.username });
   });
 
 // One-time migration: exports everything from THIS system (the café's

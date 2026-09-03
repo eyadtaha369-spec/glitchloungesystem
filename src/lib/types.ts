@@ -439,6 +439,11 @@ export interface SupplierLedgerEntry {
   paymentType: "cash" | "deferred" | null;
   id: string;
   runningBalance: number;
+  // Present on invoice-type entries only — full detail for the edit
+  // form, avoiding a second round-trip for data already loaded here.
+  invoiceDate?: number;
+  paymentSource?: string | null;
+  items?: { id: string; materialId: string; materialName: string; qty: number; unitPrice: number }[];
 }
 
 // ---------- Void workflow (anti-collusion) ----------

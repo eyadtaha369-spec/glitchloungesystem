@@ -3865,6 +3865,9 @@ function getSupplierLedger_(supplierId) {
       ts: Number(inv.invoiceDate) || Number(inv.createdAt), type: "invoice", description: "Invoice — " + itemDesc,
       amount: Number(inv.totalAmount), debit: inv.paymentType === "deferred" ? Number(inv.totalAmount) : 0,
       credit: 0, paymentType: inv.paymentType, id: inv.id,
+      invoiceDate: Number(inv.invoiceDate) || Number(inv.createdAt),
+      paymentSource: inv.paymentSource || null,
+      items: items.map(function (it) { return { id: it.id, materialId: it.materialId, materialName: it.materialName, qty: Number(it.qty), unitPrice: Number(it.unitPrice) }; }),
     });
   });
   payments.forEach(function (p) {

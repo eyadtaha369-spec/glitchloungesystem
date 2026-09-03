@@ -741,6 +741,7 @@ function SupplierAccountsPanel() {
 
 function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; onClose: () => void }) {
   const { state, getSupplierLedger, recordSupplierPayment, refreshSupplierBalances, deleteSupplierInvoice } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const supplier = state.suppliers.find((s) => s.id === supplierId);
 
   const [entries, setEntries] = useState<SupplierLedgerEntry[]>([]);
@@ -836,8 +837,17 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
                     <td className="py-2 pr-2 text-right font-mono">{e.credit > 0 ? fmtMoney(e.credit) : "—"}</td>
                     <td className="py-2 text-right font-mono font-semibold">{fmtMoney(e.runningBalance)}</td>
                     <td className="py-2 pl-2 text-right">
-                      {e.type === "invoice" && (
-                        <DeleteInvoiceButton invoiceId={e.id} onDeleted={async () => { await load(); await refreshSupplierBalances(); }} />
+                      {isAdmin && (
+                        <div className="flex items-center justify-end gap-2">
+                          {e.type === "invoice" && (
+                            <EditInvoiceButton entry={e} onSaved={async () => { await load(); await refreshSupplierBalances(); }} />
+                          )}
+                          {e.type === "invoice" ? (
+                            <DeleteInvoiceButton invoiceId={e.id} onDeleted={async () => { await load(); await refreshSupplierBalances(); }} />
+                          ) : (
+                            <DeletePaymentButton paymentId={e.id} onDeleted={async () => { await load(); await refreshSupplierBalances(); }} />
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -856,6 +866,8 @@ function DeleteInvoiceButton({ invoiceId, onDeleted }: { invoiceId: string; onDe
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showForce, setShowForce] = useState(false);
+  const blocked = !!err && err.toLowerCase().includes("already been used");
 
   const doDelete = async () => {
     setDeleting(true);
@@ -880,6 +892,16 @@ function DeleteInvoiceButton({ invoiceId, onDeleted }: { invoiceId: string; onDe
     );
   }
 
+  if (showForce) {
+    return (
+      <ForceDeleteInvoiceModal
+        invoiceId={invoiceId}
+        onClose={() => { setShowForce(false); setConfirming(false); }}
+        onDeleted={() => { setShowForce(false); setConfirming(false); onDeleted(); }}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setConfirming(false)}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
@@ -889,10 +911,230 @@ function DeleteInvoiceButton({ invoiceId, onDeleted }: { invoiceId: string; onDe
           already been used in a sale, this will be blocked automatically.
         </p>
         {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+        {blocked && (
+          <button onClick={() => setShowForce(true)} className="text-xs font-semibold text-[oklch(0.62_0.24_25)] underline mb-3">
+            Force delete anyway (bypasses this check)
+          </button>
+        )}
         <div className="flex justify-end gap-2">
           <button onClick={() => setConfirming(false)} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
           <button onClick={() => void doDelete()} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] disabled:opacity-50">
             {deleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ForceDeleteInvoiceModal({ invoiceId, onClose, onDeleted }: { invoiceId: string; onClose: () => void; onDeleted: () => void }) {
+  const { forceDeleteSupplierInvoice } = useStore();
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const canSubmit = confirmText === "FORCE DELETE" && password.length > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await forceDeleteSupplierInvoice(invoiceId, confirmText, password);
+      if (!res.ok) { setErr(res.error ?? "Could not force-delete."); return; }
+      onDeleted();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.6)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Force delete this invoice</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          This bypasses the check that stock from this invoice has already been used in a sale. Those past sales
+          are not affected — but the record of where that stock came from will be gone. This can't be undone.
+        </p>
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Type FORCE DELETE to confirm</label>
+        <input
+          value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono mb-3"
+          placeholder="FORCE DELETE"
+        />
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Your admin password</label>
+        <input
+          type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+        />
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-2">{err}</div>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void handleSubmit()}
+            disabled={!canSubmit || submitting}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-40"
+          >
+            {submitting ? "Deleting..." : "Force Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeletePaymentButton({ paymentId, onDeleted }: { paymentId: string; onDeleted: () => void }) {
+  const { deleteSupplierPayment } = useStore();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const doDelete = async () => {
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await deleteSupplierPayment(paymentId);
+      if (!res.ok) { setErr(res.error ?? "Delete failed"); return; }
+      setConfirming(false);
+      onDeleted();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — please try again.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (!confirming) {
+    return (
+      <button onClick={() => setConfirming(true)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete payment">
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setConfirming(false)}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Delete this payment?</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          This will remove it from the supplier's balance and delete its matching expense entry.
+        </p>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setConfirming(false)} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button onClick={() => void doDelete()} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] disabled:opacity-50">
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditInvoiceButton({ entry, onSaved }: { entry: SupplierLedgerEntry; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]" title="Edit invoice">
+        <Pencil className="w-3.5 h-3.5" />
+      </button>
+      {open && <EditInvoiceModal entry={entry} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); onSaved(); }} />}
+    </>
+  );
+}
+
+function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEntry; onClose: () => void; onSaved: () => void }) {
+  const { updateSupplierInvoice } = useStore();
+  const [items, setItems] = useState(() => (entry.items ?? []).map((it) => ({ ...it })));
+  const [invoiceDateInput, setInvoiceDateInput] = useState(() => new Date(entry.invoiceDate ?? entry.ts).toISOString().slice(0, 10));
+  const [paymentType, setPaymentType] = useState<"cash" | "deferred">(entry.paymentType ?? "deferred");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const newTotal = items.reduce((a, it) => a + it.qty * it.unitPrice, 0);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await updateSupplierInvoice({
+        invoiceId: entry.id,
+        items: items.map((it) => ({ id: it.id, qty: it.qty, unitPrice: it.unitPrice })),
+        invoiceDate: new Date(invoiceDateInput + "T00:00:00").getTime(),
+        paymentType,
+      });
+      if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onClick={() => !saving && onClose()}>
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)] p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-3">Edit Invoice</h3>
+
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Transaction Date</label>
+        <input
+          type="date" value={invoiceDateInput} onChange={(e) => setInvoiceDateInput(e.target.value)}
+          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm mb-3"
+        />
+
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Type</label>
+        <div className="mt-1 flex rounded-lg border border-black/10 overflow-hidden mb-3">
+          <button
+            onClick={() => setPaymentType("cash")}
+            className={`flex-1 py-2 text-xs font-bold ${paymentType === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+          >Cash</button>
+          <button
+            onClick={() => setPaymentType("deferred")}
+            className={`flex-1 py-2 text-xs font-bold border-l border-black/10 ${paymentType === "deferred" ? "bg-[oklch(0.62_0.24_25/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+          >Deferred (on credit)</button>
+        </div>
+
+        <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Items</div>
+        <div className="space-y-2 mb-3">
+          {items.map((it, idx) => (
+            <div key={it.id} className="rounded-lg bg-black/5 border border-black/8 p-3">
+              <div className="text-sm font-semibold mb-1.5">{it.materialName}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Quantity</label>
+                  <input
+                    type="number" min="0" step="0.01" value={it.qty}
+                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, qty: parseFloat(e.target.value) || 0 } : p))}
+                    className="mt-0.5 w-full bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-sm font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Unit Price</label>
+                  <input
+                    type="number" min="0" step="0.01" value={it.unitPrice}
+                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unitPrice: parseFloat(e.target.value) || 0 } : p))}
+                    className="mt-0.5 w-full bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-sm font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-between items-center py-2 border-t border-black/10 mb-3">
+          <span className="text-sm font-bold uppercase tracking-widest text-muted-foreground">New Total</span>
+          <span className="text-xl font-mono font-bold">{fmtMoney(newTotal)}</span>
+        </div>
+
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} disabled={saving} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving || items.length === 0}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>

@@ -77,7 +77,7 @@ import {
   submitPurchaseFn,
   submitExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
   submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
-  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, migrateToCloudFn,
+  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
@@ -252,6 +252,12 @@ interface StoreContextValue {
   deletePurchase: (ledgerId: string) => Promise<{ ok: boolean; error?: string }>;
   updatePurchase: (p: { ledgerId: string; description?: string; category?: string; supplierId?: string; qty?: number; unitCost?: number }) => Promise<{ ok: boolean; error?: string }>;
   deleteSupplierInvoice: (invoiceId: string) => Promise<{ ok: boolean; error?: string }>;
+  forceDeleteSupplierInvoice: (invoiceId: string, confirmText: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  updateSupplierInvoice: (params: {
+    invoiceId: string; items?: { id: string; qty: number; unitPrice: number }[];
+    invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  deleteSupplierPayment: (paymentId: string) => Promise<{ ok: boolean; error?: string }>;
   migrateToCloud: (p: { password: string; cloudUrl: string; cloudSecret: string }) => Promise<
     { ok: true; tableSummary: Record<string, number>; accountsAdded: number } | { ok: false; error?: string; step?: "export" | "import" }
   >;
@@ -1076,6 +1082,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const forceDeleteSupplierInvoice: StoreContextValue["forceDeleteSupplierInvoice"] = async (invoiceId, confirmText, password) => {
+    return withPending(`forceDeleteSupplierInvoice:${invoiceId}`, async () => {
+      const res = await forceDeleteSupplierInvoiceFn({ data: { invoiceId, confirmText, password } });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshSupplierBalances();
+        } catch (e) { console.error("Post-force-delete refresh failed (delete itself still succeeded):", e); }
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const updateSupplierInvoice: StoreContextValue["updateSupplierInvoice"] = async (params) => {
+    return withPending(`updateSupplierInvoice:${params.invoiceId}`, async () => {
+      const res = await updateSupplierInvoiceFn({ data: params });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshSupplierBalances();
+        } catch (e) { console.error("Post-edit refresh failed (edit itself still succeeded):", e); }
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const deleteSupplierPayment: StoreContextValue["deleteSupplierPayment"] = async (paymentId) => {
+    return withPending(`deleteSupplierPayment:${paymentId}`, async () => {
+      const res = await deleteSupplierPaymentFn({ data: { paymentId } });
+      if (res.ok) {
+        try {
+          if (res.state) setAppState(res.state);
+          await refreshSupplierBalances();
+        } catch (e) { console.error("Post-delete refresh failed (delete itself still succeeded):", e); }
+      }
+      return { ok: res.ok, error: res.error };
+    });
+  };
   const migrateToCloud: StoreContextValue["migrateToCloud"] = async (p) => {
     return withPending("migrateToCloud", async () => {
       const res = await migrateToCloudFn({ data: p });
@@ -1346,7 +1388,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };

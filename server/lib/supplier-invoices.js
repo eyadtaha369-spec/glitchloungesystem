@@ -150,6 +150,11 @@ function bizGetSupplierLedger_(deps, supplierId) {
       credit: 0,
       paymentType: inv.paymentType,
       id: inv.id,
+      // Full detail for the edit form — avoids a second round-trip
+      // just to load what's already sitting right here.
+      invoiceDate: Number(inv.invoiceDate) || Number(inv.createdAt),
+      paymentSource: inv.paymentSource || null,
+      items: items.map((it) => ({ id: it.id, materialId: it.materialId, materialName: it.materialName, qty: Number(it.qty), unitPrice: Number(it.unitPrice) })),
     });
   });
   payments.forEach((p) => {
