@@ -470,7 +470,12 @@ function MonthlyReconciliationDashboard() {
   // doing so would double-count the same raw-material spend twice.
   const totalDailyExpenses = useMemo(
     () => state.ledger
-      .filter((l) => l.direction === "outflow" && l.type !== "sale" && l.status === "approved" && l.ts >= monthStart && l.ts <= monthEnd)
+      // paymentStatus is only ever set to "unpaid" on entries logged as
+      // a debt not yet settled — every other entry type either sets it
+      // to "paid" or leaves it unset entirely, so excluding just this
+      // one value is safe and doesn't accidentally drop anything that
+      // was actually paid.
+      .filter((l) => l.direction === "outflow" && l.type !== "sale" && l.status === "approved" && l.paymentStatus !== "unpaid" && l.ts >= monthStart && l.ts <= monthEnd)
       .reduce((a, l) => a + Number(l.amount), 0),
     [state.ledger, monthStart, monthEnd],
   );
