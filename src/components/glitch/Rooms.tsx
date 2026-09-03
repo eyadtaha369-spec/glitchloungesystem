@@ -21,15 +21,6 @@ function fmtReceiptTime(d: Date): string {
   return `${datePart} ${timePart}`;
 }
 
-// Mirrors the server's effectiveDurationSec_: elapsed seconds at an
-// arbitrary point in time, excluding all paused time. Used to freeze the
-// checkout bill to the exact moment "End" was clicked.
-function effectiveElapsedAt(room: Room, atMs: number): number {
-  if (!room.startedAt) return 0;
-  const raw = (atMs - room.startedAt) / 1000;
-  const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (atMs - room.pausedAt) / 1000 : 0);
-  return Math.max(0, raw - pausedSoFar + (room.timeAdjustmentSec || 0));
-}
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   cash: "Cash",
@@ -209,7 +200,6 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutScreen, setCheckoutScreen] = useState<"preview" | "payment">("preview");
-  const [frozenAt, setFrozenAt] = useState<number | null>(null);
   const [ticketOpen, setTicketOpen] = useState(false);
   const [kotNumber, setKotNumber] = useState<number | null>(null);
   const [fetchingKot, setFetchingKot] = useState(false);
@@ -285,11 +275,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [ordersDiscountType, setOrdersDiscountType] = useState<"fixed" | "percent">("fixed");
   const [ordersDiscountInput, setOrdersDiscountInput] = useState("");
 
-  // Once "End" is clicked, frozenAt locks the bill to that exact instant —
-  // the customer isn't charged extra time for however long the payment
-  // step takes. checkoutTotal (not the live, still-ticking `total`) is
-  // what the modal displays and what's actually charged.
-  const checkoutElapsed = frozenAt !== null ? Math.floor(effectiveElapsedAt(room, frozenAt)) : elapsed;
+  // Clicking "End" persistently pauses the room server-side (pauseRoom),
+  // which is what actually locks the bill to that exact instant — elapsed
+  // itself (computeElapsed in the store) already excludes all paused time,
+  // so it naturally stops advancing the moment the room is paused, with no
+  // separate client-side freeze needed. This holds even if the user closes
+  // the modal and comes back later, since the pause is backend-persisted.
+  const checkoutElapsed = elapsed;
   const checkoutTimeCost = (checkoutElapsed / 3600) * room.hourlyRate;
   const checkoutPreDiscountTotal = checkoutTimeCost + ordersCost;
   const previewDiscount = (base: number, type: "fixed" | "percent", raw: string) => {
@@ -329,7 +321,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         room.id, split, paymentOption,
         isMixed ? cashAmount : undefined,
         isMixed ? secondaryAmount : undefined,
-        frozenAt ?? undefined,
+        room.pausedAt ?? undefined,
         hasManualDiscount ? {
           timeDiscountType, timeDiscountValue: parseFloat(timeDiscountInput) || 0,
           ordersDiscountType, ordersDiscountValue: parseFloat(ordersDiscountInput) || 0,
@@ -337,7 +329,6 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       );
       if (res.error) { setCheckoutErr(res.error); return; }
       setCheckoutOpen(false);
-      setFrozenAt(null);
       setSecondaryInput(""); setPaymentOption("cash");
       if (res.session) onCheckout(res.session);
     } finally {
@@ -350,10 +341,9 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
     if (!staffOrderName.trim()) { setCheckoutErr("Enter the staff member's name."); return; }
     setStaffOrderSubmitting(true);
     try {
-      const res = await endRoomAsStaffOrder(room.id, staffOrderName.trim(), frozenAt ?? undefined);
+      const res = await endRoomAsStaffOrder(room.id, staffOrderName.trim(), room.pausedAt ?? undefined);
       if (!res.ok) { setCheckoutErr(res.error ?? "Could not close as staff order."); return; }
       setCheckoutOpen(false);
-      setFrozenAt(null);
       setIsStaffOrder(false);
       setStaffOrderName("");
     } finally {
@@ -795,7 +785,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               </button>
             ) : (
               <button
-                onClick={() => { setFrozenAt(Date.now()); setCheckoutScreen("preview"); setCheckoutOpen(true); }}
+                onClick={() => { void pauseRoom(room.id); setCheckoutScreen("preview"); setCheckoutOpen(true); }}
                 className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
               >
                 <Square className="w-4 h-4" /> End
@@ -806,11 +796,11 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       </div>
 
       {checkoutOpen && createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setFrozenAt(null); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-black/10">
               <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.62_0.24_25)]">{room.name} · Checkout</div>
-              <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
+              <button onClick={() => { setCheckoutOpen(false); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-6 space-y-5">
               {checkoutScreen === "preview" ? (
@@ -869,6 +859,14 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   Next
                 </button>
               </div>
+              {room.isPaused && (
+                <button
+                  onClick={() => { void resumeRoom(room.id); setCheckoutOpen(false); }}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[oklch(0.78_0.2_155/0.15)] border-2 border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] font-bold uppercase tracking-wide no-print"
+                >
+                  <Play className="w-5 h-5" /> Resume — Not Checking Out
+                </button>
+              )}
               </>
               ) : (
               <>
