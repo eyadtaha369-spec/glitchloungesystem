@@ -22,6 +22,12 @@ function startOfMonth(ts: number) {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
+function endOfMonth(ts: number) {
+  const d = new Date(ts);
+  d.setMonth(d.getMonth() + 1, 0); // day 0 of next month = last day of this month
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
 
 export function ReportsPage() {
   const { state, refreshLedger } = useStore();
@@ -193,6 +199,7 @@ export function ReportsPage() {
 
       <HistoryLog />
       <AttendanceLog />
+      <MonthlyReconciliationDashboard />
       <PnLLedgerPanel />
     </div>
   );
@@ -430,6 +437,93 @@ function BusinessDayPanel() {
   );
 }
 
+// Fixed to the CURRENT calendar month (Day 1 00:00:00 through the last
+// day 23:59:59) — deliberately independent of the Detailed Ledger
+// panel's own Today/Week/Month/Custom picker below it, per the
+// explicit requirement that this is a standing monthly summary, not
+// another range selection.
+function MonthlyReconciliationDashboard() {
+  const { state } = useStore();
+  const now = Date.now();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+  const monthLabel = new Date(now).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  // Revenue is scoped by each SHIFT's own start date, not by when an
+  // individual session ended — this is what keeps a shift that starts
+  // late on the last day of the month (and runs past midnight into
+  // next month) fully counted in THIS month, exactly as required,
+  // rather than splitting its sessions across two months.
+  const monthShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= monthStart && sh.openedAt <= monthEnd).map((sh) => sh.id)),
+    [state.shifts, monthStart, monthEnd],
+  );
+  const totalMonthlyRevenue = useMemo(
+    () => state.sessions.filter((s) => s.shiftId && monthShiftIds.has(s.shiftId)).reduce((a, s) => a + s.total, 0),
+    [state.sessions, monthShiftIds],
+  );
+
+  // Daily operational expenses and supplier purchases — every approved
+  // outflow Ledger entry logged within the month, which already
+  // includes procurement/supplier invoices (the source of COGS), so
+  // this deliberately does NOT add a separate COGS term below --
+  // doing so would double-count the same raw-material spend twice.
+  const totalDailyExpenses = useMemo(
+    () => state.ledger
+      .filter((l) => l.direction === "outflow" && l.type !== "sale" && l.status === "approved" && l.ts >= monthStart && l.ts <= monthEnd)
+      .reduce((a, l) => a + Number(l.amount), 0),
+    [state.ledger, monthStart, monthEnd],
+  );
+
+  // Fixed recurring costs (rent, salaries, utilities, internet, etc.)
+  // are a flat monthly definition, not a dated transaction log, so
+  // every currently-active one applies to this month's calculation.
+  const totalFixedExpenses = useMemo(
+    () => state.recurringExpenses.filter((r) => r.active).reduce((a, r) => a + Number(r.amount), 0),
+    [state.recurringExpenses],
+  );
+
+  const netProfit = totalMonthlyRevenue - (totalDailyExpenses + totalFixedExpenses);
+  const isProfit = netProfit >= 0;
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+        <h2 className="text-lg font-semibold">Monthly Financial Reconciliation</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">{monthLabel} — Day 1 through the last day, by each shift's own start date</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white/60 rounded-xl p-5 border border-black/8">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Monthly Revenue</div>
+          <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.78_0.2_155)]">{fmtMoney(totalMonthlyRevenue)}</div>
+        </div>
+        <div className="bg-white/60 rounded-xl p-5 border border-black/8">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Daily Expenses &amp; Purchases</div>
+          <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalDailyExpenses)}</div>
+        </div>
+        <div className="bg-white/60 rounded-xl p-5 border border-black/8">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Fixed Monthly Expenses</div>
+          <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalFixedExpenses)}</div>
+        </div>
+        <div
+          className={`rounded-xl p-5 border-2 shadow-lg ${
+            isProfit
+              ? "bg-gradient-to-br from-[oklch(0.78_0.2_155/0.2)] to-[oklch(0.78_0.2_155/0.05)] border-[oklch(0.78_0.2_155/0.6)] shadow-[oklch(0.78_0.2_155/0.3)]"
+              : "bg-gradient-to-br from-[oklch(0.62_0.24_25/0.2)] to-[oklch(0.62_0.24_25/0.05)] border-[oklch(0.62_0.24_25/0.6)] shadow-[oklch(0.62_0.24_25/0.3)]"
+          }`}
+        >
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Profit {isProfit ? "(+ Profit)" : "(− Loss)"}</div>
+          <div className={`text-2xl font-mono font-black mt-2 ${isProfit ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
+            {fmtMoney(netProfit)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PnLLedgerPanel() {
   const { state } = useStore();
   const [range, setRange] = useState<RangeKey>("today");
@@ -461,11 +555,6 @@ function PnLLedgerPanel() {
     [state.shifts, from, to],
   );
 
-  const totalRevenue = sessionsInRange.reduce((a, s) => a + s.total, 0);
-  const totalCogs = sessionsInRange.reduce((a, s) => a + (s.cogs || 0), 0);
-  const totalExpenses = ledgerInRange.filter((l) => l.direction === "outflow" && l.type !== "sale").reduce((a, l) => a + Number(l.amount), 0);
-  const netProfit = totalRevenue - (totalCogs + totalExpenses);
-
   const exportCsv = () => {
     const rows = [
       ["Timestamp", "Type", "Direction", "Category", "Description", "Amount", "Staff", "Status", "Supplier", "Material", "Qty", "Unit Cost"],
@@ -490,7 +579,7 @@ function PnLLedgerPanel() {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-          <h2 className="text-lg font-semibold">Executive Ledger &amp; P&amp;L</h2>
+          <h2 className="text-lg font-semibold">Detailed Ledger &amp; History</h2>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
@@ -519,25 +608,6 @@ function PnLLedgerPanel() {
           <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="bg-white/70 border border-black/10 rounded px-2 py-1.5" />
         </div>
       )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue</div>
-          <div className="text-xl font-mono font-bold mt-1">{fmtMoney(totalRevenue)}</div>
-        </div>
-        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">COGS</div>
-          <div className="text-xl font-mono font-bold mt-1 text-black">{fmtMoney(totalCogs)}</div>
-        </div>
-        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Other Expenses</div>
-          <div className="text-xl font-mono font-bold mt-1 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalExpenses)}</div>
-        </div>
-        <div className={`rounded-lg p-4 border ${netProfit >= 0 ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)]"}`}>
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Profit</div>
-          <div className={`text-xl font-mono font-bold mt-1 ${netProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(netProfit)}</div>
-        </div>
-      </div>
 
       {ledgerInRange.length === 0 ? (
         <div className="text-sm text-muted-foreground font-mono">No ledger entries in this range.</div>
