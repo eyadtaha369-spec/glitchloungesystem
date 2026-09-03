@@ -60,6 +60,7 @@ const KNOWN_TABLES = [
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
   "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots",
   "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments", "DailyReconciliations",
+  "StaffMembers", "StaffAllowanceUsage",
 ];
 
 function assertTable(table) {

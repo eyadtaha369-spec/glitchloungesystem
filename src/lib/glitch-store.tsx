@@ -19,6 +19,7 @@ import type {
   VoidReason,
   AuditLogEntry,
   StaffOrder,
+  StaffMember,
   RestockLogEntry,
   PaymentSource,
   BusinessDay,
@@ -84,12 +85,12 @@ import {
   requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn, verifyAdminAuthFn, reconcileUnapprovedVoidFn,
 } from "@/backend/void";
 import { getActivityLogsFn } from "@/backend/audit";
-import { submitStaffOrderFn, getStaffOrdersFn, endRoomAsStaffOrderFn } from "@/backend/staffOrders";
+import { submitStaffOrderFn, getStaffOrdersFn, endRoomAsStaffOrderFn, getStaffMembersFn, addStaffMemberFn, updateStaffMemberFn, deleteStaffMemberFn } from "@/backend/staffOrders";
 
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, DailyReconciliation, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
+  MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
   WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
 } from "./types";
 export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES } from "./types";
@@ -106,6 +107,7 @@ interface State extends AppState {
   voidRequests: VoidRequest[];
   activityLogs: AuditLogEntry[];
   staffOrders: StaffOrder[];
+  staffMembers: StaffMember[];
   restockLog: RestockLogEntry[];
 }
 
@@ -275,9 +277,13 @@ interface StoreContextValue {
 
   // Staff Orders & Consumption — standard menu prices for costing, but
   // routed to a Staff Consumption Expense, never retail revenue.
-  submitStaffOrder: (params: { staffName: string; items: { menuItemId: string; qty: number }[] }) => Promise<{ ok: boolean; error?: string; staffOrder?: StaffOrder }>;
+  submitStaffOrder: (params: { staffId?: string; staffName: string; items: { menuItemId: string; qty: number }[] }) => Promise<{ ok: boolean; error?: string; staffOrder?: StaffOrder }>;
   endRoomAsStaffOrder: (roomId: string, staffName: string, frozenAt?: number) => Promise<{ ok: boolean; error?: string; staffOrder?: StaffOrder }>;
   refreshStaffOrders: () => Promise<void>;
+  refreshStaffMembers: () => Promise<void>;
+  addStaffMember: (name: string) => Promise<{ ok: boolean; error?: string; item?: StaffMember }>;
+  updateStaffMember: (id: string, patch: Partial<Pick<StaffMember, "name" | "active">>) => Promise<{ ok: boolean; error?: string }>;
+  deleteStaffMember: (id: string) => Promise<{ ok: boolean; error?: string }>;
 
   // Cross-zone transfer & interactive split
   transferZone: (sourceId: string, targetId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
@@ -313,6 +319,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [voidRequests, setVoidRequests] = useState<VoidRequest[]>([]);
   const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
   const [staffOrders, setStaffOrders] = useState<StaffOrder[]>([]);
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [restockLog, setRestockLog] = useState<RestockLogEntry[]>([]);
   const [wasteInvoices, setWasteInvoices] = useState<WasteInvoice[]>([]);
   const [inventorySnapshotMonths, setInventorySnapshotMonths] = useState<string[]>([]);
@@ -370,10 +377,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const [mats, sups, restocks] = await Promise.all([getRawMaterialsFn(), getSuppliersFn(), getRestockLogFn()]);
+      const [mats, sups, restocks, staffMems] = await Promise.all([getRawMaterialsFn(), getSuppliersFn(), getRestockLogFn(), getStaffMembersFn()]);
       setMaterials(mats);
       setSuppliers(sups);
       setRestockLog(restocks);
+      setStaffMembers(staffMems);
     } catch { /* leave as-is */ }
     if (user.role === "admin") {
       try {
@@ -1193,6 +1201,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (currentUser?.role !== "admin") return;
     setStaffOrders(await getStaffOrdersFn());
   };
+  const refreshStaffMembers: StoreContextValue["refreshStaffMembers"] = async () => {
+    setStaffMembers(await getStaffMembersFn());
+  };
+  const addStaffMember: StoreContextValue["addStaffMember"] = async (name) => {
+    return withPending("addStaffMember", async () => {
+      const res = await addStaffMemberFn({ data: { name } });
+      if (res.ok) await refreshStaffMembers();
+      return { ok: res.ok, error: res.error, item: res.item };
+    });
+  };
+  const updateStaffMember: StoreContextValue["updateStaffMember"] = async (id, patch) => {
+    return withPending(`updateStaffMember:${id}`, async () => {
+      const res = await updateStaffMemberFn({ data: { id, patch } });
+      if (res.ok) await refreshStaffMembers();
+      return { ok: res.ok };
+    });
+  };
+  const deleteStaffMember: StoreContextValue["deleteStaffMember"] = async (id) => {
+    return withPending(`deleteStaffMember:${id}`, async () => {
+      const res = await deleteStaffMemberFn({ data: { id } });
+      if (res.ok) await refreshStaffMembers();
+      return { ok: res.ok };
+    });
+  };
   const submitStaffOrder: StoreContextValue["submitStaffOrder"] = async (params) => {
     return withPending("submitStaffOrder", async () => {
       try {
@@ -1376,7 +1408,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.floor(raw - pausedSoFar + (room.timeAdjustmentSec || 0)));
   };
 
-  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, restockLog };
+  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, staffMembers, restockLog };
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
@@ -1389,7 +1421,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
-    requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders,
+    requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders, refreshStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };
 

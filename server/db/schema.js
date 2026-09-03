@@ -111,6 +111,20 @@ CREATE TABLE IF NOT EXISTS StaffOrders (
   processedBy TEXT, shiftId TEXT
 );
 
+CREATE TABLE IF NOT EXISTS StaffMembers (
+  id TEXT PRIMARY KEY,
+  name TEXT, active INTEGER
+);
+
+-- One row per (shiftId, staffId) pair, created on first claim. Absence
+-- of a row for a given pair means neither allowance has been claimed
+-- yet this shift — a fresh shift never carries over a prior shift's
+-- claims, by design (staffId + shiftId together are the natural key).
+CREATE TABLE IF NOT EXISTS StaffAllowanceUsage (
+  id TEXT PRIMARY KEY,
+  shiftId TEXT, staffId TEXT, teaClaimed INTEGER, coffeeClaimed INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS RestockLog (
   id TEXT PRIMARY KEY,
   ts INTEGER, materialId TEXT, materialName TEXT, qtyAdded REAL,

@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "RestockLog", "BusinessDays"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "StaffMembers", "StaffAllowanceUsage", "RestockLog", "BusinessDays"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -184,6 +184,8 @@ function sheetObjectHeaders_(name) {
     Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId", "rateSegments"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
+    StaffMembers: ["id", "name", "active"],
+    StaffAllowanceUsage: ["id", "shiftId", "staffId", "teaClaimed", "coffeeClaimed"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
     WasteInvoices: ["id", "invoiceNumber", "ts", "materialId", "materialName", "unit", "wastedQty", "reason", "reasonLabel", "note", "unitCost", "totalCost", "loggedBy", "shiftId"],
     InventorySnapshots: ["id", "month", "archivedAt", "materialId", "materialName", "unit", "category", "openingBalance", "purchasesIn", "salesWasteOut", "finalSystemBalance", "finalActualCount", "unitCost", "totalValue", "archivedBy"],
@@ -1474,7 +1476,7 @@ function resetForProduction_(username, password) {
   }
 
   // Transactional / test data — WIPED.
-  ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "RestockLog", "Batches", "BusinessDays"]
+  ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "Batches", "BusinessDays"]
     .forEach(function (name) { clearSheetData_(name); });
 
   // Configuration — PRESERVED (RawMaterials, Suppliers, RecurringExpenses,
@@ -1522,7 +1524,7 @@ function resetKeepingInventoryAndLedger_(username, password) {
     return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
   }
 
-  ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
+  ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
     .forEach(function (name) { clearSheetData_(name); });
 
   const state = getState_();
@@ -1739,10 +1741,24 @@ function bizRecalculateClosedShift_(sessions, ledger, shift) {
 // Standard menu prices are used (for costing/inventory consistency), but
 // the amount is routed to a Staff Consumption EXPENSE, never counted as
 // retail sales revenue — this never touches state.rooms or Sessions.
-function bizSubmitStaffOrder_(state, batches, staffName, items) {
+// Exact-name match, case-insensitive — matches this app's standard
+// default menu items. See the local server's identical constants for
+// the full reasoning.
+const TEA_ALLOWANCE_NAME = "classic tea";
+const COFFEE_ALLOWANCE_NAME = "turkish coffee";
+
+function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
   const trimmedName = (staffName || "").trim();
   if (!trimmedName) return { ok: false, error: "Staff member name is required", state: state };
   if (!items || items.length === 0) return { ok: false, error: "No items selected", state: state };
+
+  let usage = null;
+  if (staffId && state.activeShiftId) {
+    usage = readObjects_("StaffAllowanceUsage").find(function (u) { return u.shiftId === state.activeShiftId && u.staffId === staffId; }) || null;
+  }
+  let teaClaimed = usage ? !!usage.teaClaimed : false;
+  let coffeeClaimed = usage ? !!usage.coffeeClaimed : false;
+  const usageChanges = {};
 
   let totalAmount = 0;
   const orderLines = [];
@@ -1756,8 +1772,23 @@ function bizSubmitStaffOrder_(state, batches, staffName, items) {
       return remaining - reserved - ing.qty * req.qty < -1e-9;
     });
     if (insufficientIng) return { ok: false, error: "Insufficient stock for " + menuItem.name, state: state };
-    orderLines.push({ menuItemId: req.menuItemId, name: menuItem.name, qty: req.qty, price: menuItem.price });
-    totalAmount += req.qty * menuItem.price;
+
+    const nameKey = (menuItem.name || "").trim().toLowerCase();
+    let freeQty = 0;
+    if (staffId && state.activeShiftId) {
+      if (nameKey === TEA_ALLOWANCE_NAME && !teaClaimed) { freeQty = 1; teaClaimed = true; usageChanges.teaClaimed = true; }
+      else if (nameKey === COFFEE_ALLOWANCE_NAME && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; usageChanges.coffeeClaimed = true; }
+    }
+    freeQty = Math.min(freeQty, req.qty);
+    const paidQty = req.qty - freeQty;
+
+    if (freeQty > 0) {
+      orderLines.push({ menuItemId: req.menuItemId, name: menuItem.name + " (Staff Allowance)", qty: freeQty, price: 0 });
+    }
+    if (paidQty > 0) {
+      orderLines.push({ menuItemId: req.menuItemId, name: menuItem.name, qty: paidQty, price: menuItem.price });
+      totalAmount += paidQty * menuItem.price;
+    }
   }
 
   let cogs = 0;
@@ -1770,6 +1801,17 @@ function bizSubmitStaffOrder_(state, batches, staffName, items) {
       touchedBatchIds.push.apply(touchedBatchIds, res.touched);
     });
   });
+
+  if (Object.keys(usageChanges).length > 0) {
+    if (usage) {
+      updateObjectById_("StaffAllowanceUsage", usage.id, usageChanges);
+    } else {
+      appendObject_("StaffAllowanceUsage", {
+        id: newId_("salw"), shiftId: state.activeShiftId, staffId: staffId,
+        teaClaimed: !!usageChanges.teaClaimed, coffeeClaimed: !!usageChanges.coffeeClaimed,
+      });
+    }
+  }
 
   const staffOrder = {
     id: newId_("staff"), ts: Date.now(), staffName: trimmedName, items: orderLines,
@@ -2680,7 +2722,7 @@ function doPost(e) {
       case "submitStaffOrder": {
         requireRole_(body.username, ["admin", "cashier"]);
         const batches = readObjects_("Batches");
-        const result = bizSubmitStaffOrder_(getState_(), batches, body.staffName, body.items);
+        const result = bizSubmitStaffOrder_(getState_(), batches, body.staffId, body.staffName, body.items);
         if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
         setState_(result.state);
         writeBatchesBack_(batches, result.touchedBatchIds);
@@ -3009,6 +3051,27 @@ function doPost(e) {
         }
         return json_({ ok: ok });
       }
+
+      case "getStaffMembers":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readObjects_("StaffMembers") });
+
+      case "addStaffMember": {
+        requireRole_(body.username, ["admin"]);
+        const staffName = (body.name || "").trim();
+        if (!staffName) return json_({ ok: false, error: "Name is required." });
+        const staffItem = { id: newId_("stf"), name: staffName, active: true };
+        appendObject_("StaffMembers", staffItem);
+        return json_({ ok: true, item: staffItem });
+      }
+
+      case "updateStaffMember":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: updateObjectById_("StaffMembers", body.id, body.patch) });
+
+      case "deleteStaffMember":
+        requireRole_(body.username, ["admin"]);
+        return json_({ ok: deleteObjectById_("StaffMembers", body.id) });
 
       case "getRecurringExpenses":
         requireRole_(body.username, ["admin"]);
@@ -3913,6 +3976,7 @@ function batchIsUntouched_(batch) {
 const IMPORT_TABLE_NAMES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
+  "StaffMembers", "StaffAllowanceUsage",
   "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots",
   "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments",
 ];

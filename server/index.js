@@ -1142,7 +1142,7 @@ Object.assign(handlers, {
   submitStaffOrder(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const batches = readObjects_("Batches");
-    const result = bizSubmitStaffOrder_(getState_(), batches, body.staffName, body.items);
+    const result = bizSubmitStaffOrder_(getState_(), batches, body.staffId, body.staffName, body.items);
     if (!result.ok) return { ok: false, error: result.error, state: withStockView_(result.state) };
     setState_(result.state);
     result.touchedBatchIds.forEach((id) => {
@@ -1207,6 +1207,26 @@ Object.assign(handlers, {
   deleteSupplier(body) {
     requireRole_(body.username, ["admin"]);
     return { ok: deleteObjectById_("Suppliers", body.id) };
+  },
+  getStaffMembers(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    return { items: readObjects_("StaffMembers") };
+  },
+  addStaffMember(body) {
+    requireRole_(body.username, ["admin"]);
+    const name = (body.name || "").trim();
+    if (!name) return { ok: false, error: "Name is required." };
+    const item = { id: newId_("stf"), name, active: true };
+    appendObject_("StaffMembers", item);
+    return { ok: true, item };
+  },
+  updateStaffMember(body) {
+    requireRole_(body.username, ["admin"]);
+    return { ok: updateObjectById_("StaffMembers", body.id, body.patch) };
+  },
+  deleteStaffMember(body) {
+    requireRole_(body.username, ["admin"]);
+    return { ok: deleteObjectById_("StaffMembers", body.id) };
   },
   getRecurringExpenses(body) {
     requireRole_(body.username, ["admin"]);
@@ -1359,7 +1379,7 @@ Object.assign(handlers, {
 
     // Transactional / test data — WIPED. Configuration (RawMaterials,
     // Suppliers, RecurringExpenses, Accounts) is never touched here.
-    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "RestockLog", "Batches", "BusinessDays", "DailyReconciliations"]
+    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "Batches", "BusinessDays", "DailyReconciliations"]
       .forEach((table) => db.exec(`DELETE FROM ${table}`));
 
     const state = getState_();
@@ -1391,7 +1411,7 @@ Object.assign(handlers, {
     // PurchaseInvoices/Items, SupplierPayments, RecurringExpenses, and
     // Accounts are all deliberately left untouched, unlike Production
     // Reset which wipes Ledger/Batches entirely.
-    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots", "DailyReconciliations"]
+    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots", "DailyReconciliations"]
       .forEach((table) => db.exec(`DELETE FROM ${table}`));
 
     const state = getState_();

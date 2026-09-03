@@ -516,6 +516,12 @@ export interface StaffOrder {
   shiftId: string | null;
 }
 
+export interface StaffMember {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 // ---------- System-wide Activity Log ("the Black Box") ----------
 // Write-Once, Read-Many — enforced by simply never providing an update or
 // delete path for this data, anywhere in the app or the backend.

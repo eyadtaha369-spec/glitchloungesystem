@@ -4,18 +4,22 @@ import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
 import { useStore, fmtMoney, MENU_CATEGORIES } from "@/lib/glitch-store";
 import type { MenuItem, MenuCategory, StaffOrder } from "@/lib/glitch-store";
-import { Users, Plus, Minus, X, Printer } from "lucide-react";
+import { Users, Plus, Minus, X, Printer, Trash2 } from "lucide-react";
 
 export function StaffOrdersPage() {
   const { state } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
-  const [staffName, setStaffName] = useState("");
+  const [staffId, setStaffId] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<StaffOrder | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
   const { submitStaffOrder } = useStore();
+
+  const activeStaff = state.staffMembers.filter((s) => s.active);
+  const selectedStaff = state.staffMembers.find((s) => s.id === staffId) ?? null;
 
   const cartItems = Object.entries(cart).map(([menuItemId, qty]) => {
     const item = state.menu.find((m) => m.id === menuItemId);
@@ -35,18 +39,19 @@ export function StaffOrdersPage() {
 
   const submit = async () => {
     setErr(null);
-    if (!staffName.trim()) { setErr("Enter the staff member's name."); return; }
+    if (!selectedStaff) { setErr("Select a staff member."); return; }
     if (cartItems.length === 0) { setErr("Add at least one item."); return; }
     setSubmitting(true);
     try {
       const res = await submitStaffOrder({
-        staffName: staffName.trim(),
+        staffId: selectedStaff.id,
+        staffName: selectedStaff.name,
         items: cartItems.map((c) => ({ menuItemId: c.menuItemId, qty: c.qty })),
       });
       if (!res.ok) { setErr(res.error ?? "Could not log staff order"); return; }
       if (res.staffOrder) setReceipt(res.staffOrder);
       setCart({});
-      setStaffName("");
+      setStaffId("");
     } finally {
       setSubmitting(false);
     }
@@ -54,29 +59,49 @@ export function StaffOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Users className="w-7 h-7 text-[oklch(0.7_0.19_260)]" />
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Staff Orders</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
-            Employee Consumption — Expense Ledger, Not Retail Revenue
-          </p>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <Users className="w-7 h-7 text-[oklch(0.7_0.19_260)]" />
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Staff Orders</h1>
+            <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
+              Employee Consumption — Expense Ledger, Not Retail Revenue
+            </p>
+          </div>
         </div>
+        {isAdmin && (
+          <button
+            onClick={() => setManageOpen(true)}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-black/5 border border-black/10 hover:bg-black/8"
+          >
+            Manage Staff
+          </button>
+        )}
       </div>
 
       <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.3)]">
         <p className="text-xs text-muted-foreground mb-4">
           Items keep standard menu prices for accurate costing and inventory deduction, but the total is logged as a
-          Staff Consumption Expense — it never counts toward sales revenue.
+          Staff Consumption Expense — it never counts toward sales revenue. Each staff member gets one free Classic
+          Tea and one free Turkish Coffee per shift; anything beyond that is at full price.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Staff Member</label>
-            <input
-              value={staffName} onChange={(e) => setStaffName(e.target.value)}
-              placeholder="Name"
+            <select
+              value={staffId} onChange={(e) => setStaffId(e.target.value)}
               className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-4 py-3 text-lg"
-            />
+            >
+              <option value="">Select staff member...</option>
+              {activeStaff.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            {activeStaff.length === 0 && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                No staff members yet — {isAdmin ? "add one with \"Manage Staff\" above." : "ask an admin to add one."}
+              </p>
+            )}
           </div>
           <div className="flex items-end">
             <button
@@ -129,6 +154,88 @@ export function StaffOrdersPage() {
         />
       )}
       {receipt && <StaffReceiptModal order={receipt} onClose={() => setReceipt(null)} />}
+      {manageOpen && <StaffManagementModal onClose={() => setManageOpen(false)} />}
+    </div>
+  );
+}
+
+function StaffManagementModal({ onClose }: { onClose: () => void }) {
+  const { state, addStaffMember, updateStaffMember, deleteStaffMember } = useStore();
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    setErr(null);
+    if (!newName.trim()) return;
+    setAdding(true);
+    try {
+      const res = await addStaffMember(newName.trim());
+      if (!res.ok) { setErr(res.error ?? "Could not add staff member."); return; }
+      setNewName("");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md max-h-[80vh] flex flex-col glass-strong rounded-2xl border border-black/20" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-black/8 shrink-0">
+          <h3 className="text-lg font-bold">Manage Staff</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="px-5 py-4 border-b border-black/8 shrink-0">
+          <div className="flex gap-2">
+            <input
+              value={newName} onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleAdd(); }}
+              placeholder="New staff member name"
+              className="flex-1 bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+            />
+            <button
+              onClick={() => void handleAdd()}
+              disabled={adding || !newName.trim()}
+              className="px-4 py-2 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-2">{err}</div>}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+          {state.staffMembers.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-6">No staff members yet.</div>
+          ) : (
+            state.staffMembers.map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-2 bg-white/60 rounded-lg p-3 border border-black/8">
+                <span className={`text-sm font-semibold ${!s.active ? "text-muted-foreground line-through" : ""}`}>{s.name}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => void updateStaffMember(s.id, { active: !s.active })}
+                    className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded-full border ${s.active ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]" : "bg-black/5 text-muted-foreground border-black/10"}`}
+                  >
+                    {s.active ? "Active" : "Inactive"}
+                  </button>
+                  {confirmDeleteId === s.id ? (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => void deleteStaffMember(s.id).then(() => setConfirmDeleteId(null))} className="text-xs font-bold text-[oklch(0.62_0.24_25)]">Confirm</button>
+                      <button onClick={() => setConfirmDeleteId(null)} className="text-xs text-muted-foreground">Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteId(s.id)} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)]" title="Delete">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
