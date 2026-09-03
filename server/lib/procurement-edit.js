@@ -89,4 +89,89 @@ function bizDeleteSupplierInvoice_(deps, invoiceId) {
   return { ok: true, supplierId: invoice.supplierId };
 }
 
-module.exports = { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_, findLinkedBatch, batchIsUntouched };
+// Admin-only, per explicit request — bypasses the "already used"
+// safety check that bizDeleteSupplierInvoice_ enforces above.
+// Deliberately a SEPARATE function rather than a flag on the normal
+// delete, so the two code paths stay easy to tell apart and this one
+// is never reachable by accident. Reversing stock that's already been
+// sold does NOT rewrite anything about those past sales — their cogs
+// was already computed and stored on the Session at the moment of
+// sale, not recomputed later — but it does mean the Batches table
+// loses its record of where that already-consumed stock came from,
+// which is the real, accepted tradeoff of forcing this through.
+function bizForceDeleteSupplierInvoice_(deps, invoiceId) {
+  const { readObjects_, deleteObjectById_ } = deps;
+  const invoice = readObjects_("PurchaseInvoices").find((i) => i.id === invoiceId);
+  if (!invoice) return { ok: false, error: "Invoice not found." };
+
+  const batches = readObjects_("Batches").filter((b) => b.invoiceId === invoiceId);
+  const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
+  batches.forEach((b) => deleteObjectById_("Batches", b.id));
+  readObjects_("PurchaseInvoiceItems").filter((it) => it.invoiceId === invoiceId).forEach((it) => deleteObjectById_("PurchaseInvoiceItems", it.id));
+  if (linkedLedgerId) deleteObjectById_("Ledger", linkedLedgerId);
+  deleteObjectById_("PurchaseInvoices", invoiceId);
+
+  return { ok: true, supplierId: invoice.supplierId };
+}
+
+// Edits a supplier invoice: invoiceDate, paymentType/paymentSource, and
+// each line item's qty/unitPrice. Still respects the same
+// already-touched safety check per item as bizUpdatePurchase_ does —
+// editing wasn't part of the explicit "force" request, only deleting
+// was, so this stays the safe version. Recomputes totalAmount from
+// whatever the items end up being, and keeps the linked Batches and
+// Ledger entry in exact sync with the result.
+function bizUpdateSupplierInvoice_(deps, body) {
+  const { readObjects_, updateObjectById_ } = deps;
+  const invoice = readObjects_("PurchaseInvoices").find((i) => i.id === body.invoiceId);
+  if (!invoice) return { ok: false, error: "Invoice not found." };
+  const existingItems = readObjects_("PurchaseInvoiceItems").filter((it) => it.invoiceId === body.invoiceId);
+  const batches = readObjects_("Batches").filter((b) => b.invoiceId === body.invoiceId);
+  const items = Array.isArray(body.items) ? body.items : [];
+
+  // Validate every changed item against its batch BEFORE writing
+  // anything — an edit either fully applies or fully doesn't.
+  for (const it of items) {
+    const existing = existingItems.find((e) => e.id === it.id);
+    if (!existing) return { ok: false, error: "One of the items on this invoice couldn't be found." };
+    const qtyChanging = Number(it.qty) !== Number(existing.qty);
+    const priceChanging = Number(it.unitPrice) !== Number(existing.unitPrice);
+    if (qtyChanging || priceChanging) {
+      const batch = batches.find((b) => b.materialId === existing.materialId);
+      if (batch && !batchIsUntouched(batch)) {
+        const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
+        return { ok: false, error: "Can't change quantity or cost for " + existing.materialName + " — " + used + " of the " + batch.qtyPurchased + " purchased has already been used." };
+      }
+    }
+  }
+
+  let totalAmount = 0;
+  items.forEach((it) => {
+    const existing = existingItems.find((e) => e.id === it.id);
+    const qty = Number(it.qty);
+    const unitPrice = Number(it.unitPrice);
+    const subtotal = qty * unitPrice;
+    totalAmount += subtotal;
+    updateObjectById_("PurchaseInvoiceItems", it.id, { qty, unitPrice, subtotal });
+    const batch = batches.find((b) => b.materialId === existing.materialId);
+    if (batch) updateObjectById_("Batches", batch.id, { qtyPurchased: qty, qtyRemaining: qty, unitCost: unitPrice });
+  });
+
+  const invoicePatch = { totalAmount };
+  if (body.invoiceDate !== undefined) invoicePatch.invoiceDate = body.invoiceDate;
+  if (body.paymentType !== undefined) invoicePatch.paymentType = body.paymentType;
+  if (body.paymentSource !== undefined) invoicePatch.paymentSource = body.paymentSource;
+  updateObjectById_("PurchaseInvoices", body.invoiceId, invoicePatch);
+
+  const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
+  if (linkedLedgerId) {
+    const ledgerPatch = { amount: totalAmount };
+    if (body.invoiceDate !== undefined) ledgerPatch.ts = body.invoiceDate;
+    if (body.description !== undefined) ledgerPatch.description = body.description;
+    updateObjectById_("Ledger", linkedLedgerId, ledgerPatch);
+  }
+
+  return { ok: true, supplierId: invoice.supplierId };
+}
+
+module.exports = { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_, bizForceDeleteSupplierInvoice_, bizUpdateSupplierInvoice_, findLinkedBatch, batchIsUntouched };

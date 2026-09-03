@@ -33,8 +33,8 @@ const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
-const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_ } = require("./lib/procurement-edit");
-const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
+const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_, bizForceDeleteSupplierInvoice_, bizUpdateSupplierInvoice_ } = require("./lib/procurement-edit");
+const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 const { scheduleCloudSync, getLastSyncStatus } = require("./lib/cloud-sync");
@@ -790,12 +790,62 @@ Object.assign(handlers, {
     return { ok: true, state: withStockView_(getState_()) };
   },
   deleteSupplierInvoice(body) {
-    requireRole_(body.username, ["admin", "cashier"]);
+    // Admin-only per explicit request — deleting a supplier invoice is
+    // a real financial correction, not a routine cashier action.
+    requireRole_(body.username, ["admin"]);
     const result = bizDeleteSupplierInvoice_({ readObjects_, deleteObjectById_ }, body.invoiceId);
     if (!result.ok) return result;
     logActivity_({
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
       description: body.username + " deleted a supplier invoice",
+    });
+    return { ok: true, state: withStockView_(getState_()) };
+  },
+
+  // Admin-only, requires typing the exact confirmation phrase plus the
+  // admin's own password — same pattern as this app's other tools that
+  // bypass a real safety check, since this deliberately removes the
+  // "stock already used" protection the normal delete enforces.
+  forceDeleteSupplierInvoice(body) {
+    requireRole_(body.username, ["admin"]);
+    if (body.confirmText !== "FORCE DELETE") return { ok: false, error: "Type FORCE DELETE exactly to confirm." };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing was deleted." };
+    const invoiceBefore = readObjects_("PurchaseInvoices").find((i) => i.id === body.invoiceId);
+    const result = bizForceDeleteSupplierInvoice_({ readObjects_, deleteObjectById_ }, body.invoiceId);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "SUPPLIER_INVOICE_FORCE_DELETED",
+      description: body.username + " force-deleted a supplier invoice" +
+        (invoiceBefore ? " — " + invoiceBefore.totalAmount.toFixed(2) + " EGP from " + invoiceBefore.supplierName + " (bypassed the already-used stock check)" : ""),
+      before: invoiceBefore || null,
+    });
+    return { ok: true, state: withStockView_(getState_()) };
+  },
+
+  updateSupplierInvoice(body) {
+    // Admin-only per explicit request.
+    requireRole_(body.username, ["admin"]);
+    const result = bizUpdateSupplierInvoice_({ readObjects_, updateObjectById_ }, body);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED",
+      description: body.username + " edited a supplier invoice",
+    });
+    return { ok: true, state: withStockView_(getState_()) };
+  },
+
+  deleteSupplierPayment(body) {
+    // Admin-only per explicit request.
+    requireRole_(body.username, ["admin"]);
+    const paymentBefore = readObjects_("SupplierPayments").find((p) => p.id === body.paymentId);
+    const result = bizDeleteSupplierPayment_({ readObjects_, deleteObjectById_ }, body.paymentId);
+    if (!result.ok) return result;
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DELETED",
+      description: body.username + " deleted a supplier payment" +
+        (paymentBefore ? " — " + paymentBefore.amount.toFixed(2) + " EGP" : ""),
+      before: paymentBefore || null,
     });
     return { ok: true, state: withStockView_(getState_()) };
   },

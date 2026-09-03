@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS PurchaseInvoiceItems (
 
 CREATE TABLE IF NOT EXISTS SupplierPayments (
   id TEXT PRIMARY KEY,
-  supplierId TEXT, ts INTEGER, amount REAL, paymentSource TEXT, note TEXT, recordedBy TEXT
+  supplierId TEXT, ts INTEGER, amount REAL, paymentSource TEXT, note TEXT, recordedBy TEXT,
+  ledgerEntryId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS Suppliers (

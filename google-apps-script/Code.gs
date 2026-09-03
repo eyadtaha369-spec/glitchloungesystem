@@ -178,7 +178,7 @@ function sheetObjectHeaders_(name) {
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus"],
     PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
-    SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy"],
+    SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId", "rateSegments"],
@@ -3415,6 +3415,21 @@ function doPost(e) {
         return json_({ ok: true, paymentId: payResult.paymentId });
       }
 
+      case "deleteSupplierPayment": {
+        // Admin-only per explicit request.
+        requireRole_(body.username, ["admin"]);
+        const paymentBefore = readObjects_("SupplierPayments").find(function (p) { return p.id === body.paymentId; });
+        const delPayResult = deleteSupplierPayment_(body.paymentId);
+        if (!delPayResult.ok) return json_(delPayResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DELETED",
+          description: body.username + " deleted a supplier payment" +
+            (paymentBefore ? " — " + paymentBefore.amount.toFixed(2) + " EGP" : ""),
+          before: paymentBefore || null,
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
       case "getSupplierBalances":
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ balances: getSupplierBalances_() });
@@ -3453,12 +3468,42 @@ function doPost(e) {
       }
 
       case "deleteSupplierInvoice": {
-        requireRole_(body.username, ["admin", "cashier"]);
+        // Admin-only per explicit request — deleting a supplier invoice
+        // is a real financial correction, not a routine cashier action.
+        requireRole_(body.username, ["admin"]);
         const delInvResult = deleteSupplierInvoice_(body.invoiceId);
         if (!delInvResult.ok) return json_(delInvResult);
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
           description: body.username + " deleted a supplier invoice",
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
+      case "forceDeleteSupplierInvoice": {
+        requireRole_(body.username, ["admin"]);
+        if (body.confirmText !== "FORCE DELETE") return json_({ ok: false, error: "Type FORCE DELETE exactly to confirm." });
+        const forceAuth = login_(body.username, body.password);
+        if (!forceAuth.ok || forceAuth.role !== "admin") return json_({ ok: false, error: "Password incorrect — nothing was deleted." });
+        const invoiceBefore = readObjects_("PurchaseInvoices").find(function (i) { return i.id === body.invoiceId; });
+        const forceDelResult = forceDeleteSupplierInvoice_(body.invoiceId);
+        if (!forceDelResult.ok) return json_(forceDelResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "SUPPLIER_INVOICE_FORCE_DELETED",
+          description: body.username + " force-deleted a supplier invoice" +
+            (invoiceBefore ? " — " + invoiceBefore.totalAmount.toFixed(2) + " EGP from " + invoiceBefore.supplierName + " (bypassed the already-used stock check)" : ""),
+          before: invoiceBefore || null,
+        });
+        return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
+      case "updateSupplierInvoice": {
+        requireRole_(body.username, ["admin"]);
+        const updInvResult = updateSupplierInvoice_(body);
+        if (!updInvResult.ok) return json_(updInvResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED",
+          description: body.username + " edited a supplier invoice",
         });
         return json_({ ok: true, state: withStockView_(getState_()) });
       }
@@ -3763,11 +3808,14 @@ function recordSupplierPayment_(body) {
   }
   const now = Date.now();
   const paymentId = newId_("spay");
+  const ledgerEntryId = newId_("ledg");
   appendObject_("SupplierPayments", {
     id: paymentId, supplierId: body.supplierId, ts: now, amount: Number(body.amount),
     paymentSource: body.paymentSource, note: body.note || "", recordedBy: body.username,
+    // Stored so a future delete can find and remove exactly this
+    // expense entry, rather than guessing by matching fields.
+    ledgerEntryId: ledgerEntryId,
   });
-  const ledgerEntryId = newId_("ledg");
   appendObject_("Ledger", {
     id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
     category: "Supplier Payment", description: "Payment to supplier" + (body.note ? " — " + body.note : ""),
@@ -3776,6 +3824,18 @@ function recordSupplierPayment_(body) {
     qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
   });
   return { ok: true, paymentId: paymentId, ledgerEntryId: ledgerEntryId };
+}
+
+// A payment is a pure cash transaction reducing the supplier's debt —
+// unlike an invoice, it never touches stock, so there's no
+// "already consumed" safety check needed here at all. Removes the
+// payment and its linked Ledger expense entry together.
+function deleteSupplierPayment_(paymentId) {
+  const payment = readObjects_("SupplierPayments").find(function (p) { return p.id === paymentId; });
+  if (!payment) return { ok: false, error: "Payment not found." };
+  if (payment.ledgerEntryId) deleteObjectById_("Ledger", payment.ledgerEntryId);
+  deleteObjectById_("SupplierPayments", paymentId);
+  return { ok: true, supplierId: payment.supplierId };
 }
 
 function getSupplierBalances_() {
@@ -3973,11 +4033,84 @@ function deleteSupplierInvoice_(invoiceId) {
   return { ok: true, supplierId: invoice.supplierId };
 }
 
-function resetMenuAndRecipes_(username) {
+// Admin-only, per explicit request — bypasses the "already used" safety
+// check that deleteSupplierInvoice_ enforces above. See the local
+// server's identical function for the full reasoning.
+function forceDeleteSupplierInvoice_(invoiceId) {
+  const invoice = readObjects_("PurchaseInvoices").find(function (i) { return i.id === invoiceId; });
+  if (!invoice) return { ok: false, error: "Invoice not found." };
+
+  const batches = readObjects_("Batches").filter(function (b) { return b.invoiceId === invoiceId; });
+  const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
+  batches.forEach(function (b) { deleteObjectById_("Batches", b.id); });
+  readObjects_("PurchaseInvoiceItems").filter(function (it) { return it.invoiceId === invoiceId; }).forEach(function (it) { deleteObjectById_("PurchaseInvoiceItems", it.id); });
+  if (linkedLedgerId) deleteObjectById_("Ledger", linkedLedgerId);
+  deleteObjectById_("PurchaseInvoices", invoiceId);
+
+  return { ok: true, supplierId: invoice.supplierId };
+}
+
+// Edits a supplier invoice: invoiceDate, paymentType/paymentSource, and
+// each line item's qty/unitPrice. Still respects the same
+// already-touched safety check per item — editing wasn't part of the
+// explicit "force" request, only deleting was. See the local server's
+// identical function for the full reasoning.
+function updateSupplierInvoice_(body) {
+  const invoice = readObjects_("PurchaseInvoices").find(function (i) { return i.id === body.invoiceId; });
+  if (!invoice) return { ok: false, error: "Invoice not found." };
+  const existingItems = readObjects_("PurchaseInvoiceItems").filter(function (it) { return it.invoiceId === body.invoiceId; });
+  const batches = readObjects_("Batches").filter(function (b) { return b.invoiceId === body.invoiceId; });
+  const items = Array.isArray(body.items) ? body.items : [];
+
+  for (const it of items) {
+    const existing = existingItems.find(function (e) { return e.id === it.id; });
+    if (!existing) return { ok: false, error: "One of the items on this invoice couldn't be found." };
+    const qtyChanging = Number(it.qty) !== Number(existing.qty);
+    const priceChanging = Number(it.unitPrice) !== Number(existing.unitPrice);
+    if (qtyChanging || priceChanging) {
+      const batch = batches.find(function (b) { return b.materialId === existing.materialId; });
+      if (batch && !batchIsUntouched_(batch)) {
+        const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
+        return { ok: false, error: "Can't change quantity or cost for " + existing.materialName + " — " + used + " of the " + batch.qtyPurchased + " purchased has already been used." };
+      }
+    }
+  }
+
+  let totalAmount = 0;
+  items.forEach(function (it) {
+    const existing = existingItems.find(function (e) { return e.id === it.id; });
+    const qty = Number(it.qty);
+    const unitPrice = Number(it.unitPrice);
+    const subtotal = qty * unitPrice;
+    totalAmount += subtotal;
+    updateObjectById_("PurchaseInvoiceItems", it.id, { qty: qty, unitPrice: unitPrice, subtotal: subtotal });
+    const batch = batches.find(function (b) { return b.materialId === existing.materialId; });
+    if (batch) updateObjectById_("Batches", batch.id, { qtyPurchased: qty, qtyRemaining: qty, unitCost: unitPrice });
+  });
+
+  const invoicePatch = { totalAmount: totalAmount };
+  if (body.invoiceDate !== undefined) invoicePatch.invoiceDate = body.invoiceDate;
+  if (body.paymentType !== undefined) invoicePatch.paymentType = body.paymentType;
+  if (body.paymentSource !== undefined) invoicePatch.paymentSource = body.paymentSource;
+  updateObjectById_("PurchaseInvoices", body.invoiceId, invoicePatch);
+
+  const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
+  if (linkedLedgerId) {
+    const ledgerPatch = { amount: totalAmount };
+    if (body.invoiceDate !== undefined) ledgerPatch.ts = body.invoiceDate;
+    if (body.description !== undefined) ledgerPatch.description = body.description;
+    updateObjectById_("Ledger", linkedLedgerId, ledgerPatch);
+  }
+
+  return { ok: true, supplierId: invoice.supplierId };
+}
+
+
   const existingMaterials = readObjects_("RawMaterials");
   const materialIdByName = {};
   existingMaterials.forEach(function (m) { materialIdByName[m.name.trim().toLowerCase()] = m.id; });
 
+function resetMenuAndRecipes_(username) {
   let materialsCreated = 0;
   menuResetMaterials_().forEach(function (row) {
     const name = row[0], unit = row[1], minStockAlert = row[2], unitCost = row[3];

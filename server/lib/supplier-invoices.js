@@ -94,11 +94,14 @@ function bizRecordSupplierPayment_(deps, body) {
   }
   const now = Date.now();
   const paymentId = newId_("spay");
+  const ledgerEntryId = newId_("ledg");
   appendObject_("SupplierPayments", {
     id: paymentId, supplierId: body.supplierId, ts: now, amount: Number(body.amount),
     paymentSource: body.paymentSource, note: body.note || "", recordedBy: body.username,
+    // Stored so a future delete can find and remove exactly this
+    // expense entry, rather than guessing by matching fields.
+    ledgerEntryId,
   });
-  const ledgerEntryId = newId_("ledg");
   appendObject_("Ledger", {
     id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
     category: "Supplier Payment", description: "Payment to supplier" + (body.note ? " — " + body.note : ""),
@@ -166,4 +169,18 @@ function bizGetSupplierLedger_(deps, supplierId) {
   return { entries: withBalance.reverse(), currentBalance: running };
 }
 
-module.exports = { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ };
+// A payment is a pure cash transaction reducing the supplier's debt —
+// unlike an invoice, it never touches stock, so there's no "already
+// consumed" safety check needed here at all. Removes the payment and
+// its linked Ledger expense entry together, so a deleted payment can't
+// leave a dangling expense still counted in reports.
+function bizDeleteSupplierPayment_(deps, paymentId) {
+  const { readObjects_, deleteObjectById_ } = deps;
+  const payment = readObjects_("SupplierPayments").find((p) => p.id === paymentId);
+  if (!payment) return { ok: false, error: "Payment not found." };
+  if (payment.ledgerEntryId) deleteObjectById_("Ledger", payment.ledgerEntryId);
+  deleteObjectById_("SupplierPayments", paymentId);
+  return { ok: true, supplierId: payment.supplierId };
+}
+
+module.exports = { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ };
