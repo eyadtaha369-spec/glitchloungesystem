@@ -796,7 +796,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       </div>
 
       {checkoutOpen && createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md no-print" onClick={() => { setCheckoutOpen(false); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }}>
+        <div className="print-root fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={() => { setCheckoutOpen(false); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }}>
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto glass-strong rounded-3xl border-2 border-[oklch(0.62_0.24_25/0.5)] shadow-[0_0_60px_oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-black/10">
               <div className="font-mono uppercase tracking-widest text-base font-bold text-[oklch(0.62_0.24_25)]">{room.name} · Checkout</div>
@@ -1016,21 +1016,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setCheckoutScreen("preview")}
-                  className="py-5 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold text-lg uppercase tracking-wide"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleCheckout}
-                  disabled={checkingOut}
-                  className="py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
-                >
-                  {checkingOut ? "Processing..." : "Confirm"}
-                </button>
-              </div>
+              <button
+                onClick={handleCheckout}
+                disabled={checkingOut}
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
+              >
+                {checkingOut ? "Processing..." : "Confirm"}
+              </button>
               </>
               ) : (
               <>
@@ -1055,21 +1047,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setCheckoutScreen("preview")}
-                  className="py-5 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold text-lg uppercase tracking-wide"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => void handleStaffOrderCheckout()}
-                  disabled={staffOrderSubmitting}
-                  className="py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.65_0.24_305)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.65_0.24_305/0.5)] disabled:opacity-50"
-                >
-                  {staffOrderSubmitting ? "Processing..." : "Confirm"}
-                </button>
-              </div>
+              <button
+                onClick={() => void handleStaffOrderCheckout()}
+                disabled={staffOrderSubmitting}
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.65_0.24_305)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.65_0.24_305/0.5)] disabled:opacity-50"
+              >
+                {staffOrderSubmitting ? "Processing..." : "Confirm"}
+              </button>
               </>
               )}
               </>
