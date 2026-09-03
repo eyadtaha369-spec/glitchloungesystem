@@ -208,6 +208,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutScreen, setCheckoutScreen] = useState<"preview" | "payment">("preview");
   const [frozenAt, setFrozenAt] = useState<number | null>(null);
   const [ticketOpen, setTicketOpen] = useState(false);
   const [kotNumber, setKotNumber] = useState<number | null>(null);
@@ -794,7 +795,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               </button>
             ) : (
               <button
-                onClick={() => { setFrozenAt(Date.now()); setCheckoutOpen(true); }}
+                onClick={() => { setFrozenAt(Date.now()); setCheckoutScreen("preview"); setCheckoutOpen(true); }}
                 className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
               >
                 <Square className="w-4 h-4" /> End
@@ -812,12 +813,65 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               <button onClick={() => { setCheckoutOpen(false); setFrozenAt(null); setIsStaffOrder(false); setStaffOrderName(""); setCheckoutErr(null); }} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416] transition"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-6 space-y-5">
+              {checkoutScreen === "preview" ? (
+              <>
               {room.zone === "room" && (
                 <div className="text-center text-[10px] uppercase tracking-widest text-black font-mono">
-                  Timer frozen at {fmtDuration(checkoutElapsed)} — no extra time is being charged while you complete this payment
+                  Timer frozen at {fmtDuration(checkoutElapsed)} — no extra time is being charged while you review this check
                 </div>
               )}
 
+              {/* Check Preview — itemized summary, printable as-is before
+                  any payment decision is made. */}
+              <div className="print-area rounded-2xl bg-white/70 border border-black/10 p-4">
+                <div className="text-center mb-3 receipt-block">
+                  <div className="text-sm font-bold uppercase tracking-widest">{room.name} — Check Preview</div>
+                </div>
+                <div className="space-y-1.5 text-sm">
+                  {room.zone === "room" && (
+                    <div className="flex justify-between receipt-line">
+                      <span>Room Time ({fmtDuration(checkoutElapsed)})</span>
+                      <span className="font-mono">{fmtMoney(checkoutTimeCost)}</span>
+                    </div>
+                  )}
+                  {room.orders.length === 0 && room.zone !== "room" && (
+                    <div className="text-center text-muted-foreground py-2">No items yet.</div>
+                  )}
+                  {room.orders.map((o) => (
+                    <div key={o.menuItemId} className="flex justify-between receipt-line">
+                      <span>{o.qty}× {o.name}</span>
+                      <span className="font-mono">{fmtMoney(o.qty * o.price)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between border-t border-dashed border-black/20 mt-3 pt-2 text-base font-bold">
+                  <span>Subtotal</span>
+                  <span className="font-mono">{fmtMoney(checkoutPreDiscountTotal)}</span>
+                </div>
+              </div>
+
+              <div className="text-center py-2">
+                <div className="text-xs uppercase tracking-widest text-muted-foreground">Total EGP</div>
+                <div className="text-6xl font-mono font-black mt-2">{fmtMoney(checkoutPreDiscountTotal)}</div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 no-print">
+                <button
+                  onClick={() => void printSmart()}
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold uppercase tracking-wide"
+                >
+                  <Printer className="w-5 h-5" /> Print Check
+                </button>
+                <button
+                  onClick={() => setCheckoutScreen("payment")}
+                  className="py-4 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)]"
+                >
+                  Next
+                </button>
+              </div>
+              </>
+              ) : (
+              <>
               {/* Staff Order toggle — when on, this room/table closes as a
                   zero-revenue staff consumption expense instead of a paid
                   checkout. The value is shown only right here, on this
@@ -964,13 +1018,21 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               )}
 
-              <button
-                onClick={handleCheckout}
-                disabled={checkingOut}
-                className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
-              >
-                {checkingOut ? "Processing..." : "Confirm & Close Ticket"}
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setCheckoutScreen("preview")}
+                  className="py-5 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold text-lg uppercase tracking-wide"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleCheckout}
+                  disabled={checkingOut}
+                  className="py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.7_0.19_260/0.5)] disabled:opacity-50"
+                >
+                  {checkingOut ? "Processing..." : "Confirm"}
+                </button>
+              </div>
               </>
               ) : (
               <>
@@ -995,13 +1057,23 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               )}
 
-              <button
-                onClick={() => void handleStaffOrderCheckout()}
-                disabled={staffOrderSubmitting}
-                className="w-full mt-2 py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.65_0.24_305)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.65_0.24_305/0.5)] disabled:opacity-50"
-              >
-                {staffOrderSubmitting ? "Processing..." : "Confirm Staff Order"}
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setCheckoutScreen("preview")}
+                  className="py-5 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold text-lg uppercase tracking-wide"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => void handleStaffOrderCheckout()}
+                  disabled={staffOrderSubmitting}
+                  className="py-5 rounded-2xl bg-gradient-to-r from-[oklch(0.65_0.24_305)] to-[oklch(0.65_0.24_305)] text-white font-bold text-lg uppercase tracking-wide shadow-[0_0_30px_oklch(0.65_0.24_305/0.5)] disabled:opacity-50"
+                >
+                  {staffOrderSubmitting ? "Processing..." : "Confirm"}
+                </button>
+              </div>
+              </>
+              )}
               </>
               )}
             </div>
