@@ -50,10 +50,19 @@ function isOperationalExpense(l: LedgerEntry): boolean {
 // 8:00 AM to 7:59:59 AM the next calendar day, not midnight to
 // midnight. A shift that opens at 11 PM and runs until 4 AM belongs
 // entirely to the business day it opened on, never split across two.
+//
+// A 30-minute grace window is applied before the nominal 8:00 AM
+// cutoff: real shift-opening times vary by a few minutes (a cashier
+// opening at 7:55:32 AM is still unmistakably "the 8 AM shift"), and
+// a hard instant-of-8:00:00.000 cutoff would otherwise misattribute
+// that entire shift to the previous business day over a few minutes
+// of natural variance. The window stays a consistent 24 hours long,
+// just shifted 30 minutes earlier to absorb that variance.
 const BUSINESS_DAY_START_HOUR = 8;
+const BUSINESS_DAY_GRACE_MINUTES = 30;
 function businessDayBounds(dateStr: string) {
-  const from = new Date(dateStr + "T00:00:00").getTime() + BUSINESS_DAY_START_HOUR * 3600000;
-  const to = from + 86400000 - 1; // 24 hours later, minus 1ms = 07:59:59.999 the next day
+  const from = new Date(dateStr + "T00:00:00").getTime() + BUSINESS_DAY_START_HOUR * 3600000 - BUSINESS_DAY_GRACE_MINUTES * 60000;
+  const to = from + 86400000 - 1; // 24 hours later, minus 1ms
   return { from, to };
 }
 
