@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Session, LedgerEntry } from "@/lib/glitch-store";
 import {
@@ -79,10 +79,12 @@ export function AnalyticsPage() {
   const profitMarginPct = monthRevenue > 0 ? (netProfit / monthRevenue) * 100 : 0;
 
   const hourlyTotals = useMemo(() => {
-    const totals = Array.from({ length: 24 }, (_, h) => ({ hour: h, revenue: 0, orders: 0 }));
+    const totals = Array.from({ length: 24 }, (_, h) => ({ hour: h, revenue: 0, roomRevenue: 0, itemRevenue: 0, orders: 0 }));
     monthSessions.forEach((s) => {
       const h = new Date(s.endedAt).getHours();
       totals[h].revenue += s.total;
+      totals[h].roomRevenue += s.timeCost;
+      totals[h].itemRevenue += s.total - s.timeCost;
       totals[h].orders += 1;
     });
     return totals;
@@ -118,6 +120,28 @@ export function AnalyticsPage() {
     });
     return Array.from(map.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [monthSessions, state.menu]);
+
+  // Level 2 drill-down: which specific items make up whichever category
+  // slice is currently selected. "Room Time" has no individual items to
+  // break down (it's not a menu category at all), so it's excluded from
+  // selection entirely rather than showing an empty/confusing table.
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const categoryItemBreakdown = useMemo(() => {
+    if (!selectedCategory || selectedCategory === "Room Time") return [];
+    const map = new Map<string, { name: string; qty: number; revenue: number }>();
+    monthSessions.forEach((s) => {
+      s.orders.forEach((o) => {
+        const menuItem = state.menu.find((m) => m.id === o.menuItemId);
+        const cat = menuItem?.category ?? "Extras";
+        if (cat !== selectedCategory) return;
+        const existing = map.get(o.menuItemId);
+        const revenue = o.qty * o.price;
+        if (existing) { existing.qty += o.qty; existing.revenue += revenue; }
+        else map.set(o.menuItemId, { name: menuItem?.name ?? o.name, qty: o.qty, revenue });
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [selectedCategory, monthSessions, state.menu]);
 
   // ---- Payment method split (this month) — Staff Allowance shown
   // separately for comparison, never as part of real payment totals. ----
@@ -218,16 +242,21 @@ export function AnalyticsPage() {
           <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">Revenue &amp; Orders Timeline (by Hour)</h2>
         </div>
-        <p className="text-xs text-muted-foreground mb-4">Hourly breakdown across this month's orders — reveals peak lounge hours.</p>
-        <ResponsiveContainer width="100%" height={320}>
+        <p className="text-xs text-muted-foreground mb-4">
+          Hourly breakdown across this month — reveals peak lounge hours. Room Time and Item/Beverage revenue are
+          broken out separately so both are always visible, alongside the combined total.
+        </p>
+        <ResponsiveContainer width="100%" height={340}>
           <LineChart data={hourlyTotals} margin={{ left: 8, right: 16 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
             <XAxis dataKey="hour" tickFormatter={(h) => `${String(h).padStart(2, "0")}:00`} tick={{ fontSize: 11 }} />
             <YAxis yAxisId="revenue" tick={{ fontSize: 11 }} />
             <YAxis yAxisId="orders" orientation="right" tick={{ fontSize: 11 }} allowDecimals={false} />
-            <Tooltip formatter={(v: number, name: string) => [name === "Revenue (EGP)" ? fmtMoney(v) : v, name]} labelFormatter={(h) => `${String(h).padStart(2, "0")}:00`} />
+            <Tooltip formatter={(v: number, name: string) => [name === "Orders" ? v : fmtMoney(v), name]} labelFormatter={(h) => `${String(h).padStart(2, "0")}:00`} />
             <Legend />
-            <Line yAxisId="revenue" type="monotone" dataKey="revenue" name="Revenue (EGP)" stroke="oklch(0.7 0.19 260)" strokeWidth={2} dot={false} />
+            <Line yAxisId="revenue" type="monotone" dataKey="revenue" name="Total Revenue (EGP)" stroke="oklch(0.7 0.19 260)" strokeWidth={2.5} dot={false} />
+            <Line yAxisId="revenue" type="monotone" dataKey="roomRevenue" name="Room Time Revenue (EGP)" stroke="oklch(0.65 0.24 305)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
+            <Line yAxisId="revenue" type="monotone" dataKey="itemRevenue" name="Item/Beverage Revenue (EGP)" stroke="oklch(0.85 0.18 85)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
             <Line yAxisId="orders" type="monotone" dataKey="orders" name="Orders" stroke="oklch(0.78 0.2 155)" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -237,19 +266,69 @@ export function AnalyticsPage() {
         {/* Category Revenue Distribution */}
         <div className="glass rounded-2xl p-6 min-w-0">
           <h2 className="text-lg font-semibold mb-1">Category Revenue Distribution</h2>
-          <p className="text-xs text-muted-foreground mb-4">Share of this month's revenue by menu category, including Room Time.</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Share of this month's revenue by menu category, including Room Time. Click a slice for an item-level breakdown.
+          </p>
           {categoryData.length === 0 ? (
             <div className="text-sm text-muted-foreground font-mono text-center py-16">No sales this month yet.</div>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
-                  {categoryData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: number) => fmtMoney(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={categoryData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}
+                    onClick={(d: { name: string }) => setSelectedCategory((prev) => (prev === d.name ? null : d.name))}
+                    cursor="pointer"
+                  >
+                    {categoryData.map((entry, i) => (
+                      <Cell
+                        key={i}
+                        fill={PIE_COLORS[i % PIE_COLORS.length]}
+                        stroke={selectedCategory === entry.name ? "#2b2416" : undefined}
+                        strokeWidth={selectedCategory === entry.name ? 3 : undefined}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => fmtMoney(v)} />
+                  <Legend wrapperStyle={{ fontSize: 11, cursor: "pointer" }} onClick={(d: { value: string }) => setSelectedCategory((prev) => (prev === d.value ? null : d.value))} />
+                </PieChart>
+              </ResponsiveContainer>
+
+              {selectedCategory && (
+                <div className="mt-4 pt-4 border-t border-black/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold">{selectedCategory} — Item Breakdown</h3>
+                    <button onClick={() => setSelectedCategory(null)} className="text-xs text-muted-foreground hover:text-[#2b2416] underline">Clear</button>
+                  </div>
+                  {selectedCategory === "Room Time" ? (
+                    <div className="text-xs text-muted-foreground font-mono text-center py-4">Room Time is billed by duration, not individual items.</div>
+                  ) : categoryItemBreakdown.length === 0 ? (
+                    <div className="text-xs text-muted-foreground font-mono text-center py-4">No items sold in this category this month.</div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-white/95">
+                          <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                            <th className="py-1.5 pr-2">Item</th>
+                            <th className="py-1.5 pr-2 text-right">Qty Sold</th>
+                            <th className="py-1.5 text-right">Revenue</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {categoryItemBreakdown.map((item) => (
+                            <tr key={item.name} className="border-b border-black/5">
+                              <td className="py-1.5 pr-2">{item.name}</td>
+                              <td className="py-1.5 pr-2 text-right font-mono">{item.qty}</td>
+                              <td className="py-1.5 text-right font-mono font-semibold">{fmtMoney(item.revenue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
 
