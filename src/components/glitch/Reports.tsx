@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
+import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
 import { ReceiptModal } from "./Rooms";
 
 // What counts as a real, same-day operational expense — used
@@ -205,6 +205,27 @@ export function ReportsPage() {
   const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0);
   const dayNetProfit = dayRevenue - dayExpensesTotal;
 
+  // Material Consumption, linked to the SAME date picker as Total
+  // Revenue by Date — deliberately separate from `consumption` above,
+  // which stays shift-scoped for the existing Generate Report button.
+  const dayConsumption = useMemo(() => {
+    const map = new Map<string, number>();
+    daySessions.forEach((s) => {
+      s.orders.forEach((o) => {
+        const item = state.menu.find((m) => m.id === o.menuItemId);
+        if (!item) return;
+        item.ingredients.forEach((ing) => {
+          map.set(ing.stockId, (map.get(ing.stockId) ?? 0) + ing.qty * o.qty);
+        });
+      });
+    });
+    return Array.from(map.entries()).map(([stockId, qty]) => {
+      const stk = state.stock.find((s) => s.id === stockId);
+      return { name: stk?.name ?? stockId, unit: stk?.unit ?? "", qty };
+    }).sort((a, b) => b.qty - a.qty);
+  }, [daySessions, state.menu, state.stock]);
+
+  const [viewingCheck, setViewingCheck] = useState<Session | null>(null);
 
   return (
     <div className="space-y-6">
@@ -249,11 +270,13 @@ export function ReportsPage() {
         <span>{shiftSessions.length} order{shiftSessions.length === 1 ? "" : "s"} this shift</span>
       </div>
 
+      {/* 1. Financial Reconciliation — top-level monthly overview */}
+      <MonthlyReconciliationDashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+
+      {/* 2. Current Business Day Overview */}
       <BusinessDayPanel />
 
-      <WasteMarketingPanel allEntries={state.ledger.filter((l) => l.category === "Marketing / Waste Expense")} />
-
-      {/* Total Revenue by Date — a specific calendar day's own numbers,
+      {/* 3. Total Revenue by Date — a specific calendar day's own numbers,
           independent of the Shift selector above (which is a separate
           tool for printing one specific shift's end-of-shift report) */}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
@@ -290,7 +313,8 @@ export function ReportsPage() {
         </div>
       </div>
 
-      {/* Order History — this specific date only */}
+      {/* 4. Order History — this specific date only, every row opens the
+          full check via ReceiptModal */}
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
@@ -314,7 +338,12 @@ export function ReportsPage() {
               </thead>
               <tbody>
                 {daySessions.sort((a, b) => b.endedAt - a.endedAt).map((s) => (
-                  <tr key={s.id} className="border-b border-black/5">
+                  <tr
+                    key={s.id}
+                    onClick={() => setViewingCheck(s)}
+                    className="border-b border-black/5 cursor-pointer hover:bg-[oklch(0.7_0.19_260/0.06)]"
+                    title="Click to view full check details"
+                  >
                     <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
                     <td className="py-2 pr-3">{s.roomName}</td>
                     <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
@@ -330,7 +359,7 @@ export function ReportsPage() {
         )}
       </div>
 
-      {/* Expenses History — this specific date only, same exclusions as
+      {/* 5. Expenses History — this specific date only, same exclusions as
           the KPI card above (no Staff Orders, no voids) */}
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
@@ -367,32 +396,18 @@ export function ReportsPage() {
         )}
       </div>
 
-      {/* This shift's own reconciliation card */}
-      <div className="glass rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Users2 className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-          <h2 className="text-lg font-semibold">Shift Reconciliation</h2>
-        </div>
-        {!selectedShift ? (
-          <div className="text-sm text-muted-foreground font-mono">No shift selected.</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ShiftCard shift={selectedShift} label={isViewingActiveShift ? "Active Shift" : "Closed Shift"} sessions={shiftSessions} />
-          </div>
-        )}
-      </div>
-
-      {/* Material consumption */}
+      {/* 6. Material Consumption — linked to the SAME date picker as
+          Total Revenue by Date, not the Shift selector above */}
       <div className="glass rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <Boxes className="w-5 h-5 text-black" />
-          <h2 className="text-lg font-semibold">Material Consumption — This Shift</h2>
+          <h2 className="text-lg font-semibold">Material Consumption — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
         </div>
-        {consumption.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono">No orders completed this shift.</div>
+        {dayConsumption.length === 0 ? (
+          <div className="text-sm text-muted-foreground font-mono">No orders completed on this date.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {consumption.map((c) => (
+            {dayConsumption.map((c) => (
               <div key={c.name} className="bg-white/60 rounded-lg p-3 border border-black/8 flex justify-between items-center">
                 <span className="text-sm">{c.name}</span>
                 <span className="font-mono text-sm text-black">{c.qty}{c.unit}</span>
@@ -402,12 +417,19 @@ export function ReportsPage() {
         )}
       </div>
 
-      <HistoryLog />
-      <AttendanceLog />
-      <MonthlyReconciliationDashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
-      <MonthlyExpensesLedger selectedDate={selectedReportDate} />
+      {/* 7. Wasted / Marketing / Complimentary — audit summary, valued at COGS */}
       <WastedComplimentaryLedger selectedDate={selectedReportDate} />
-      <PnLLedgerPanel />
+      <WasteMarketingPanel allEntries={state.ledger.filter((l) => l.category === "Marketing / Waste Expense")} />
+
+      {/* 8. Expenses Ledger — global, deliberately NOT filtered by the date picker */}
+      <MonthlyExpensesLedger />
+
+      {/* 9. Shift History */}
+      <ShiftHistoryPanel />
+
+      <AttendanceLog />
+
+      {viewingCheck && <ReceiptModal session={viewingCheck} onClose={() => setViewingCheck(null)} />}
     </div>
   );
 }
@@ -756,19 +778,17 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
 // without appearing here. Deliberately excluded from Daily/Monthly
 // Expenses above, since it settles a debt incurred whenever the
 // original invoice was logged, not a new expense today.
-function MonthlyExpensesLedger({ selectedDate }: { selectedDate: string }) {
+// Deliberately GLOBAL, never filtered by the date picker elsewhere on
+// this page — every deferred/credit supplier invoice settlement ever
+// recorded, regardless of when. A settlement made today for an
+// invoice from months ago belongs here permanently, not scoped to
+// whatever date happens to be selected in Total Revenue by Date.
+function MonthlyExpensesLedger() {
   const { state } = useStore();
-  const { from: dayStart, to: dayEnd } = useMemo(() => businessDayBounds(selectedDate), [selectedDate]);
-  const dayLabel = new Date(dayStart).toLocaleDateString();
-  const dayShiftIds = useMemo(
-    () => new Set(state.shifts.filter((sh) => sh.openedAt >= dayStart && sh.openedAt <= dayEnd).map((sh) => sh.id)),
-    [state.shifts, dayStart, dayEnd],
-  );
 
   const settlements = useMemo(
-    () => filterByBusinessDay(state.ledger.filter((l) => l.type === "supplierPayment"), dayShiftIds, dayStart, dayEnd)
-      .sort((a, b) => b.ts - a.ts),
-    [state.ledger, dayShiftIds, dayStart, dayEnd],
+    () => state.ledger.filter((l) => l.type === "supplierPayment").sort((a, b) => b.ts - a.ts),
+    [state.ledger],
   );
   const total = settlements.reduce((a, l) => a + Number(l.amount), 0);
 
@@ -779,25 +799,25 @@ function MonthlyExpensesLedger({ selectedDate }: { selectedDate: string }) {
           <Wallet className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
           <h2 className="text-lg font-semibold">Expenses Ledger</h2>
         </div>
-        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled on {dayLabel}</div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled all-time</div>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Every deferred/credit supplier invoice or outstanding balance settled via Record Payment on {dayLabel} —
-        logged automatically the instant it's paid.
+        Every deferred/credit supplier invoice or outstanding balance ever settled via Record Payment — logged
+        automatically the instant it's paid. Global — never filtered by the date picker above.
       </p>
       {settlements.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settlements recorded on {dayLabel}.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settlements recorded yet.</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
               <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
-                <th className="pb-2 pr-3">Date &amp; Time</th>
-                <th className="pb-2 pr-3">Supplier</th>
-                <th className="pb-2 pr-3">Description</th>
-                <th className="pb-2 pr-3 text-right">Amount EGP</th>
-                <th className="pb-2 pr-3">Payment Source</th>
-                <th className="pb-2">Settled By</th>
+                <th className="pb-2 pt-3 pl-3 pr-3">Date &amp; Time</th>
+                <th className="pb-2 pt-3 pr-3">Supplier</th>
+                <th className="pb-2 pt-3 pr-3">Description</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
+                <th className="pb-2 pt-3 pr-3">Payment Source</th>
+                <th className="pb-2 pt-3">Settled By</th>
               </tr>
             </thead>
             <tbody>
@@ -805,12 +825,12 @@ function MonthlyExpensesLedger({ selectedDate }: { selectedDate: string }) {
                 const supplier = state.suppliers.find((s) => s.id === l.supplierId);
                 return (
                   <tr key={l.id} className="border-b border-black/5">
-                    <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
+                    <td className="py-2 pl-3 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
                     <td className="py-2 pr-3 font-semibold">{supplier?.name ?? "—"}</td>
                     <td className="py-2 pr-3">{l.description || "—"}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(Number(l.amount))}</td>
                     <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
-                    <td className="py-2">{l.staffUsername}</td>
+                    <td className="py-2 pr-3">{l.staffUsername}</td>
                   </tr>
                 );
               })}
@@ -907,7 +927,7 @@ function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
   );
 }
 
-function PnLLedgerPanel() {
+function ShiftHistoryPanel() {
   const { state } = useStore();
   const [range, setRange] = useState<RangeKey>("today");
   const [customFrom, setCustomFrom] = useState(() => new Date(startOfDay(Date.now())).toISOString().slice(0, 10));
@@ -921,66 +941,32 @@ function PnLLedgerPanel() {
     return { from: new Date(customFrom).getTime(), to: new Date(customTo).getTime() + 86400000 - 1 };
   }, [range, customFrom, customTo]);
 
-  const ledgerInRange = useMemo(
-    () => state.ledger.filter((l) => l.ts >= from && l.ts <= to && l.status === "approved"),
-    [state.ledger, from, to],
-  );
-  const sessionsInRange = useMemo(
-    () => state.sessions.filter((s) => s.endedAt >= from && s.endedAt <= to),
-    [state.sessions, from, to],
-  );
   // Closed shifts within the selected range — lets an admin find and
-  // recalculate a specific past shift, not just today's (the existing
-  // Shift Comparison section elsewhere on this page only ever shows
-  // today's shifts).
+  // recalculate a specific past shift, not just today's.
   const shiftsInRange = useMemo(
     () => state.shifts.filter((sh) => sh.closedAt !== null && sh.closedAt >= from && sh.closedAt <= to).sort((a, b) => b.closedAt! - a.closedAt!),
     [state.shifts, from, to],
   );
 
-  const exportCsv = () => {
-    const rows = [
-      ["Timestamp", "Type", "Direction", "Category", "Description", "Amount", "Staff", "Status", "Supplier", "Material", "Qty", "Unit Cost"],
-      ...ledgerInRange.map((l) => [
-        new Date(l.ts).toISOString(), l.type, l.direction, l.category, l.description,
-        String(l.amount), l.staffUsername, l.status, l.supplierId ?? "", l.materialId ?? "",
-        l.qty !== null ? String(l.qty) : "", l.unitCost !== null ? String(l.unitCost) : "",
-      ]),
-    ];
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `glitch-ledger-${range}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <Wallet className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-          <h2 className="text-lg font-semibold">Detailed Ledger &amp; History</h2>
+          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Shift History</h2>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
-            {(["today", "week", "month", "custom"] as const).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`px-3 py-1.5 rounded-md text-xs uppercase tracking-widest font-semibold transition ${
-                  range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-[#2b2416]" : "text-muted-foreground hover:text-[#2b2416]"
-                }`}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-          <button onClick={exportCsv} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
-            <FileDown className="w-3.5 h-3.5" /> Export CSV
-          </button>
+        <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
+          {(["today", "week", "month", "custom"] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-3 py-1.5 rounded-md text-xs uppercase tracking-widest font-semibold transition ${
+                range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-[#2b2416]" : "text-muted-foreground hover:text-[#2b2416]"
+              }`}
+            >
+              {r}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -992,125 +978,19 @@ function PnLLedgerPanel() {
         </div>
       )}
 
-      {ledgerInRange.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono">No ledger entries in this range.</div>
+      {shiftsInRange.length === 0 ? (
+        <div className="text-sm text-muted-foreground text-center py-6">No closed shifts in this range.</div>
       ) : (
-        <div className="overflow-x-auto max-h-96 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-[#faf6ec]">
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
-                <th className="text-left py-2 px-2">Time</th>
-                <th className="text-left py-2 px-2">Type</th>
-                <th className="text-left py-2 px-2">Description</th>
-                <th className="text-left py-2 px-2">Staff</th>
-                <th className="text-right py-2 px-2">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ledgerInRange.slice().sort((a, b) => b.ts - a.ts).map((l) => (
-                <tr key={l.id} className="border-b border-black/8 hover:bg-black/5">
-                  <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(l.ts).toLocaleString()}</td>
-                  <td className="py-2 px-2 text-xs uppercase tracking-widest text-muted-foreground">{l.category}</td>
-                  <td className="py-2 px-2 text-xs">{l.description || "—"}</td>
-                  <td className="py-2 px-2 text-xs">{l.staffUsername}</td>
-                  <td className={`py-2 px-2 text-right font-mono font-semibold ${l.direction === "inflow" ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
-                    {l.direction === "inflow" ? "+" : "-"}{fmtMoney(l.amount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[32rem] overflow-y-auto">
+          {shiftsInRange.map((sh) => (
+            <ShiftCard
+              key={sh.id}
+              shift={sh}
+              label={new Date(sh.openedAt).toLocaleDateString()}
+              sessions={state.sessions.filter((s) => s.shiftId === sh.id)}
+            />
+          ))}
         </div>
-      )}
-
-      <OrderHistorySection sessions={sessionsInRange} />
-      <ShiftHistorySection shifts={shiftsInRange} sessions={state.sessions} />
-    </div>
-  );
-}
-
-function OrderHistorySection({ sessions }: { sessions: Session[] }) {
-  const { state } = useStore();
-  const isAdmin = state.currentUser?.role === "admin";
-  const [open, setOpen] = useState(false);
-  const [viewingSession, setViewingSession] = useState<Session | null>(null);
-  const [reopenTarget, setReopenTarget] = useState<Session | null>(null);
-  const sorted = [...sessions].sort((a, b) => b.endedAt - a.endedAt);
-
-  return (
-    <div className="mt-6 pt-6 border-t border-black/8">
-      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 text-sm font-semibold text-[oklch(0.7_0.19_260)]">
-        <History className="w-4 h-4" /> Order History ({sorted.length}) {open ? "▲" : "▼"}
-      </button>
-      {open && (
-        sorted.length === 0 ? (
-          <div className="text-sm text-muted-foreground text-center py-6">No closed checks in this range.</div>
-        ) : (
-          <div className="mt-3 overflow-x-auto max-h-96 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-[#faf6ec]">
-                <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
-                  <th className="text-left py-2 px-2">#</th>
-                  <th className="text-left py-2 px-2">Closed</th>
-                  <th className="text-left py-2 px-2">Room/Table</th>
-                  <th className="text-left py-2 px-2">Payment</th>
-                  <th className="text-right py-2 px-2">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((s) => (
-                  <tr key={s.id} onClick={() => setViewingSession(s)} className="border-b border-black/8 hover:bg-black/5 cursor-pointer">
-                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">#{s.orderNumber}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(s.endedAt).toLocaleString()}</td>
-                    <td className="py-2 px-2 font-semibold">{s.roomName}</td>
-                    <td className="py-2 px-2 text-xs">{s.paymentMethod}</td>
-                    <td className="py-2 px-2 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      )}
-      {viewingSession && (
-        <ReceiptModal
-          session={viewingSession}
-          onClose={() => setViewingSession(null)}
-          onReopen={isAdmin ? () => { setReopenTarget(viewingSession); setViewingSession(null); } : undefined}
-        />
-      )}
-      {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
-    </div>
-  );
-}
-
-// Reuses ShiftCard (which already has the admin-only Recalculate
-// button built in) so a shift from ANY past day, not just today, can
-// be found and corrected — the Shift Comparison section elsewhere on
-// this page only ever shows today's shifts.
-function ShiftHistorySection({ shifts, sessions }: { shifts: Shift[]; sessions: Session[] }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="mt-6 pt-6 border-t border-black/8">
-      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 text-sm font-semibold text-[oklch(0.7_0.19_260)]">
-        <History className="w-4 h-4" /> Shift History ({shifts.length}) {open ? "▲" : "▼"}
-      </button>
-      {open && (
-        shifts.length === 0 ? (
-          <div className="text-sm text-muted-foreground text-center py-6">No closed shifts in this range.</div>
-        ) : (
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[32rem] overflow-y-auto">
-            {shifts.map((sh) => (
-              <ShiftCard
-                key={sh.id}
-                shift={sh}
-                label={new Date(sh.openedAt).toLocaleDateString()}
-                sessions={sessions.filter((s) => s.shiftId === sh.id)}
-              />
-            ))}
-          </div>
-        )
       )}
     </div>
   );
@@ -1373,81 +1253,6 @@ function AttendanceLog() {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HistoryLog() {
-  const { state } = useStore();
-  const [range, setRange] = useState<"day" | "week" | "month">("day");
-
-  const filtered = useMemo(() => {
-    const now = Date.now();
-    const cutoff = range === "day" ? startOfDay(now) : range === "week" ? startOfWeek(now) : startOfMonth(now);
-    return state.shifts
-      .filter((sh) => sh.closedAt !== null && sh.openedAt >= cutoff)
-      .sort((a, b) => b.openedAt - a.openedAt);
-  }, [state.shifts, range]);
-
-  return (
-    <div className="glass rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-          <h2 className="text-lg font-semibold">Shift History Archive</h2>
-        </div>
-        <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
-          {(["day", "week", "month"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`px-3 py-1.5 rounded-md text-xs uppercase tracking-widest font-semibold transition ${
-                range === r ? "bg-[oklch(0.7_0.19_260/0.3)] text-[#2b2416]" : "text-muted-foreground hover:text-[#2b2416]"
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono">No closed shifts in this range.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
-                <th className="text-left py-2 px-2">Cashier</th>
-                <th className="text-left py-2 px-2">Opened</th>
-                <th className="text-left py-2 px-2">Closed</th>
-                <th className="text-right py-2 px-2">Revenue</th>
-                <th className="text-right py-2 px-2">Discrepancy</th>
-                <th className="text-right py-2 px-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((sh) => {
-                const revenue = state.sessions.filter((s) => s.shiftId === sh.id).reduce((a, s) => a + s.total, 0);
-                return (
-                  <tr key={sh.id} className="border-b border-black/8 hover:bg-black/5">
-                    <td className="py-2 px-2 font-semibold">{sh.cashierUsername}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{new Date(sh.openedAt).toLocaleString()}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-muted-foreground">{sh.closedAt ? new Date(sh.closedAt).toLocaleString() : "—"}</td>
-                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(revenue)}</td>
-                    <td className={`py-2 px-2 text-right font-mono ${sh.discrepancy !== null && Math.abs(sh.discrepancy) >= 0.005 ? "text-[oklch(0.62_0.24_25)]" : ""}`}>
-                      {sh.discrepancy !== null ? fmtMoney(sh.discrepancy) : "—"}
-                    </td>
-                    <td className="py-2 px-2 text-right text-xs uppercase tracking-widest text-muted-foreground">
-                      {sh.forced ? "Force Closed" : "Normal"}
-                    </td>
-                  </tr>
-                );
-              })}
             </tbody>
           </table>
         </div>
