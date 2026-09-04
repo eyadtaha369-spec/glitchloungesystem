@@ -172,13 +172,17 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           </div>
         ) : isActive ? (
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/70 rounded-xl p-4 border border-black/8">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.7_0.19_260)]"}`}>{fmtDuration(computeCurrentSegmentElapsed(room, elapsed))}</div>
+            <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
+              <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.7_0.19_260)]"}`}>
+                {fmtDuration(computeCurrentSegmentElapsed(room, elapsed))}
+              </div>
             </div>
-            <div className="bg-white/70 rounded-xl p-4 border border-black/8">
+            <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>{fmtMoney(total)}</div>
+              <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>
+                {fmtMoney(total)}
+              </div>
             </div>
           </div>
         ) : (
@@ -516,26 +520,26 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       <div className="mt-4 grid grid-cols-2 gap-3">
         {room.zone === "waste" ? (
           <>
-            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items Logged</div>
-              <div className="mt-1 font-mono text-2xl font-bold text-black">{room.orders.reduce((a, o) => a + o.qty, 0)}</div>
+              <div className="mt-1 font-mono text-xl font-bold text-black overflow-hidden whitespace-nowrap">{room.orders.reduce((a, o) => a + o.qty, 0)}</div>
             </div>
-            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Retail Value</div>
-              <div className="mt-1 font-mono text-2xl font-bold text-black">{fmtMoney(total)}</div>
+              <div className="mt-1 font-mono text-xl font-bold text-black overflow-hidden whitespace-nowrap">{fmtMoney(total)}</div>
             </div>
           </>
         ) : (
           <>
-            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8 min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
+              <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : room.status === "active" ? "text-[oklch(0.7_0.19_260)]" : "text-muted-foreground"}`}>
                 {fmtDuration(computeCurrentSegmentElapsed(room, elapsed))}
               </div>
             </div>
-            <div className="bg-white/70 rounded-lg p-3 border border-black/8">
+            <div className="bg-white/70 rounded-lg p-3 border border-black/8 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Running Cost</div>
-              <div className={`mt-1 font-mono text-2xl font-bold ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>
+              <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>
                 {fmtMoney(total)}
               </div>
             </div>
