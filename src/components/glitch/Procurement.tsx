@@ -769,25 +769,27 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col glass-strong rounded-2xl border border-black/20" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-black/8 shrink-0">
+      <div className="w-[90vw] max-w-[1200px] max-h-[90vh] flex flex-col glass-strong rounded-2xl border border-black/20" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-black/8 shrink-0">
           <div>
-            <h3 className="text-lg font-bold">{supplier?.name || "Supplier"}</h3>
-            <p className="text-xs text-muted-foreground">Account Statement</p>
+            <h3 className="text-xl font-bold">{supplier?.name || "Supplier"}</h3>
+            <p className="text-sm text-muted-foreground">Account Statement</p>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><XCircle className="w-5 h-5" /></button>
+          <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center bg-black/5 hover:bg-black/10 text-muted-foreground hover:text-[#2b2416]" aria-label="Close">
+            <XCircle className="w-6 h-6" />
+          </button>
         </div>
 
-        <div className="px-5 py-4 border-b border-black/8 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-b border-black/8 flex items-center justify-between shrink-0">
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Outstanding Balance</div>
-            <div className={`text-2xl font-mono font-bold ${currentBalance > 0.01 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+            <div className={`text-3xl font-mono font-bold ${currentBalance > 0.01 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
               {fmtMoney(currentBalance)}
             </div>
           </div>
           <button
             onClick={() => setShowPayForm((v) => !v)}
-            className="px-4 py-2 rounded-lg text-sm font-semibold bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] hover:bg-[oklch(0.78_0.2_155/0.25)]"
+            className="px-5 py-3 rounded-xl text-base font-bold bg-[oklch(0.78_0.2_155/0.15)] border-2 border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] hover:bg-[oklch(0.78_0.2_155/0.25)]"
           >
             Record Payment
           </button>
@@ -805,40 +807,40 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
           />
         )}
 
-        <div className="flex-1 overflow-y-auto overflow-x-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto overflow-x-auto px-6 py-5">
           {loading ? (
             <div className="text-sm text-muted-foreground text-center py-6">Loading...</div>
           ) : entries.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-6">No transactions with this supplier yet.</div>
           ) : (
-            <table className="w-full text-xs min-w-[560px]">
-              <thead>
-                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/8">
-                  <th className="py-2 pr-2">Date</th>
-                  <th className="py-2 pr-2">Type</th>
-                  <th className="py-2 pr-2">Description</th>
-                  <th className="py-2 pr-2 text-right">Debit</th>
-                  <th className="py-2 pr-2 text-right">Credit</th>
-                  <th className="py-2 text-right">Balance</th>
-                  <th className="py-2 pl-2 text-right"></th>
+            <table className="w-full text-sm min-w-[720px]">
+              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+                <tr className="text-left text-xs uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                  <th className="py-3 pr-3">Date</th>
+                  <th className="py-3 pr-3">Type</th>
+                  <th className="py-3 pr-3">Description</th>
+                  <th className="py-3 pr-3 text-right">Debit</th>
+                  <th className="py-3 pr-3 text-right">Credit</th>
+                  <th className="py-3 pr-3 text-right">Balance</th>
+                  <th className="py-3 pl-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.id} className="border-b border-black/5">
-                    <td className="py-2 pr-2 text-muted-foreground font-mono">{new Date(e.ts).toLocaleDateString()}</td>
-                    <td className="py-2 pr-2">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${e.type === "invoice" ? "bg-[oklch(0.62_0.24_25/0.12)] text-[oklch(0.62_0.24_25)]" : "bg-[oklch(0.78_0.2_155/0.12)] text-[oklch(0.78_0.2_155)]"}`}>
+                    <td className="py-3 pr-3 text-muted-foreground font-mono">{new Date(e.ts).toLocaleDateString()}</td>
+                    <td className="py-3 pr-3">
+                      <span className={`px-2 py-1 rounded text-xs font-semibold ${e.type === "invoice" ? "bg-[oklch(0.62_0.24_25/0.12)] text-[oklch(0.62_0.24_25)]" : "bg-[oklch(0.78_0.2_155/0.12)] text-[oklch(0.78_0.2_155)]"}`}>
                         {e.type === "invoice" ? (e.paymentType === "cash" ? "Invoice (Cash)" : "Invoice") : "Payment"}
                       </span>
                     </td>
-                    <td className="py-2 pr-2 max-w-xs truncate" title={e.description}>{e.description}</td>
-                    <td className="py-2 pr-2 text-right font-mono">{e.debit > 0 ? fmtMoney(e.debit) : "—"}</td>
-                    <td className="py-2 pr-2 text-right font-mono">{e.credit > 0 ? fmtMoney(e.credit) : "—"}</td>
-                    <td className="py-2 text-right font-mono font-semibold">{fmtMoney(e.runningBalance)}</td>
-                    <td className="py-2 pl-2 text-right">
+                    <td className="py-3 pr-3 max-w-sm truncate" title={e.description}>{e.description}</td>
+                    <td className="py-3 pr-3 text-right font-mono">{e.debit > 0 ? fmtMoney(e.debit) : "—"}</td>
+                    <td className="py-3 pr-3 text-right font-mono">{e.credit > 0 ? fmtMoney(e.credit) : "—"}</td>
+                    <td className="py-3 pr-3 text-right font-mono font-semibold">{fmtMoney(e.runningBalance)}</td>
+                    <td className="py-3 pl-3 text-right">
                       {isAdmin && (
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-3">
                           {e.type === "invoice" && (
                             <EditInvoiceButton entry={e} onSaved={async () => { await load(); await refreshSupplierBalances(); }} />
                           )}
@@ -1072,67 +1074,71 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
 
   return (
     <div className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onClick={() => !saving && onClose()}>
-      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)] p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-bold mb-3">Edit Invoice</h3>
-
-        <label className="text-xs uppercase tracking-widest text-muted-foreground">Transaction Date</label>
-        <input
-          type="date" value={invoiceDateInput} onChange={(e) => setInvoiceDateInput(e.target.value)}
-          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm mb-3"
-        />
-
-        <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Type</label>
-        <div className="mt-1 flex rounded-lg border border-black/10 overflow-hidden mb-3">
-          <button
-            onClick={() => setPaymentType("cash")}
-            className={`flex-1 py-2 text-xs font-bold ${paymentType === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
-          >Cash</button>
-          <button
-            onClick={() => setPaymentType("deferred")}
-            className={`flex-1 py-2 text-xs font-bold border-l border-black/10 ${paymentType === "deferred" ? "bg-[oklch(0.62_0.24_25/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
-          >Deferred (on credit)</button>
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)]" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-black/8 shrink-0">
+          <h3 className="text-lg font-bold">Edit Invoice</h3>
         </div>
 
-        <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Items</div>
-        <div className="space-y-2 mb-3">
-          {items.map((it, idx) => (
-            <div key={it.id} className="rounded-lg bg-black/5 border border-black/8 p-3">
-              <div className="text-sm font-semibold mb-1.5">{it.materialName}</div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Quantity</label>
-                  <input
-                    type="number" min="0" step="0.01" value={it.qty}
-                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, qty: parseFloat(e.target.value) || 0 } : p))}
-                    className="mt-0.5 w-full bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-sm font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Unit Price</label>
-                  <input
-                    type="number" min="0" step="0.01" value={it.unitPrice}
-                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unitPrice: parseFloat(e.target.value) || 0 } : p))}
-                    className="mt-0.5 w-full bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-sm font-mono"
-                  />
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Transaction Date</label>
+          <input
+            type="date" value={invoiceDateInput} onChange={(e) => setInvoiceDateInput(e.target.value)}
+            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4"
+          />
+
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Type</label>
+          <div className="mt-1 flex rounded-lg border border-black/10 overflow-hidden mb-4">
+            <button
+              onClick={() => setPaymentType("cash")}
+              className={`flex-1 py-2.5 text-sm font-bold ${paymentType === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+            >Cash</button>
+            <button
+              onClick={() => setPaymentType("deferred")}
+              className={`flex-1 py-2.5 text-sm font-bold border-l border-black/10 ${paymentType === "deferred" ? "bg-[oklch(0.62_0.24_25/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+            >Deferred (on credit)</button>
+          </div>
+
+          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Items</div>
+          <div className="space-y-3 mb-4">
+            {items.map((it, idx) => (
+              <div key={it.id} className="rounded-lg bg-black/5 border border-black/8 p-4">
+                <div className="text-base font-semibold mb-2">{it.materialName}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity</label>
+                    <input
+                      type="number" min="0" step="0.01" value={it.qty}
+                      onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, qty: parseFloat(e.target.value) || 0 } : p))}
+                      className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-base font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Price</label>
+                    <input
+                      type="number" min="0" step="0.01" value={it.unitPrice}
+                      onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unitPrice: parseFloat(e.target.value) || 0 } : p))}
+                      className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-base font-mono"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          <div className="flex justify-between items-center py-3 border-t border-black/10">
+            <span className="text-sm font-bold uppercase tracking-widest text-muted-foreground">New Total</span>
+            <span className="text-2xl font-mono font-bold">{fmtMoney(newTotal)}</span>
+          </div>
+
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-3">{err}</div>}
         </div>
 
-        <div className="flex justify-between items-center py-2 border-t border-black/10 mb-3">
-          <span className="text-sm font-bold uppercase tracking-widest text-muted-foreground">New Total</span>
-          <span className="text-xl font-mono font-bold">{fmtMoney(newTotal)}</span>
-        </div>
-
-        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
-
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} disabled={saving} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/8 shrink-0">
+          <button onClick={onClose} disabled={saving} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/10">Cancel</button>
           <button
             onClick={() => void handleSave()}
             disabled={saving || items.length === 0}
-            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+            className="px-5 py-2.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>
@@ -1167,7 +1173,7 @@ function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierI
   };
 
   return (
-    <div className="px-5 py-4 border-b border-black/8 bg-black/5 shrink-0 space-y-3">
+    <div className="px-6 py-4 border-b border-black/8 bg-black/5 shrink-0 space-y-3">
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount</label>
