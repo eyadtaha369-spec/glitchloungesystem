@@ -1047,6 +1047,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
       return Object.assign({}, r, {
         status: "available", startedAt: null, orders: [],
         hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode,
+        isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [], transferredFrom: null,
       });
     }
     if (r.id === targetId) {
@@ -1068,12 +1069,18 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
       if (r.zone === "room") {
         if (targetAlreadyActive) {
           // Merging into a room that's already running its own timer —
-          // that timer, rate, and any frozen segments continue
-          // completely untouched. Only the orders and a frozen charge
-          // for the SOURCE's time get folded in.
+          // that timer, rate, its own pause state, and any frozen
+          // segments continue completely untouched. Only the orders
+          // and a frozen charge for the SOURCE's time get folded in.
         } else {
           const rate = rateMode === "single" ? r.singleRate : r.multiRate;
-          Object.assign(patch, { status: "active", startedAt: now, hourlyRate: rate, rateMode: rateMode, rateSegments: [] });
+          // Starting the target fresh — see the local server's
+          // identical fix for why this must reset pause/adjustment
+          // leftovers from whatever session last ran in this room.
+          Object.assign(patch, {
+            status: "active", startedAt: now, hourlyRate: rate, rateMode: rateMode, rateSegments: [],
+            isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+          });
         }
       } else {
         Object.assign(patch, { status: "active", startedAt: r.startedAt || now });

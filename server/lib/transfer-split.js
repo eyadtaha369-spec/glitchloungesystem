@@ -24,7 +24,10 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
 
   state.rooms = state.rooms.map((r) => {
     if (r.id === sourceId) {
-      return Object.assign({}, r, { status: "available", startedAt: null, orders: [], hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode });
+      return Object.assign({}, r, {
+        status: "available", startedAt: null, orders: [], hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode,
+        isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [], transferredFrom: null,
+      });
     }
     if (r.id === targetId) {
       let orders = r.orders.slice();
@@ -41,14 +44,23 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
       if (r.zone === "room") {
         if (targetAlreadyActive) {
           // Merging into a room that's already running its own timer —
-          // that timer, its rate, and any frozen segments continue
-          // completely untouched. Only the orders and a frozen charge
-          // for the SOURCE's time get folded in, same principle as
-          // merging into an available room, just without resetting
-          // anything the target already had running.
+          // that timer, its rate, its own pause state, and any frozen
+          // segments continue completely untouched. Only the orders
+          // and a frozen charge for the SOURCE's time get folded in,
+          // same principle as merging into an available room, just
+          // without resetting anything the target already had running.
         } else {
           const rate = rateMode === "single" ? r.singleRate : r.multiRate;
-          Object.assign(patch, { status: "active", startedAt: now, hourlyRate: rate, rateMode, rateSegments: [] });
+          // Starting the target fresh — this room may carry pause/
+          // adjustment leftovers from whatever session last ran in it,
+          // same as any other fresh start (bizStartRoom_) already
+          // clears. Omitting this reset is exactly what let a stale
+          // isPaused/pausedDurationSec corrupt the newly transferred
+          // timer's elapsed-time math, making it appear stuck.
+          Object.assign(patch, {
+            status: "active", startedAt: now, hourlyRate: rate, rateMode, rateSegments: [],
+            isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+          });
         }
       } else {
         Object.assign(patch, { status: "active", startedAt: r.startedAt || now });
