@@ -46,6 +46,40 @@ function isOperationalExpense(l: LedgerEntry): boolean {
   );
 }
 
+// This café's confirmed real operating cycle: a "business day" runs
+// 8:00 AM to 7:59:59 AM the next calendar day, not midnight to
+// midnight. A shift that opens at 11 PM and runs until 4 AM belongs
+// entirely to the business day it opened on, never split across two.
+const BUSINESS_DAY_START_HOUR = 8;
+function businessDayBounds(dateStr: string) {
+  const from = new Date(dateStr + "T00:00:00").getTime() + BUSINESS_DAY_START_HOUR * 3600000;
+  const to = from + 86400000 - 1; // 24 hours later, minus 1ms = 07:59:59.999 the next day
+  return { from, to };
+}
+
+// Shift-first binding: an order/expense/void that has a shiftId is
+// scoped by whichever business day that SHIFT opened within — never
+// by re-deriving a calendar date from the record's own timestamp,
+// which is exactly what let midnight-to-8AM activity bleed into the
+// wrong day. shiftId is already set correctly at the moment every
+// record is created (from whatever shift was actually active then),
+// so this never needs to rewrite any historical record to work
+// correctly retroactively — it only needed the query logic fixed.
+// Falls back to the record's own timestamp only for the rare case of
+// no shiftId at all (logged with no shift open).
+function filterByBusinessDay<T extends { shiftId: string | null; ts?: number; endedAt?: number }>(
+  items: T[],
+  dayShiftIds: Set<string>,
+  from: number,
+  to: number,
+): T[] {
+  return items.filter((item) => {
+    if (item.shiftId) return dayShiftIds.has(item.shiftId);
+    const ts = item.ts ?? item.endedAt ?? 0;
+    return ts >= from && ts <= to;
+  });
+}
+
 function startOfDay(ts: number) {
   const d = new Date(ts);
   d.setHours(0, 0, 0, 0);
@@ -127,26 +161,27 @@ export function ReportsPage() {
     }).sort((a, b) => b.qty - a.qty);
   }, [shiftSessions, state.menu, state.stock]);
 
-  // Total Revenue by Date — deliberately calendar-date-based (by each
-  // order's own close time), independent of the Shift selector above,
-  // which is a separate tool for printing one specific shift's own
-  // end-of-shift report. Filtering by the order's own endedAt (rather
-  // than by shift membership) avoids double-counting a shift that
-  // spans multiple days across more than one date's view.
+  // Total Revenue by Date — shift-first, business-day bound (8 AM to
+  // 8 AM, this café's confirmed real cycle), independent of the Shift
+  // selector above, which is a separate tool for printing one
+  // specific shift's own end-of-shift report.
   const [selectedReportDate, setSelectedReportDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   });
-  const reportDayStart = useMemo(() => new Date(selectedReportDate + "T00:00:00").getTime(), [selectedReportDate]);
-  const reportDayEnd = reportDayStart + 86400000;
+  const { from: reportDayStart, to: reportDayEnd } = useMemo(() => businessDayBounds(selectedReportDate), [selectedReportDate]);
+  const reportDayShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= reportDayStart && sh.openedAt <= reportDayEnd).map((sh) => sh.id)),
+    [state.shifts, reportDayStart, reportDayEnd],
+  );
 
   const daySessions = useMemo(
-    () => state.sessions.filter((s) => s.endedAt >= reportDayStart && s.endedAt < reportDayEnd),
-    [state.sessions, reportDayStart, reportDayEnd],
+    () => filterByBusinessDay(state.sessions, reportDayShiftIds, reportDayStart, reportDayEnd),
+    [state.sessions, reportDayShiftIds, reportDayStart, reportDayEnd],
   );
   const dayExpenseEntries = useMemo(
-    () => state.ledger.filter((l) => isOperationalExpense(l) && l.ts >= reportDayStart && l.ts < reportDayEnd),
-    [state.ledger, reportDayStart, reportDayEnd],
+    () => filterByBusinessDay(state.ledger.filter(isOperationalExpense), reportDayShiftIds, reportDayStart, reportDayEnd),
+    [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd],
   );
   const dayRevenue = daySessions.reduce((a, s) => a + s.total, 0);
   const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0);
@@ -246,29 +281,29 @@ export function ReportsPage() {
         {daySessions.length === 0 ? (
           <div className="text-sm text-muted-foreground font-mono text-center py-6">No closed orders on this date.</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
                 <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
-                  <th className="pb-2 pr-3">Order ID</th>
-                  <th className="pb-2 pr-3">Room/Table</th>
-                  <th className="pb-2 pr-3">Time</th>
-                  <th className="pb-2 pr-3">Payment</th>
-                  <th className="pb-2 pr-3 text-right">Subtotal</th>
-                  <th className="pb-2 pr-3 text-right">Discount</th>
-                  <th className="pb-2 text-right">Total EGP</th>
+                  <th className="pb-2 pt-3 pl-3 pr-3">Order ID</th>
+                  <th className="pb-2 pt-3 pr-3">Room/Table</th>
+                  <th className="pb-2 pt-3 pr-3">Time</th>
+                  <th className="pb-2 pt-3 pr-3">Payment</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Subtotal</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Discount</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Total EGP</th>
                 </tr>
               </thead>
               <tbody>
                 {daySessions.sort((a, b) => b.endedAt - a.endedAt).map((s) => (
                   <tr key={s.id} className="border-b border-black/5">
-                    <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
+                    <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
                     <td className="py-2 pr-3">{s.roomName}</td>
                     <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
                     <td className="py-2 pr-3 uppercase">{s.paymentMethod.replace(/_/g, " ")}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmtMoney(s.total + (s.discountAmount || 0))}</td>
                     <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—"}</td>
-                    <td className="py-2 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
+                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -287,25 +322,25 @@ export function ReportsPage() {
         {dayExpenseEntries.length === 0 ? (
           <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged on this date.</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
                 <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
-                  <th className="pb-2 pr-3">Expense ID</th>
-                  <th className="pb-2 pr-3">Description / Category</th>
-                  <th className="pb-2 pr-3 text-right">Amount EGP</th>
-                  <th className="pb-2 pr-3">Payment Source</th>
-                  <th className="pb-2">Recorded Time</th>
+                  <th className="pb-2 pt-3 pl-3 pr-3">Expense ID</th>
+                  <th className="pb-2 pt-3 pr-3">Description / Category</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
+                  <th className="pb-2 pt-3 pr-3">Payment Source</th>
+                  <th className="pb-2 pt-3 pr-3">Recorded Time</th>
                 </tr>
               </thead>
               <tbody>
                 {dayExpenseEntries.sort((a, b) => b.ts - a.ts).map((l) => (
                   <tr key={l.id} className="border-b border-black/5">
-                    <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
+                    <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
                     <td className="py-2 pr-3">{l.description || l.category}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                     <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
-                    <td className="py-2 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
+                    <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -598,33 +633,31 @@ function BusinessDayPanel() {
 // another range selection.
 function MonthlyReconciliationDashboard({ selectedDate, onDateChange }: { selectedDate: string; onDateChange: (date: string) => void }) {
   const { state } = useStore();
-  const dayStart = useMemo(() => new Date(selectedDate + "T00:00:00").getTime(), [selectedDate]);
-  const dayEnd = dayStart + 86400000 - 1;
+  const { from: dayStart, to: dayEnd } = useMemo(() => businessDayBounds(selectedDate), [selectedDate]);
   const dayLabel = new Date(dayStart).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
 
-  // Revenue is scoped by each SHIFT's own start date, not by when an
-  // individual session ended — this is what keeps a shift that starts
-  // late in the day (and runs past midnight into the next day) fully
-  // counted on the day it started, rather than splitting its sessions
-  // across two days.
+  // Shift-first: a business day is defined by which shifts OPENED
+  // within this 8 AM-to-8 AM window, not by re-deriving a calendar
+  // date from each record's own timestamp — this is what keeps a
+  // shift that opens late (and runs past midnight, or even past 8 AM)
+  // fully counted on the day it started, never split across two.
   const dayShiftIds = useMemo(
     () => new Set(state.shifts.filter((sh) => sh.openedAt >= dayStart && sh.openedAt <= dayEnd).map((sh) => sh.id)),
     [state.shifts, dayStart, dayEnd],
   );
   const totalRevenue = useMemo(
-    () => state.sessions.filter((s) => s.shiftId && dayShiftIds.has(s.shiftId)).reduce((a, s) => a + s.total, 0),
-    [state.sessions, dayShiftIds],
+    () => filterByBusinessDay(state.sessions, dayShiftIds, dayStart, dayEnd).reduce((a, s) => a + s.total, 0),
+    [state.sessions, dayShiftIds, dayStart, dayEnd],
   );
 
-  // Operational expenses and supplier purchases logged on this exact
-  // day — already includes procurement/supplier invoices (the source
-  // of COGS), so this deliberately does NOT add a separate COGS term
+  // Operational expenses and supplier purchases for this business day
+  // — already includes procurement/supplier invoices (the source of
+  // COGS), so this deliberately does NOT add a separate COGS term
   // below -- doing so would double-count the same raw-material spend.
   const totalExpenses = useMemo(
-    () => state.ledger
-      .filter((l) => isOperationalExpense(l) && l.ts >= dayStart && l.ts <= dayEnd)
+    () => filterByBusinessDay(state.ledger.filter(isOperationalExpense), dayShiftIds, dayStart, dayEnd)
       .reduce((a, l) => a + Number(l.amount), 0),
-    [state.ledger, dayStart, dayEnd],
+    [state.ledger, dayShiftIds, dayStart, dayEnd],
   );
 
   // Fixed recurring costs (rent, salaries, utilities, internet, etc.)
@@ -695,15 +728,17 @@ function MonthlyReconciliationDashboard({ selectedDate, onDateChange }: { select
 // original invoice was logged, not a new expense today.
 function MonthlyExpensesLedger({ selectedDate }: { selectedDate: string }) {
   const { state } = useStore();
-  const dayStart = useMemo(() => new Date(selectedDate + "T00:00:00").getTime(), [selectedDate]);
-  const dayEnd = dayStart + 86400000 - 1;
+  const { from: dayStart, to: dayEnd } = useMemo(() => businessDayBounds(selectedDate), [selectedDate]);
   const dayLabel = new Date(dayStart).toLocaleDateString();
+  const dayShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= dayStart && sh.openedAt <= dayEnd).map((sh) => sh.id)),
+    [state.shifts, dayStart, dayEnd],
+  );
 
   const settlements = useMemo(
-    () => state.ledger
-      .filter((l) => l.type === "supplierPayment" && l.ts >= dayStart && l.ts <= dayEnd)
+    () => filterByBusinessDay(state.ledger.filter((l) => l.type === "supplierPayment"), dayShiftIds, dayStart, dayEnd)
       .sort((a, b) => b.ts - a.ts),
-    [state.ledger, dayStart, dayEnd],
+    [state.ledger, dayShiftIds, dayStart, dayEnd],
   );
   const total = settlements.reduce((a, l) => a + Number(l.amount), 0);
 
@@ -766,15 +801,17 @@ function MonthlyExpensesLedger({ selectedDate }: { selectedDate: string }) {
 // already-correct data, not a recalculation.
 function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
   const { state } = useStore();
-  const dayStart = useMemo(() => new Date(selectedDate + "T00:00:00").getTime(), [selectedDate]);
-  const dayEnd = dayStart + 86400000 - 1;
+  const { from: dayStart, to: dayEnd } = useMemo(() => businessDayBounds(selectedDate), [selectedDate]);
   const dayLabel = new Date(dayStart).toLocaleDateString();
+  const dayShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= dayStart && sh.openedAt <= dayEnd).map((sh) => sh.id)),
+    [state.shifts, dayStart, dayEnd],
+  );
 
   const wasteEntries = useMemo(
-    () => state.ledger
-      .filter((l) => WASTE_LEDGER_CATEGORIES.has(l.category) && l.ts >= dayStart && l.ts <= dayEnd)
+    () => filterByBusinessDay(state.ledger.filter((l) => WASTE_LEDGER_CATEGORIES.has(l.category)), dayShiftIds, dayStart, dayEnd)
       .sort((a, b) => b.ts - a.ts),
-    [state.ledger, dayStart, dayEnd],
+    [state.ledger, dayShiftIds, dayStart, dayEnd],
   );
   const total = wasteEntries.reduce((a, l) => a + Number(l.amount), 0);
   const byCategory = useMemo(() => {
