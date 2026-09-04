@@ -146,6 +146,15 @@ export function ReportsPage() {
   const reportDayStart = useMemo(() => new Date(selectedReportDate + "T00:00:00").getTime(), [selectedReportDate]);
   const reportDayEnd = reportDayStart + 86400000;
 
+  // Shared across Monthly Financial Reconciliation, Monthly Expenses
+  // Ledger, and Wasted & Complimentary Ledger — one picker controls
+  // all three so they always show the same month, never getting out
+  // of sync with each other.
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
   const daySessions = useMemo(
     () => state.sessions.filter((s) => s.endedAt >= reportDayStart && s.endedAt < reportDayEnd),
     [state.sessions, reportDayStart, reportDayEnd],
@@ -357,9 +366,9 @@ export function ReportsPage() {
 
       <HistoryLog />
       <AttendanceLog />
-      <MonthlyReconciliationDashboard />
-      <MonthlyExpensesLedger />
-      <WastedComplimentaryLedger />
+      <MonthlyReconciliationDashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+      <MonthlyExpensesLedger selectedMonth={selectedMonth} />
+      <WastedComplimentaryLedger selectedMonth={selectedMonth} />
       <PnLLedgerPanel />
     </div>
   );
@@ -602,12 +611,11 @@ function BusinessDayPanel() {
 // panel's own Today/Week/Month/Custom picker below it, per the
 // explicit requirement that this is a standing monthly summary, not
 // another range selection.
-function MonthlyReconciliationDashboard() {
+function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { selectedMonth: string; onMonthChange: (month: string) => void }) {
   const { state } = useStore();
-  const now = Date.now();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
-  const monthLabel = new Date(now).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const monthStart = useMemo(() => new Date(selectedMonth + "-01T00:00:00").getTime(), [selectedMonth]);
+  const monthEnd = useMemo(() => endOfMonth(monthStart), [monthStart]);
+  const monthLabel = new Date(monthStart).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   // Revenue is scoped by each SHIFT's own start date, not by when an
   // individual session ended — this is what keeps a shift that starts
@@ -648,9 +656,16 @@ function MonthlyReconciliationDashboard() {
 
   return (
     <div className="glass rounded-2xl p-6">
-      <div className="flex items-center gap-2 mb-1">
-        <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-        <h2 className="text-lg font-semibold">Monthly Financial Reconciliation</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Monthly Financial Reconciliation</h2>
+        </div>
+        <input
+          type="month" value={selectedMonth} max={new Date().toISOString().slice(0, 7)}
+          onChange={(e) => onMonthChange(e.target.value)}
+          className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+        />
       </div>
       <p className="text-xs text-muted-foreground mb-4">{monthLabel} — Day 1 through the last day, by each shift's own start date</p>
 
@@ -691,11 +706,11 @@ function MonthlyReconciliationDashboard() {
 // without appearing here. Deliberately excluded from Daily/Monthly
 // Expenses above, since it settles a debt incurred whenever the
 // original invoice was logged, not a new expense today.
-function MonthlyExpensesLedger() {
+function MonthlyExpensesLedger({ selectedMonth }: { selectedMonth: string }) {
   const { state } = useStore();
-  const now = Date.now();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  const monthStart = useMemo(() => new Date(selectedMonth + "-01T00:00:00").getTime(), [selectedMonth]);
+  const monthEnd = useMemo(() => endOfMonth(monthStart), [monthStart]);
+  const monthLabel = new Date(monthStart).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const settlements = useMemo(
     () => state.ledger
@@ -712,14 +727,14 @@ function MonthlyExpensesLedger() {
           <Wallet className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
           <h2 className="text-lg font-semibold">Monthly Expenses Ledger</h2>
         </div>
-        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled this month</div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled in {monthLabel}</div>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Every deferred/credit supplier invoice or outstanding balance settled via Record Payment this month — logged
-        automatically the instant it's paid.
+        Every deferred/credit supplier invoice or outstanding balance settled via Record Payment in {monthLabel} —
+        logged automatically the instant it's paid.
       </p>
       {settlements.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settlements recorded this month.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settlements recorded in {monthLabel}.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -762,11 +777,11 @@ function MonthlyExpensesLedger() {
 // system (server/lib/voids.js) computes and stores it that way at the
 // moment the void happens, so this report is a straight read of
 // already-correct data, not a recalculation.
-function WastedComplimentaryLedger() {
+function WastedComplimentaryLedger({ selectedMonth }: { selectedMonth: string }) {
   const { state } = useStore();
-  const now = Date.now();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  const monthStart = useMemo(() => new Date(selectedMonth + "-01T00:00:00").getTime(), [selectedMonth]);
+  const monthEnd = useMemo(() => endOfMonth(monthStart), [monthStart]);
+  const monthLabel = new Date(monthStart).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const wasteEntries = useMemo(
     () => state.ledger
@@ -788,10 +803,10 @@ function WastedComplimentaryLedger() {
           <AlertTriangle className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
           <h2 className="text-lg font-semibold">Wasted &amp; Complimentary Ledger</h2>
         </div>
-        <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} at cost this month</div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} at cost in {monthLabel}</div>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Every spilled, rejected, or complimentary item this month, valued at its raw-material cost — never its
+        Every spilled, rejected, or complimentary item in {monthLabel}, valued at its raw-material cost — never its
         menu price. Never counted as revenue or as a daily operational expense.
       </p>
 
@@ -807,7 +822,7 @@ function WastedComplimentaryLedger() {
       )}
 
       {wasteEntries.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No waste or comps logged this month.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No waste or comps logged in {monthLabel}.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
