@@ -213,7 +213,7 @@ export function AnalyticsPage() {
       </div>
 
       {/* Revenue & Orders Timeline */}
-      <div className="glass rounded-2xl p-6">
+      <div className="glass rounded-2xl p-6 min-w-0">
         <div className="flex items-center gap-2 mb-4">
           <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">Revenue &amp; Orders Timeline (by Hour)</h2>
@@ -235,7 +235,7 @@ export function AnalyticsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Category Revenue Distribution */}
-        <div className="glass rounded-2xl p-6">
+        <div className="glass rounded-2xl p-6 min-w-0">
           <h2 className="text-lg font-semibold mb-1">Category Revenue Distribution</h2>
           <p className="text-xs text-muted-foreground mb-4">Share of this month's revenue by menu category, including Room Time.</p>
           {categoryData.length === 0 ? (
@@ -254,7 +254,7 @@ export function AnalyticsPage() {
         </div>
 
         {/* Payment Method Split */}
-        <div className="glass rounded-2xl p-6">
+        <div className="glass rounded-2xl p-6 min-w-0">
           <h2 className="text-lg font-semibold mb-1">Payment Method Split</h2>
           <p className="text-xs text-muted-foreground mb-4">This month — Staff Allowance shown for comparison, not counted as revenue.</p>
           <ResponsiveContainer width="100%" height={300}>
@@ -272,7 +272,7 @@ export function AnalyticsPage() {
       </div>
 
       {/* Room/Table Profitability */}
-      <div className="glass rounded-2xl p-6">
+      <div className="glass rounded-2xl p-6 min-w-0">
         <h2 className="text-lg font-semibold mb-1">Room / Table Profitability</h2>
         <p className="text-xs text-muted-foreground mb-4">Total revenue generated per Room/Table this month.</p>
         {roomProfitData.length === 0 ? (
@@ -292,7 +292,7 @@ export function AnalyticsPage() {
 
       {/* Comparative Analytics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass rounded-2xl p-6">
+        <div className="glass rounded-2xl p-6 min-w-0">
           <h2 className="text-lg font-semibold mb-1">Days Comparison</h2>
           <p className="text-xs text-muted-foreground mb-4">Today vs. yesterday vs. the same day last week.</p>
           <ResponsiveContainer width="100%" height={260}>
@@ -306,7 +306,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </div>
 
-        <div className="glass rounded-2xl p-6">
+        <div className="glass rounded-2xl p-6 min-w-0">
           <h2 className="text-lg font-semibold mb-1">Weeks Comparison</h2>
           <p className="text-xs text-muted-foreground mb-4">This week vs. the previous three weeks.</p>
           <ResponsiveContainer width="100%" height={260}>
@@ -321,21 +321,25 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="glass rounded-2xl p-6">
+      <div className="glass rounded-2xl p-6 min-w-0">
         <h2 className="text-lg font-semibold mb-1">Months Comparison</h2>
         <p className="text-xs text-muted-foreground mb-4">Month-over-month revenue, expenses, and net profit — last 6 months.</p>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={monthsComparison}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => fmtMoney(v)} />
-            <Legend />
-            <Bar dataKey="revenue" name="Revenue" fill="oklch(0.78 0.2 155)" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="expenses" name="Expenses" fill="oklch(0.62 0.24 25)" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="netProfit" name="Net Profit" fill="oklch(0.7 0.19 260)" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="overflow-x-auto">
+          <div className="min-w-[560px]">
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={monthsComparison}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip formatter={(v: number) => fmtMoney(v)} />
+                <Legend />
+                <Bar dataKey="revenue" name="Revenue" fill="oklch(0.78 0.2 155)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expenses" name="Expenses" fill="oklch(0.62 0.24 25)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="netProfit" name="Net Profit" fill="oklch(0.7 0.19 260)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
     </div>
   );
