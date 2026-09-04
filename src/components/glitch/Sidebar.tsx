@@ -78,7 +78,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
         </button>
       </div>
 
-      <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
+      <nav className="sidebar-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
         {items.filter((i) => !i.adminOnly || isAdmin).map((item) => {
           const Icon = item.icon;
           const active = view === item.id;
