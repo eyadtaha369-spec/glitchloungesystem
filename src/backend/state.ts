@@ -50,6 +50,7 @@ export const endRoomFn = createServerFn({ method: "POST" })
     roomId: string; splitBill: boolean; paymentMethod: PaymentMethod; cashAmount?: number; secondaryAmount?: number; frozenAt?: number;
     timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number;
     ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number;
+    timeSplitOverride?: { singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number };
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();

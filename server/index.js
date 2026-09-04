@@ -196,11 +196,19 @@ const handlers = {
 
   endRoom(body) {
     requireRole_(body.username, ["admin", "cashier"]);
+    // The Single/Multi time-split override is admin-only, even though
+    // checkout itself isn't — this directly changes what a customer is
+    // charged, so a cashier can request a normal checkout but can't
+    // retroactively rewrite the billing split.
+    if (body.timeSplitOverride && roleForUsername_(body.username) !== "admin") {
+      return json_({ session: null, error: "Only an admin can adjust the Single/Multi time split.", state: withStockView_(getState_()) });
+    }
     const batches = readObjects_("Batches");
+    const roomBefore = getState_().rooms.find((r) => r.id === body.roomId);
     const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt, {
       timeDiscountType: body.timeDiscountType, timeDiscountValue: body.timeDiscountValue,
       ordersDiscountType: body.ordersDiscountType, ordersDiscountValue: body.ordersDiscountValue,
-    });
+    }, body.timeSplitOverride);
     if (result.error) return json_({ session: null, error: result.error, state: withStockView_(result.state) });
     if (result.session) {
       setState_(result.state);
@@ -216,6 +224,22 @@ const handlers = {
         paidFromDrawer: result.session.cashAmount > 0, shiftId: result.session.shiftId,
         materialId: null, qty: null, unitCost: null, paymentSource: null,
       });
+      if (result.timeSplitAdjustment) {
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "SESSION_TIME_SPLIT_ADJUSTED",
+          location: result.session.roomName, shiftId: result.session.shiftId,
+          description: result.session.roomName + " time billing manually split by " + body.username + ": " +
+            result.timeSplitAdjustment.singleHours + "h" + result.timeSplitAdjustment.singleMinutes + "m Single + " +
+            result.timeSplitAdjustment.multiHours + "h" + result.timeSplitAdjustment.multiMinutes + "m Multi — " +
+            result.timeSplitAdjustment.originalTimeCost.toFixed(2) + " EGP → " + result.timeSplitAdjustment.adjustedTimeCost.toFixed(2) + " EGP",
+          before: { timeCost: result.timeSplitAdjustment.originalTimeCost, rateMode: roomBefore ? roomBefore.rateMode : null, rateSegments: roomBefore ? roomBefore.rateSegments : [] },
+          after: {
+            timeCost: result.timeSplitAdjustment.adjustedTimeCost,
+            singleHours: result.timeSplitAdjustment.singleHours, singleMinutes: result.timeSplitAdjustment.singleMinutes, singleRate: result.timeSplitAdjustment.singleRate,
+            multiHours: result.timeSplitAdjustment.multiHours, multiMinutes: result.timeSplitAdjustment.multiMinutes, multiRate: result.timeSplitAdjustment.multiRate,
+          },
+        });
+      }
       logActivity_({
         actorUsername: body.username, actorRole: roleForUsername_(body.username),
         actionType: body.splitBill ? "CHECKOUT_SPLIT_BILL" : "CHECKOUT",

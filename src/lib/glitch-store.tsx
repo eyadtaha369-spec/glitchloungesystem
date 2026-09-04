@@ -151,7 +151,7 @@ interface StoreContextValue {
   setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
   renameRoom: (roomId: string, name: string) => Promise<{ ok: boolean; error?: string }>;
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
-  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number, discount?: { timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number; ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number }) => Promise<{ session: Session | null; error?: string }>;
+  endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number, discount?: { timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number; ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number }, timeSplitOverride?: { singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number }) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   logWasteMarketing: (roomId: string, reason: string, note?: string) => Promise<{ ok: boolean; error?: string }>;
   nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
@@ -556,13 +556,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
-  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt, discount) => {
+  const endRoom: StoreContextValue["endRoom"] = async (roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt, discount, timeSplitOverride) => {
     return withPending(`endRoom:${roomId}`, async () => {
       // No optimistic clear here — a mixed-payment split that doesn't sum
       // to the ticket total is rejected server-side, and the room must
       // stay exactly as it was so the cashier can correct the amounts.
       try {
-        const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt, ...discount } });
+        const res = await endRoomFn({ data: { roomId, splitBill, paymentMethod, cashAmount, secondaryAmount, frozenAt, timeSplitOverride, ...discount } });
         setAppState(res.state);
         if (res.session) await refreshLedger();
         return { session: res.session, error: res.error };

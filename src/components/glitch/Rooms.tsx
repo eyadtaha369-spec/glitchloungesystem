@@ -287,6 +287,15 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [ordersDiscountType, setOrdersDiscountType] = useState<"fixed" | "percent">("fixed");
   const [ordersDiscountInput, setOrdersDiscountInput] = useState("");
 
+  // Retroactive Single/Multi billing-split correction — admin-only,
+  // fixes a session that ran entirely under one mode by mistake.
+  // Distinct from Switch Mode (which only ever affects time going
+  // forward, live): this rewrites how the ALREADY-ELAPSED time on
+  // THIS checkout is billed, without touching the room's actual
+  // rateSegments history at all.
+  const [timeSplitOpen, setTimeSplitOpen] = useState(false);
+  const [timeSplitOverride, setTimeSplitOverride] = useState<{ singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number } | null>(null);
+
   // Clicking "End" persistently pauses the room server-side (pauseRoom),
   // which is what actually locks the bill to that exact instant — elapsed
   // itself (computeElapsed in the store) already excludes all paused time,
@@ -294,7 +303,11 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   // separate client-side freeze needed. This holds even if the user closes
   // the modal and comes back later, since the pause is backend-persisted.
   const checkoutElapsed = elapsed;
-  const checkoutTimeCost = (checkoutElapsed / 3600) * room.hourlyRate;
+  const systemCheckoutTimeCost = (checkoutElapsed / 3600) * room.hourlyRate;
+  const checkoutTimeCost = timeSplitOverride
+    ? (timeSplitOverride.singleHours + timeSplitOverride.singleMinutes / 60) * room.singleRate
+      + (timeSplitOverride.multiHours + timeSplitOverride.multiMinutes / 60) * room.multiRate
+    : systemCheckoutTimeCost;
   const checkoutPreDiscountTotal = checkoutTimeCost + ordersCost;
   const previewDiscount = (base: number, type: "fixed" | "percent", raw: string) => {
     const v = parseFloat(raw) || 0;
@@ -338,10 +351,12 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           timeDiscountType, timeDiscountValue: parseFloat(timeDiscountInput) || 0,
           ordersDiscountType, ordersDiscountValue: parseFloat(ordersDiscountInput) || 0,
         } : undefined,
+        timeSplitOverride ?? undefined,
       );
       if (res.error) { setCheckoutErr(res.error); return; }
       setCheckoutOpen(false);
       setSecondaryInput(""); setPaymentOption("cash");
+      setTimeSplitOverride(null);
       if (res.session) onCheckout(res.session);
     } finally {
       setCheckingOut(false);
@@ -995,6 +1010,75 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   <div className="text-[10px] text-black font-mono">Owner Discount (25%) applies automatically — enter a discount above to override it instead.</div>
                 )}
               </div>
+
+              {isAdmin && room.zone === "room" && (
+                <div className="rounded-2xl bg-[oklch(0.62_0.24_25/0.06)] border border-[oklch(0.62_0.24_25/0.3)] p-4 space-y-3">
+                  <button
+                    onClick={() => {
+                      if (!timeSplitOpen && !timeSplitOverride) {
+                        // Default the inputs to the system's own current
+                        // breakdown, so opening this doesn't silently
+                        // change anything until the admin actually edits it.
+                        const totalHours = checkoutElapsed / 3600;
+                        if (room.rateMode === "single") {
+                          setTimeSplitOverride({ singleHours: Math.floor(totalHours), singleMinutes: Math.round((totalHours % 1) * 60), multiHours: 0, multiMinutes: 0 });
+                        } else {
+                          setTimeSplitOverride({ singleHours: 0, singleMinutes: 0, multiHours: Math.floor(totalHours), multiMinutes: Math.round((totalHours % 1) * 60) });
+                        }
+                      }
+                      setTimeSplitOpen((v) => !v);
+                    }}
+                    className="flex items-center justify-between w-full text-xs uppercase tracking-widest font-bold text-[oklch(0.62_0.24_25)]"
+                  >
+                    <span className="flex items-center gap-2"><Clock className="w-3.5 h-3.5" /> Adjust Single/Multi Time Split</span>
+                    <span>{timeSplitOpen ? "▲" : "▼"}</span>
+                  </button>
+                  {timeSplitOpen && timeSplitOverride && (
+                    <>
+                      <p className="text-[10px] text-muted-foreground normal-case">
+                        Fixes a session that ran entirely under the wrong mode — split the {Math.round(checkoutElapsed / 60)} min actually
+                        played between Single and Multi however it should really be billed. Logged to the Audit Trail.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Single ({fmtMoney(room.singleRate)}/hr)</label>
+                          <div className="mt-1 flex gap-1.5">
+                            <input
+                              type="number" min="0" value={timeSplitOverride.singleHours}
+                              onChange={(e) => setTimeSplitOverride((prev) => prev && { ...prev, singleHours: Math.max(0, parseInt(e.target.value) || 0) })}
+                              className="w-full bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" placeholder="hrs"
+                            />
+                            <input
+                              type="number" min="0" max="59" value={timeSplitOverride.singleMinutes}
+                              onChange={(e) => setTimeSplitOverride((prev) => prev && { ...prev, singleMinutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
+                              className="w-full bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" placeholder="min"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Multi ({fmtMoney(room.multiRate)}/hr)</label>
+                          <div className="mt-1 flex gap-1.5">
+                            <input
+                              type="number" min="0" value={timeSplitOverride.multiHours}
+                              onChange={(e) => setTimeSplitOverride((prev) => prev && { ...prev, multiHours: Math.max(0, parseInt(e.target.value) || 0) })}
+                              className="w-full bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" placeholder="hrs"
+                            />
+                            <input
+                              type="number" min="0" max="59" value={timeSplitOverride.multiMinutes}
+                              onChange={(e) => setTimeSplitOverride((prev) => prev && { ...prev, multiMinutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
+                              className="w-full bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" placeholder="min"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-muted-foreground">Adjusted time charge: <span className="text-[oklch(0.62_0.24_25)] font-bold">{fmtMoney(checkoutTimeCost)}</span> (system default was {fmtMoney(systemCheckoutTimeCost)})</span>
+                        <button onClick={() => { setTimeSplitOverride(null); setTimeSplitOpen(false); }} className="underline text-muted-foreground hover:text-[#2b2416]">Reset to default</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div className="text-center py-2">
                 <div className="text-xs uppercase tracking-widest text-muted-foreground">

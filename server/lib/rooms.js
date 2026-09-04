@@ -349,13 +349,36 @@ function computeDiscount_(base, type, value) {
   return Math.round(Math.max(0, Math.min(amt, base)) * 100) / 100;
 }
 
-function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt, discountInput) {
+function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmountInput, secondaryAmountInput, frozenAt, discountInput, timeSplitOverride) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status !== "active" || !room.startedAt) return { session: null, state, touchedBatchIds: [], error: null };
   const now = Date.now();
   const endedAt = (typeof frozenAt === "number" && frozenAt >= room.startedAt && frozenAt <= now) ? frozenAt : now;
   const durationSec = Math.max(1, Math.floor(effectiveDurationSec_(room, endedAt)));
-  const timeCost = computeTimeCost_(room, durationSec);
+  const systemTimeCost = computeTimeCost_(room, durationSec);
+
+  // Retroactive Single/Multi billing-split correction — distinct from
+  // rateSegments (which only ever records a live, forward-looking mode
+  // switch as it happens). This lets an admin fix a session that was
+  // mistakenly run entirely under one mode by manually specifying how
+  // the ALREADY-ELAPSED time should actually be billed, after the
+  // fact. Only ever changes what this one checkout charges — never
+  // touches room.rateSegments or any other room's state.
+  let timeCost = systemTimeCost;
+  let timeSplitAdjustment = null;
+  if (timeSplitOverride) {
+    const singleHours = (Number(timeSplitOverride.singleHours) || 0) + (Number(timeSplitOverride.singleMinutes) || 0) / 60;
+    const multiHours = (Number(timeSplitOverride.multiHours) || 0) + (Number(timeSplitOverride.multiMinutes) || 0) / 60;
+    if (singleHours < 0 || multiHours < 0) return { session: null, state, touchedBatchIds: [], error: "Time split values can't be negative." };
+    timeCost = singleHours * room.singleRate + multiHours * room.multiRate;
+    timeSplitAdjustment = {
+      originalTimeCost: systemTimeCost, adjustedTimeCost: timeCost,
+      singleHours: Number(timeSplitOverride.singleHours) || 0, singleMinutes: Number(timeSplitOverride.singleMinutes) || 0,
+      multiHours: Number(timeSplitOverride.multiHours) || 0, multiMinutes: Number(timeSplitOverride.multiMinutes) || 0,
+      singleRate: room.singleRate, multiRate: room.multiRate,
+    };
+  }
+
   const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
   const preDiscountTotal = timeCost + ordersCost;
 
@@ -420,7 +443,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     : method === "mixed_cash_instapay" ? "Cash " + cashAmount.toFixed(2) + " EGP + InstaPay " + instapayAmount.toFixed(2) + " EGP"
     : method;
   pushActivity_(state, room.name + " checked out - " + total.toFixed(2) + " EGP collected (" + paymentLabel + ")");
-  return { session, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null };
+  return { session, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), error: null, timeSplitAdjustment };
 }
 
 // Closes a room/table as a Staff Order instead of a paid checkout.
