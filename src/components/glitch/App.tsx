@@ -15,6 +15,8 @@ import { SetupPage } from "./Setup";
 import { VoidsPage } from "./Voids";
 import { AuditLogPage } from "./AuditLog";
 import { StaffOrdersPage } from "./StaffOrders";
+import { LeaderboardPage } from "./Leaderboard";
+import { AnalyticsPage } from "./Analytics";
 import { Gatekeeper } from "./Gatekeeper";
 import { Lock } from "lucide-react";
 
@@ -54,7 +56,7 @@ function Shell() {
   // until they've started a geofence-verified shift right here.
   if (!isAdmin && !activeShift) return <Gatekeeper />;
 
-  const locked = !isAdmin && (view === "inventory" || view === "users" || view === "reports" || view === "setup" || view === "voids" || view === "audit");
+  const locked = !isAdmin && (view === "inventory" || view === "users" || view === "reports" || view === "setup" || view === "voids" || view === "audit" || view === "analytics");
 
   return (
     <div className="min-h-screen" dir={dir}>
@@ -78,6 +80,8 @@ function Shell() {
             : view === "voids" ? <VoidsPage />
             : view === "audit" ? <AuditLogPage />
             : view === "staffOrders" ? <StaffOrdersPage />
+            : view === "leaderboard" ? <LeaderboardPage />
+            : view === "analytics" ? <AnalyticsPage />
             : <UsersPage />}
         </div>
       </main>

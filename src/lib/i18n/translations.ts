@@ -46,6 +46,8 @@ export const translations = {
     auditTrail: { en: "Audit Trail", ar: "سجل التدقيق" },
     setup: { en: "Setup", ar: "الإعدادات" },
     reports: { en: "Reports", ar: "التقارير" },
+    leaderboard: { en: "Leaderboard", ar: "لوحة الصدارة" },
+    analytics: { en: "Analytics", ar: "التحليلات" },
     users: { en: "Users", ar: "المستخدمون" },
     logout: { en: "Log Out", ar: "تسجيل الخروج" },
   },

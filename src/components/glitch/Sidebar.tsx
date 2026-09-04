@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw, Menu, X } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw, Menu, X, Trophy, BarChart3 } from "lucide-react";
 import { useStore } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
 
-export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit";
+export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit" | "leaderboard" | "analytics";
 
 const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
   { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, adminOnly: true },
   { id: "rooms", labelKey: "nav.rooms", icon: Gamepad2 },
   { id: "lounge", labelKey: "nav.lounge", icon: Sofa },
+  { id: "leaderboard", labelKey: "nav.leaderboard", icon: Trophy },
   { id: "procurement", labelKey: "nav.procurement", icon: ShoppingCart },
   { id: "unpaidExpenses", labelKey: "nav.unpaidExpenses", icon: Receipt },
   { id: "staffOrders", labelKey: "nav.staffOrders", icon: UserCog },
@@ -19,6 +20,7 @@ const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ c
   { id: "audit", labelKey: "nav.auditTrail", icon: Activity, adminOnly: true },
   { id: "setup", labelKey: "nav.setup", icon: Settings2, adminOnly: true },
   { id: "reports", labelKey: "nav.reports", icon: FileBarChart, adminOnly: true },
+  { id: "analytics", labelKey: "nav.analytics", icon: BarChart3, adminOnly: true },
   { id: "users", labelKey: "nav.users", icon: Users, adminOnly: true },
 ];
 
