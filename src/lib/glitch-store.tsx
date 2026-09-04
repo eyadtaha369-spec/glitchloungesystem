@@ -1519,6 +1519,22 @@ export function computeShiftFinancials(sessions: Session[], ledger: LedgerEntry[
     .reduce((a, l) => a + (Number(l.amount) || 0), 0);
   return { totalRevenue, expensesTotal };
 }
+// Recipe-based unit cost for a menu item: Sum(ingredient qty in recipe
+// * that material's last purchase price). stock.unitCost IS the last
+// purchase price here — every place on the backend that updates a raw
+// material's cost (a new purchase, a supplier invoice, a manual edit)
+// always sets unitCost and lastPurchaseCost to the identical value in
+// the same write, so there's no separate "lastPurchaseCost" field to
+// reach for on this already-computed stock view; this is it. Returns
+// 0 for any ingredient whose material can't be found (deleted stock
+// item), rather than throwing, so a stale recipe never crashes this.
+export function computeMenuItemCost(item: MenuItem, stock: StockItem[]): number {
+  return item.ingredients.reduce((total, ing) => {
+    const material = stock.find((s) => s.id === ing.stockId);
+    return total + ing.qty * (material?.unitCost ?? 0);
+  }, 0);
+}
+
 export function monthKey(ts: number) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;

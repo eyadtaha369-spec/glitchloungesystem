@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useStore, fmtMoney, monthKey, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot } from "@/lib/glitch-store";
+import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
 
@@ -1303,6 +1303,15 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                     <span className="font-mono text-xs text-[oklch(0.7_0.19_260)]">{fmtMoney(m.price)}</span>
                     <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-black/5 text-muted-foreground">{m.category ?? "Extras"}</span>
                   </div>
+                  {(() => {
+                    const cost = computeMenuItemCost(m, state.stock);
+                    const margin = m.price - cost;
+                    return (
+                      <div className="text-[10px] font-mono text-muted-foreground mt-1">
+                        Cost {fmtMoney(cost)} · Margin <span className={margin >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}>{fmtMoney(margin)}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => beginEdit(m)} className="text-muted-foreground hover:text-[oklch(0.7_0.19_260)]"><Pencil className="w-4 h-4" /></button>

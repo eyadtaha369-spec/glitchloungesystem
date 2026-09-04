@@ -20,6 +20,20 @@ import { ReceiptModal } from "./Rooms";
 //   their own Monthly Expenses Ledger instead. A cash supplier
 //   invoice (type "supplierInvoice") is NOT excluded here -- that IS
 //   a same-day expense, paid at the moment the goods were received.
+// Every Ledger category a void reason can produce (server/lib/voids.js
+// VOID_REASONS) — these represent inventory LOST, not cash actually
+// spent, so none of them belong in "operational expenses". They're
+// tracked in their own Wasted & Complimentary Ledger instead. Kept as
+// an explicit set (matching the backend exactly) rather than a
+// substring match, since "Marketing & Hospitality (Comps)" and
+// "Customer Satisfaction Waste" don't contain the word "void" at all.
+const WASTE_LEDGER_CATEGORIES = new Set([
+  "Operational Waste / Damaged Goods",
+  "Customer Satisfaction Waste",
+  "Marketing & Hospitality (Comps)",
+  "Unapproved Void — Pending Reconciliation",
+]);
+
 function isOperationalExpense(l: LedgerEntry): boolean {
   return (
     l.direction === "outflow" &&
@@ -28,7 +42,7 @@ function isOperationalExpense(l: LedgerEntry): boolean {
     l.category !== "Staff Consumption Expense" &&
     l.status === "approved" &&
     l.paymentStatus !== "unpaid" &&
-    !l.category.toLowerCase().includes("void")
+    !WASTE_LEDGER_CATEGORIES.has(l.category)
   );
 }
 
@@ -345,6 +359,7 @@ export function ReportsPage() {
       <AttendanceLog />
       <MonthlyReconciliationDashboard />
       <MonthlyExpensesLedger />
+      <WastedComplimentaryLedger />
       <PnLLedgerPanel />
     </div>
   );
@@ -732,6 +747,89 @@ function MonthlyExpensesLedger() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Every waste/complimentary Ledger entry this month — spilled/damaged,
+// customer returns, complimentary/VIP gifts, and cashier-routed voids
+// still pending admin reconciliation. Each entry's amount is ALREADY
+// the item's raw-material cost (COGS), not its menu price — the void
+// system (server/lib/voids.js) computes and stores it that way at the
+// moment the void happens, so this report is a straight read of
+// already-correct data, not a recalculation.
+function WastedComplimentaryLedger() {
+  const { state } = useStore();
+  const now = Date.now();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+
+  const wasteEntries = useMemo(
+    () => state.ledger
+      .filter((l) => WASTE_LEDGER_CATEGORIES.has(l.category) && l.ts >= monthStart && l.ts <= monthEnd)
+      .sort((a, b) => b.ts - a.ts),
+    [state.ledger, monthStart, monthEnd],
+  );
+  const total = wasteEntries.reduce((a, l) => a + Number(l.amount), 0);
+  const byCategory = useMemo(() => {
+    const map = new Map<string, number>();
+    wasteEntries.forEach((l) => map.set(l.category, (map.get(l.category) ?? 0) + Number(l.amount)));
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [wasteEntries]);
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+          <h2 className="text-lg font-semibold">Wasted &amp; Complimentary Ledger</h2>
+        </div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} at cost this month</div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Every spilled, rejected, or complimentary item this month, valued at its raw-material cost — never its
+        menu price. Never counted as revenue or as a daily operational expense.
+      </p>
+
+      {byCategory.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          {byCategory.map(([cat, amt]) => (
+            <div key={cat} className="bg-white/60 rounded-lg p-3 border border-black/8 flex justify-between items-center">
+              <span className="text-sm">{cat}</span>
+              <span className="font-mono text-sm font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(amt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {wasteEntries.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No waste or comps logged this month.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pr-3">Date &amp; Time</th>
+                <th className="pb-2 pr-3">Reason</th>
+                <th className="pb-2 pr-3">Item</th>
+                <th className="pb-2 pr-3 text-right">Cost EGP</th>
+                <th className="pb-2">Logged By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wasteEntries.map((l) => (
+                <tr key={l.id} className="border-b border-black/5">
+                  <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
+                  <td className="py-2 pr-3">{l.category}</td>
+                  <td className="py-2 pr-3">{l.description || "—"}</td>
+                  <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
+                  <td className="py-2">{l.staffUsername}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
