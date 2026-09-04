@@ -390,7 +390,9 @@ export type LedgerType =
   | "dailyFresh"
   | "midShiftPurchase"
   | "recurringExpense"
-  | "manualAdjustment";
+  | "manualAdjustment"
+  | "supplierInvoice"
+  | "supplierPayment";
 export type LedgerStatus = "approved" | "pending" | "rejected";
 export type LedgerDirection = "inflow" | "outflow";
 

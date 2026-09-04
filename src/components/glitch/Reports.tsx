@@ -4,6 +4,34 @@ import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Users2, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
 import { ReceiptModal } from "./Rooms";
 
+// What counts as a real, same-day operational expense — used
+// consistently everywhere "Daily Expenses" is computed on this page.
+// Excludes:
+// - sales (obviously not an expense)
+// - Staff Consumption Expense (a staff allowance/order, not a
+//   purchase — tracked separately on the Staff Orders page)
+// - anything with "Void" in its category (waste/mistakes, not spend)
+// - unpaid entries (nothing has actually left the business yet)
+// - supplierPayment entries specifically -- these SETTLE an older,
+//   already-incurred debt (often from a previous day or month
+//   entirely), so counting them as "today's" or "this month's"
+//   expense double-counts spending that was really incurred whenever
+//   the original deferred invoice was logged. These are tracked in
+//   their own Monthly Expenses Ledger instead. A cash supplier
+//   invoice (type "supplierInvoice") is NOT excluded here -- that IS
+//   a same-day expense, paid at the moment the goods were received.
+function isOperationalExpense(l: LedgerEntry): boolean {
+  return (
+    l.direction === "outflow" &&
+    l.type !== "sale" &&
+    l.type !== "supplierPayment" &&
+    l.category !== "Staff Consumption Expense" &&
+    l.status === "approved" &&
+    l.paymentStatus !== "unpaid" &&
+    !l.category.toLowerCase().includes("void")
+  );
+}
+
 function startOfDay(ts: number) {
   const d = new Date(ts);
   d.setHours(0, 0, 0, 0);
@@ -91,6 +119,32 @@ export function ReportsPage() {
     }).sort((a, b) => b.qty - a.qty);
   }, [shiftSessions, state.menu, state.stock]);
 
+  // Total Revenue by Date — deliberately calendar-date-based (by each
+  // order's own close time), independent of the Shift selector above,
+  // which is a separate tool for printing one specific shift's own
+  // end-of-shift report. Filtering by the order's own endedAt (rather
+  // than by shift membership) avoids double-counting a shift that
+  // spans multiple days across more than one date's view.
+  const [selectedReportDate, setSelectedReportDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const reportDayStart = useMemo(() => new Date(selectedReportDate + "T00:00:00").getTime(), [selectedReportDate]);
+  const reportDayEnd = reportDayStart + 86400000;
+
+  const daySessions = useMemo(
+    () => state.sessions.filter((s) => s.endedAt >= reportDayStart && s.endedAt < reportDayEnd),
+    [state.sessions, reportDayStart, reportDayEnd],
+  );
+  const dayExpenseEntries = useMemo(
+    () => state.ledger.filter((l) => isOperationalExpense(l) && l.ts >= reportDayStart && l.ts < reportDayEnd),
+    [state.ledger, reportDayStart, reportDayEnd],
+  );
+  const dayRevenue = daySessions.reduce((a, s) => a + s.total, 0);
+  const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0);
+  const dayNetProfit = dayRevenue - dayExpensesTotal;
+
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -138,28 +192,118 @@ export function ReportsPage() {
 
       <WasteMarketingPanel allEntries={state.ledger.filter((l) => l.category === "Marketing / Waste Expense")} />
 
-      {/* Total Shift Revenue — the definitive benchmark, before any expenses */}
+      {/* Total Revenue by Date — a specific calendar day's own numbers,
+          independent of the Shift selector above (which is a separate
+          tool for printing one specific shift's end-of-shift report) */}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
-        <div className="flex items-center gap-2 mb-1">
-          <TrendingUp className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-          <h2 className="text-lg font-semibold">Total Shift Revenue</h2>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
+            <h2 className="text-lg font-semibold">Total Revenue by Date</h2>
+          </div>
+          <div>
+            <input
+              type="date" value={selectedReportDate} max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setSelectedReportDate(e.target.value)}
+              className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground mb-4">Cash + Visa + InstaPay, combined across every pure and mixed-method sale this shift — before expenses.</p>
-        <div className="text-4xl font-mono font-bold mb-4">{fmtMoney(totalRevenue)}</div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Orders closed and expenses logged on {new Date(selectedReportDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}.
+          Staff Orders and voided items are never counted here.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">Cash</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(cashRevenue)}</div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Selected Day Revenue</div>
+            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(dayRevenue)}</div>
           </div>
           <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">Visa</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.7_0.19_260)]">{fmtMoney(visaRevenue)}</div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Selected Day Expenses</div>
+            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.62_0.24_25)]">{fmtMoney(dayExpensesTotal)}</div>
           </div>
-          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">InstaPay</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.75_0.2_305)]">{fmtMoney(instapayRevenue)}</div>
+          <div className={`rounded-lg p-4 border ${dayNetProfit >= 0 ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)]"}`}>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Selected Day Net Profit</div>
+            <div className={`text-2xl font-mono font-bold mt-1 ${dayNetProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(dayNetProfit)}</div>
           </div>
         </div>
+      </div>
+
+      {/* Order History — this specific date only */}
+      <div className="glass rounded-2xl p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Order History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
+        </div>
+        {daySessions.length === 0 ? (
+          <div className="text-sm text-muted-foreground font-mono text-center py-6">No closed orders on this date.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                  <th className="pb-2 pr-3">Order ID</th>
+                  <th className="pb-2 pr-3">Room/Table</th>
+                  <th className="pb-2 pr-3">Time</th>
+                  <th className="pb-2 pr-3">Payment</th>
+                  <th className="pb-2 pr-3 text-right">Subtotal</th>
+                  <th className="pb-2 pr-3 text-right">Discount</th>
+                  <th className="pb-2 text-right">Total EGP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {daySessions.sort((a, b) => b.endedAt - a.endedAt).map((s) => (
+                  <tr key={s.id} className="border-b border-black/5">
+                    <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
+                    <td className="py-2 pr-3">{s.roomName}</td>
+                    <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
+                    <td className="py-2 pr-3 uppercase">{s.paymentMethod.replace(/_/g, " ")}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{fmtMoney(s.total + (s.discountAmount || 0))}</td>
+                    <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—"}</td>
+                    <td className="py-2 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Expenses History — this specific date only, same exclusions as
+          the KPI card above (no Staff Orders, no voids) */}
+      <div className="glass rounded-2xl p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+          <h2 className="text-lg font-semibold">Expenses History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
+        </div>
+        {dayExpenseEntries.length === 0 ? (
+          <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged on this date.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                  <th className="pb-2 pr-3">Expense ID</th>
+                  <th className="pb-2 pr-3">Description / Category</th>
+                  <th className="pb-2 pr-3 text-right">Amount EGP</th>
+                  <th className="pb-2 pr-3">Payment Source</th>
+                  <th className="pb-2">Recorded Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dayExpenseEntries.sort((a, b) => b.ts - a.ts).map((l) => (
+                  <tr key={l.id} className="border-b border-black/5">
+                    <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
+                    <td className="py-2 pr-3">{l.description || l.category}</td>
+                    <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
+                    <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
+                    <td className="py-2 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* This shift's own reconciliation card */}
@@ -200,6 +344,7 @@ export function ReportsPage() {
       <HistoryLog />
       <AttendanceLog />
       <MonthlyReconciliationDashboard />
+      <MonthlyExpensesLedger />
       <PnLLedgerPanel />
     </div>
   );
@@ -470,12 +615,7 @@ function MonthlyReconciliationDashboard() {
   // doing so would double-count the same raw-material spend twice.
   const totalDailyExpenses = useMemo(
     () => state.ledger
-      // paymentStatus is only ever set to "unpaid" on entries logged as
-      // a debt not yet settled — every other entry type either sets it
-      // to "paid" or leaves it unset entirely, so excluding just this
-      // one value is safe and doesn't accidentally drop anything that
-      // was actually paid.
-      .filter((l) => l.direction === "outflow" && l.type !== "sale" && l.status === "approved" && l.paymentStatus !== "unpaid" && l.ts >= monthStart && l.ts <= monthEnd)
+      .filter((l) => isOperationalExpense(l) && l.ts >= monthStart && l.ts <= monthEnd)
       .reduce((a, l) => a + Number(l.amount), 0),
     [state.ledger, monthStart, monthEnd],
   );
@@ -525,6 +665,77 @@ function MonthlyReconciliationDashboard() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Automatically logged the instant a deferred/credit supplier invoice
+// (or any outstanding balance) is settled via Record Payment — this
+// IS the settlement itself (every supplierPayment Ledger entry), not a
+// separate write path, so there's no way for a settlement to happen
+// without appearing here. Deliberately excluded from Daily/Monthly
+// Expenses above, since it settles a debt incurred whenever the
+// original invoice was logged, not a new expense today.
+function MonthlyExpensesLedger() {
+  const { state } = useStore();
+  const now = Date.now();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+
+  const settlements = useMemo(
+    () => state.ledger
+      .filter((l) => l.type === "supplierPayment" && l.ts >= monthStart && l.ts <= monthEnd)
+      .sort((a, b) => b.ts - a.ts),
+    [state.ledger, monthStart, monthEnd],
+  );
+  const total = settlements.reduce((a, l) => a + Number(l.amount), 0);
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
+          <h2 className="text-lg font-semibold">Monthly Expenses Ledger</h2>
+        </div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled this month</div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Every deferred/credit supplier invoice or outstanding balance settled via Record Payment this month — logged
+        automatically the instant it's paid.
+      </p>
+      {settlements.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settlements recorded this month.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pr-3">Date &amp; Time</th>
+                <th className="pb-2 pr-3">Supplier</th>
+                <th className="pb-2 pr-3">Description</th>
+                <th className="pb-2 pr-3 text-right">Amount EGP</th>
+                <th className="pb-2 pr-3">Payment Source</th>
+                <th className="pb-2">Settled By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {settlements.map((l) => {
+                const supplier = state.suppliers.find((s) => s.id === l.supplierId);
+                return (
+                  <tr key={l.id} className="border-b border-black/5">
+                    <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
+                    <td className="py-2 pr-3 font-semibold">{supplier?.name ?? "—"}</td>
+                    <td className="py-2 pr-3">{l.description || "—"}</td>
+                    <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(Number(l.amount))}</td>
+                    <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
+                    <td className="py-2">{l.staffUsername}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
