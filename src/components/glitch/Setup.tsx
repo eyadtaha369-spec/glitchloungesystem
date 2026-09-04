@@ -60,11 +60,13 @@ function CloudMigrationPanel() {
         <h2 className="text-lg font-bold text-[oklch(0.7_0.19_260)]">Migrate This Device's Data to the Cloud</h2>
       </div>
       <p className="text-xs text-muted-foreground mb-4 max-w-2xl">
-        One-time setup — sends everything on <strong>this device</strong> (materials, batches, sessions, ledger,
-        suppliers, invoices, accounts, the whole menu) to the online/cloud backend, replacing what's currently
-        there. Existing cloud accounts (like the owner's web login) are never overwritten — only new accounts get
-        added. After this, point this device at the cloud instead of its own local database so every device stays
-        in sync going forward.
+        Sends everything on <strong>this device</strong> (materials, batches, sessions, ledger, suppliers, invoices,
+        accounts, the whole menu) to the online/cloud backend, replacing what's currently there. Existing cloud
+        accounts (like the owner's web login) are never overwritten — only new accounts get added. Safe to run
+        again later — each run fully replaces the cloud's business data with this device's latest snapshot, so
+        there's no risk of duplicates from running it more than once. You can either keep this device on its own
+        local database and re-run this whenever you want the cloud caught up, or point this device at the cloud
+        afterward so every device reads and writes the same data going forward — your choice.
       </p>
       <button
         onClick={() => setOpen(true)}
@@ -88,8 +90,10 @@ function CloudMigrationPanel() {
                 </div>
                 {result.accountsAdded > 0 && <p className="text-sm">{result.accountsAdded} new account(s) added to the cloud.</p>}
                 <p className="text-xs text-muted-foreground pt-2">
-                  Next: reconfigure this device's APPS_SCRIPT_URL to point at the cloud, then restart, so it reads
-                  and writes the same data as every other device from now on.
+                  This device's own local database is untouched — it's still there, still working, and you can run
+                  this again anytime to push a fresh snapshot to the cloud. If you'd rather this device read and
+                  write the cloud directly instead of its own local database from now on, reconfigure its
+                  APPS_SCRIPT_URL to point at the cloud and restart — but that's optional, not required.
                 </p>
                 <button onClick={() => { setOpen(false); setResult(null); setConfirmText(""); setPassword(""); }} className="mt-2 px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Done</button>
               </div>
