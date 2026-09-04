@@ -267,6 +267,11 @@ export interface AppState {
   // Computed (not persisted) — lets any role see this without needing full
   // void-ledger access, for the "flag at shift close" requirement.
   pendingVoidCountForActiveShift: number;
+  // Which staff members have already claimed their free Classic
+  // Tea/Turkish Coffee this shift — read fresh, same pattern as
+  // sessions/shifts, so the Staff Order cart can preview the free
+  // allowance live, before submission.
+  staffAllowanceUsage: StaffAllowanceUsage[];
 }
 
 // ---------- Costing / procurement / anti-theft ledger ----------
@@ -522,6 +527,14 @@ export interface StaffMember {
   id: string;
   name: string;
   active: boolean;
+}
+
+export interface StaffAllowanceUsage {
+  id: string;
+  shiftId: string;
+  staffId: string;
+  teaClaimed: boolean;
+  coffeeClaimed: boolean;
 }
 
 // ---------- System-wide Activity Log ("the Black Box") ----------

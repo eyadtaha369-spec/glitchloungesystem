@@ -20,6 +20,7 @@ import type {
   AuditLogEntry,
   StaffOrder,
   StaffMember,
+  StaffAllowanceUsage,
   RestockLogEntry,
   PaymentSource,
   BusinessDay,
@@ -90,7 +91,7 @@ import { submitStaffOrderFn, getStaffOrdersFn, endRoomAsStaffOrderFn, getStaffMe
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, DailyReconciliation, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
+  MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, StaffAllowanceUsage, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
   WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
 } from "./types";
 export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES } from "./types";
@@ -130,6 +131,7 @@ const emptyAppState: AppState = {
   cafeLng: 0,
   geofenceRadiusMeters: 50,
   pendingVoidCountForActiveShift: 0,
+  staffAllowanceUsage: [],
 };
 
 interface StoreContextValue {
@@ -1533,6 +1535,49 @@ export function computeMenuItemCost(item: MenuItem, stock: StockItem[]): number 
     const material = stock.find((s) => s.id === ing.stockId);
     return total + ing.qty * (material?.unitCost ?? 0);
   }, 0);
+}
+
+// Exact-name match, case-insensitive — must stay byte-for-byte
+// identical to TEA_ALLOWANCE_NAME/COFFEE_ALLOWANCE_NAME in
+// server/lib/staff-business.js (and its Code.gs port), since this is
+// a client-side PREVIEW of a decision the backend makes authoritatively.
+const TEA_ALLOWANCE_NAME = "classic tea";
+const COFFEE_ALLOWANCE_NAME = "turkish coffee";
+
+export interface StaffCartLine {
+  menuItemId: string;
+  name: string;
+  qty: number;
+  price: number;
+  freeQty: number; // portion of qty covered by today's shift allowance
+}
+
+// Previews exactly how bizSubmitStaffOrder_ will price this cart, given
+// which allowances this staff member has already claimed this shift.
+// Same claim order as the backend: whichever cart line reaches a
+// matching item first claims the allowance first, since both read the
+// same array in the same order. Never mutates anything — purely a
+// read-only preview so the cart can show "free" before the order is
+// actually submitted, without ever being able to disagree with what
+// gets charged once it is.
+export function computeStaffCartPreview(
+  items: { menuItemId: string; name: string; qty: number; price: number }[],
+  alreadyTeaClaimed: boolean,
+  alreadyCoffeeClaimed: boolean,
+): { lines: StaffCartLine[]; total: number } {
+  let teaClaimed = alreadyTeaClaimed;
+  let coffeeClaimed = alreadyCoffeeClaimed;
+  let total = 0;
+  const lines: StaffCartLine[] = items.map((item) => {
+    const nameKey = (item.name || "").trim().toLowerCase();
+    let freeQty = 0;
+    if (nameKey === TEA_ALLOWANCE_NAME && !teaClaimed) { freeQty = 1; teaClaimed = true; }
+    else if (nameKey === COFFEE_ALLOWANCE_NAME && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; }
+    freeQty = Math.min(freeQty, item.qty);
+    total += (item.qty - freeQty) * item.price;
+    return { ...item, freeQty };
+  });
+  return { lines, total };
 }
 
 export function monthKey(ts: number) {

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtMoney, MENU_CATEGORIES } from "@/lib/glitch-store";
+import { useStore, fmtMoney, computeStaffCartPreview, MENU_CATEGORIES } from "@/lib/glitch-store";
 import type { MenuItem, MenuCategory, StaffOrder } from "@/lib/glitch-store";
-import { Users, Plus, Minus, X, Printer, Trash2 } from "lucide-react";
+import { Users, Plus, Minus, X, Printer, Trash2, Gift } from "lucide-react";
 
 export function StaffOrdersPage() {
   const { state } = useStore();
@@ -21,11 +21,30 @@ export function StaffOrdersPage() {
   const activeStaff = state.staffMembers.filter((s) => s.active);
   const selectedStaff = state.staffMembers.find((s) => s.id === staffId) ?? null;
 
+  // Whatever this staff member has already claimed THIS shift — read
+  // fresh from the same table bizSubmitStaffOrder_ itself checks, so
+  // the cart preview below can never disagree with what actually gets
+  // charged once the order is submitted.
+  const existingUsage = staffId && state.activeShiftId
+    ? state.staffAllowanceUsage.find((u) => u.shiftId === state.activeShiftId && u.staffId === staffId)
+    : undefined;
+  const alreadyTeaClaimed = !!existingUsage?.teaClaimed;
+  const alreadyCoffeeClaimed = !!existingUsage?.coffeeClaimed;
+
   const cartItems = Object.entries(cart).map(([menuItemId, qty]) => {
     const item = state.menu.find((m) => m.id === menuItemId);
     return { menuItemId, qty, item };
   }).filter((c) => c.item);
-  const cartTotal = cartItems.reduce((a, c) => a + (c.item?.price ?? 0) * c.qty, 0);
+
+  const cartPreview = useMemo(
+    () => computeStaffCartPreview(
+      cartItems.map((c) => ({ menuItemId: c.menuItemId, name: c.item!.name, qty: c.qty, price: c.item!.price })),
+      alreadyTeaClaimed,
+      alreadyCoffeeClaimed,
+    ),
+    [cartItems, alreadyTeaClaimed, alreadyCoffeeClaimed],
+  );
+  const cartTotal = cartPreview.total;
 
   const adjustCart = (menuItemId: string, delta: number) => {
     setCart((prev) => {
@@ -115,14 +134,21 @@ export function StaffOrdersPage() {
 
         {cartItems.length > 0 && (
           <div className="mt-4 space-y-2">
-            {cartItems.map((c) => (
-              <div key={c.menuItemId} className="flex items-center justify-between bg-white/60 rounded-lg p-3 border border-black/8">
-                <span className="text-sm font-semibold">{c.item?.name}</span>
+            {cartPreview.lines.map((line) => (
+              <div key={line.menuItemId} className="flex items-center justify-between bg-white/60 rounded-lg p-3 border border-black/8">
                 <div className="flex items-center gap-2">
-                  <button onClick={() => adjustCart(c.menuItemId, -1)} className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8"><Minus className="w-3.5 h-3.5" /></button>
-                  <span className="w-6 text-center font-mono">{c.qty}</span>
-                  <button onClick={() => adjustCart(c.menuItemId, 1)} className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8"><Plus className="w-3.5 h-3.5" /></button>
-                  <span className="w-16 text-right font-mono text-sm">{fmtMoney((c.item?.price ?? 0) * c.qty)}</span>
+                  <span className="text-sm font-semibold">{line.name}</span>
+                  {line.freeQty > 0 && (
+                    <span className="flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border border-[oklch(0.78_0.2_155/0.4)]">
+                      <Gift className="w-2.5 h-2.5" /> Daily Free Allowance / 0 EGP
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => adjustCart(line.menuItemId, -1)} className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8"><Minus className="w-3.5 h-3.5" /></button>
+                  <span className="w-6 text-center font-mono">{line.qty}</span>
+                  <button onClick={() => adjustCart(line.menuItemId, 1)} className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8"><Plus className="w-3.5 h-3.5" /></button>
+                  <span className="w-20 text-right font-mono text-sm">{fmtMoney((line.qty - line.freeQty) * line.price)}</span>
                 </div>
               </div>
             ))}

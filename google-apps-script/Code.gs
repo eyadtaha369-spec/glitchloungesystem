@@ -4229,6 +4229,12 @@ function withStockView_(state) {
   state.sessions = readSessions_();
   state.shifts = readShifts_();
   state.businessDays = readBusinessDays_();
+  // Exposed so the Staff Order cart can preview which allowance a
+  // selected staff member has already claimed this shift, BEFORE
+  // submission — matches the exact same claim state
+  // bizSubmitStaffOrder_ itself checks, so the cart preview and the
+  // actual charged price can never disagree.
+  state.staffAllowanceUsage = readObjects_("StaffAllowanceUsage");
   return state;
 }
 
