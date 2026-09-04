@@ -335,6 +335,13 @@ export const switchRateModeFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("switchRateMode", { ...data, username: user.username });
   });
 
+export const transferOrderItemFn = createServerFn({ method: "POST" })
+  .validator((d: { sourceRoomId: string; targetRoomId: string; menuItemId: string; qty: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("transferOrderItem", { ...data, username: user.username });
+  });
+
 export const reopenSessionFn = createServerFn({ method: "POST" })
   .validator((d: { sessionId: string }) => d)
   .handler(async ({ data }) => {

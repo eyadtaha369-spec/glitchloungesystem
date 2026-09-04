@@ -361,6 +361,7 @@ const ACTION_RISK = {
   GEOFENCE_DENIED: "red",
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
   ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red", WASTE_MARKETING_LOGGED: "yellow", ROOM_TIME_EXTENDED: "green",
+  ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -708,6 +709,59 @@ function bizSwitchRateMode_(state, roomId, newMode) {
   const mins = Math.round(frozenDurationSec / 60);
   pushActivity_(state, room.name + " switched " + room.rateMode + " → " + newMode + " (froze " + mins + " min @ " + room.hourlyRate + " EGP/hr)");
   return { ok: true, state: state };
+}
+
+// Moves qty units of one order line from sourceRoomId to targetRoomId.
+// Purely a billing reassignment — the item's ingredients were already
+// consumed from stock at the moment it was originally added to the
+// source room, so no stock/COGS change happens here at all, only
+// which room's bill the line sits on. Returns the before/after order
+// arrays for both rooms so the caller can log a proper audit trail
+// entry with exact original and updated values.
+function bizTransferOrderItem_(state, sourceRoomId, targetRoomId, menuItemId, qty) {
+  if (sourceRoomId === targetRoomId) return { ok: false, error: "Source and target must be different rooms/tables.", state: state };
+  const source = state.rooms.find(function (r) { return r.id === sourceRoomId; });
+  if (!source) return { ok: false, error: "Source room not found", state: state };
+  const target = state.rooms.find(function (r) { return r.id === targetRoomId; });
+  if (!target) return { ok: false, error: "Target room not found", state: state };
+  if (target.status !== "active") return { ok: false, error: target.name + " is not active — start it before transferring items to it.", state: state };
+
+  const line = source.orders.find(function (o) { return o.menuItemId === menuItemId; });
+  if (!line) return { ok: false, error: "Item not found on the source room", state: state };
+  const qtyNum = Number(qty);
+  if (!qtyNum || qtyNum <= 0 || qtyNum > line.qty) return { ok: false, error: "Invalid quantity to transfer", state: state };
+
+  const beforeSourceOrders = source.orders.map(function (o) { return Object.assign({}, o); });
+  const beforeTargetOrders = target.orders.map(function (o) { return Object.assign({}, o); });
+  const transferValue = qtyNum * line.price;
+
+  state.rooms = state.rooms.map(function (r) {
+    if (r.id === sourceRoomId) {
+      const newOrders = qtyNum === line.qty
+        ? r.orders.filter(function (o) { return o.menuItemId !== menuItemId; })
+        : r.orders.map(function (o) { return o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty - qtyNum }) : o; });
+      return Object.assign({}, r, { orders: newOrders });
+    }
+    if (r.id === targetRoomId) {
+      const existing = r.orders.find(function (o) { return o.menuItemId === menuItemId; });
+      const newOrders = existing
+        ? r.orders.map(function (o) { return o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qtyNum }) : o; })
+        : r.orders.concat([{ menuItemId: menuItemId, name: line.name, qty: qtyNum, price: line.price, printedQuantity: 0 }]);
+      return Object.assign({}, r, { orders: newOrders });
+    }
+    return r;
+  });
+
+  const afterSource = state.rooms.find(function (r) { return r.id === sourceRoomId; });
+  const afterTarget = state.rooms.find(function (r) { return r.id === targetRoomId; });
+
+  pushActivity_(state, qtyNum + "x " + line.name + " transferred from " + source.name + " to " + target.name + " (" + transferValue.toFixed(2) + " EGP)");
+  return {
+    ok: true, state: state,
+    sourceRoomName: source.name, targetRoomName: target.name, itemName: line.name, qty: qtyNum, transferValue: transferValue,
+    beforeSourceOrders: beforeSourceOrders, afterSourceOrders: afterSource.orders,
+    beforeTargetOrders: beforeTargetOrders, afterTargetOrders: afterTarget.orders,
+  };
 }
 
 // Restores a previously closed check back to an active room/table —
@@ -2222,6 +2276,22 @@ function doPost(e) {
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_TIME_EXTENDED",
           location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
           description: (before ? before.name : body.roomId) + " switched rate mode to " + body.newMode,
+        });
+        return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      case "transferOrderItem": {
+        requireRole_(body.username, ["admin"]);
+        const state0 = getState_();
+        const result = bizTransferOrderItem_(state0, body.sourceRoomId, body.targetRoomId, body.menuItemId, body.qty);
+        if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+        setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ORDER_ITEM_TRANSFERRED",
+          location: result.sourceRoomName + " → " + result.targetRoomName, shiftId: result.state.activeShiftId,
+          description: result.qty + "x " + result.itemName + " (" + result.transferValue.toFixed(2) + " EGP) moved from " + result.sourceRoomName + " to " + result.targetRoomName + " by " + body.username,
+          before: { room: result.sourceRoomName, orders: result.beforeSourceOrders, targetRoom: result.targetRoomName, targetOrders: result.beforeTargetOrders },
+          after: { room: result.sourceRoomName, orders: result.afterSourceOrders, targetRoom: result.targetRoomName, targetOrders: result.afterTargetOrders },
         });
         return json_({ ok: true, state: withStockView_(result.state) });
       }

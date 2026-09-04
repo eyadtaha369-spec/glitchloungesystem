@@ -225,6 +225,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState("");
+  const [moveItemTarget, setMoveItemTarget] = useState<{ menuItemId: string; name: string; maxQty: number; price: number } | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [extendTimeOpen, setExtendTimeOpen] = useState(false);
@@ -620,6 +621,15 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   >
                     <MessageSquare className="w-3 h-3" />
                   </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setMoveItemTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty, price: o.price })}
+                      className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.7_0.19_260/0.2)] hover:text-[oklch(0.7_0.19_260)]"
+                      title="Move to another room/table — fixes an item added to the wrong one by mistake"
+                    >
+                      <ArrowRightLeft className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -713,6 +723,15 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           maxQty={voidTarget.maxQty}
           onClose={() => setVoidTarget(null)}
           requestVoid={requestVoid}
+        />
+      )}
+
+      {moveItemTarget && (
+        <MoveItemModal
+          sourceRoom={room}
+          item={moveItemTarget}
+          otherRooms={transferTargets.filter((t) => t.id !== room.id)}
+          onClose={() => setMoveItemTarget(null)}
         />
       )}
 
@@ -1454,6 +1473,92 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
           >
             <Printer className="w-4 h-4" /> {printing ? "Printing..." : logoReady ? "Print" : "Preparing..."}
           </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function MoveItemModal({ sourceRoom, item, otherRooms, onClose }: {
+  sourceRoom: Room;
+  item: { menuItemId: string; name: string; maxQty: number; price: number };
+  otherRooms: Room[];
+  onClose: () => void;
+}) {
+  const { transferOrderItem } = useStore();
+  const activeTargets = otherRooms.filter((r) => r.status === "active");
+  const [targetRoomId, setTargetRoomId] = useState(activeTargets[0]?.id ?? "");
+  const [qty, setQty] = useState(item.maxQty);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!targetRoomId) { setErr("Select a target room/table."); return; }
+    if (!qty || qty <= 0 || qty > item.maxQty) { setErr("Invalid quantity."); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await transferOrderItem(sourceRoom.id, targetRoomId, item.menuItemId, qty);
+      if (!res.ok) { setErr(res.error ?? "Could not move this item."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.7_0.19_260)]">
+            <ArrowRightLeft className="w-4 h-4" /> Move Item
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="text-sm">
+            <span className="text-muted-foreground">{sourceRoom.name} —</span> <span className="font-semibold">{item.name}</span>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity to move</label>
+            <input
+              type="number" min={1} max={item.maxQty} value={qty}
+              onChange={(e) => setQty(Math.max(1, Math.min(item.maxQty, parseInt(e.target.value) || 1)))}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">{item.maxQty} on this bill · {fmtMoney(item.price)} each</p>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Move to</label>
+            {activeTargets.length === 0 ? (
+              <p className="text-sm text-muted-foreground mt-1">No other active rooms/tables to move this to right now.</p>
+            ) : (
+              <select
+                value={targetRoomId} onChange={(e) => setTargetRoomId(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+              >
+                {activeTargets.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+            <button
+              onClick={() => void submit()}
+              disabled={submitting || activeTargets.length === 0}
+              className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+            >
+              {submitting ? "Moving..." : "Move Item"}
+            </button>
+          </div>
         </div>
       </div>
     </div>,

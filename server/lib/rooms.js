@@ -506,8 +506,62 @@ function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
   return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), cogs, retailValue, items: loggedItems, reason, reasonLabel: WASTE_MARKETING_REASONS[reason], note: note || "" };
 }
 
+// Moves qty units of one order line from sourceRoomId to targetRoomId.
+// Purely a billing reassignment — the item's ingredients were already
+// consumed from stock at the moment it was originally added to the
+// source room (see bizAddOrder_), so no stock/COGS change happens
+// here at all, only which room's bill the line sits on. Returns the
+// before/after order arrays for both rooms so the caller can log a
+// proper audit trail entry with exact original and updated values.
+function bizTransferOrderItem_(state, sourceRoomId, targetRoomId, menuItemId, qty) {
+  if (sourceRoomId === targetRoomId) return { ok: false, error: "Source and target must be different rooms/tables.", state };
+  const source = state.rooms.find((r) => r.id === sourceRoomId);
+  if (!source) return { ok: false, error: "Source room not found", state };
+  const target = state.rooms.find((r) => r.id === targetRoomId);
+  if (!target) return { ok: false, error: "Target room not found", state };
+  if (target.status !== "active") return { ok: false, error: target.name + " is not active — start it before transferring items to it.", state };
+
+  const line = source.orders.find((o) => o.menuItemId === menuItemId);
+  if (!line) return { ok: false, error: "Item not found on the source room", state };
+  const qtyNum = Number(qty);
+  if (!qtyNum || qtyNum <= 0 || qtyNum > line.qty) return { ok: false, error: "Invalid quantity to transfer", state };
+
+  const beforeSourceOrders = source.orders.map((o) => Object.assign({}, o));
+  const beforeTargetOrders = target.orders.map((o) => Object.assign({}, o));
+  const transferValue = qtyNum * line.price;
+
+  state.rooms = state.rooms.map((r) => {
+    if (r.id === sourceRoomId) {
+      const newOrders = qtyNum === line.qty
+        ? r.orders.filter((o) => o.menuItemId !== menuItemId)
+        : r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty - qtyNum }) : o));
+      return Object.assign({}, r, { orders: newOrders });
+    }
+    if (r.id === targetRoomId) {
+      const existing = r.orders.find((o) => o.menuItemId === menuItemId);
+      const newOrders = existing
+        ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qtyNum }) : o))
+        : r.orders.concat([{ menuItemId, name: line.name, qty: qtyNum, price: line.price, printedQuantity: 0 }]);
+      return Object.assign({}, r, { orders: newOrders });
+    }
+    return r;
+  });
+
+  const afterSource = state.rooms.find((r) => r.id === sourceRoomId);
+  const afterTarget = state.rooms.find((r) => r.id === targetRoomId);
+
+  pushActivity_(state, qtyNum + "x " + line.name + " transferred from " + source.name + " to " + target.name + " (" + transferValue.toFixed(2) + " EGP)");
+  return {
+    ok: true, state,
+    sourceRoomName: source.name, targetRoomName: target.name, itemName: line.name, qty: qtyNum, transferValue,
+    beforeSourceOrders, afterSourceOrders: afterSource.orders,
+    beforeTargetOrders, afterTargetOrders: afterTarget.orders,
+  };
+}
+
 module.exports = {
   PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
   bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_,
+  bizTransferOrderItem_,
   WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,
 };

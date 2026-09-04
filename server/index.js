@@ -25,7 +25,7 @@ const {
 } = require("./lib/state");
 const {
   bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
-  bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_,
+  bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
@@ -127,6 +127,22 @@ const handlers = {
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_TIME_EXTENDED",
       location: before ? before.name : body.roomId, shiftId: result.state.activeShiftId,
       description: (before ? before.name : body.roomId) + " switched rate mode to " + body.newMode,
+    });
+    return json_({ ok: true, state: withStockView_(result.state) });
+  },
+
+  transferOrderItem(body) {
+    requireRole_(body.username, ["admin"]);
+    const state0 = getState_();
+    const result = bizTransferOrderItem_(state0, body.sourceRoomId, body.targetRoomId, body.menuItemId, body.qty);
+    if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
+    setState_(result.state);
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ORDER_ITEM_TRANSFERRED",
+      location: result.sourceRoomName + " → " + result.targetRoomName, shiftId: result.state.activeShiftId,
+      description: result.qty + "x " + result.itemName + " (" + result.transferValue.toFixed(2) + " EGP) moved from " + result.sourceRoomName + " to " + result.targetRoomName + " by " + body.username,
+      before: { room: result.sourceRoomName, orders: result.beforeSourceOrders, targetRoom: result.targetRoomName, targetOrders: result.beforeTargetOrders },
+      after: { room: result.sourceRoomName, orders: result.afterSourceOrders, targetRoom: result.targetRoomName, targetOrders: result.afterTargetOrders },
     });
     return json_({ ok: true, state: withStockView_(result.state) });
   },

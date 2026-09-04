@@ -38,6 +38,7 @@ import {
   nextKotNumberFn,
   extendRoomTimeFn,
   switchRateModeFn,
+  transferOrderItemFn,
   reopenSessionFn,
   recalculateClosedShiftFn,
   saveDailyReconciliationFn,
@@ -156,6 +157,7 @@ interface StoreContextValue {
   nextKotNumber: () => Promise<{ ok: boolean; error?: string; number?: number }>;
   extendRoomTime: (roomId: string, deltaSec: number) => Promise<{ ok: boolean; error?: string }>;
   switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
+  transferOrderItem: (sourceRoomId: string, targetRoomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   reopenSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
   recalculateClosedShift: (shiftId: string, confirmText: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   saveDailyReconciliation: (actualCash: number, instapayTotal: number, visaTotal: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
@@ -631,6 +633,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not switch mode." };
+      }
+    });
+  };
+  const transferOrderItem: StoreContextValue["transferOrderItem"] = async (sourceRoomId, targetRoomId, menuItemId, qty) => {
+    return withPending(`transferOrderItem:${sourceRoomId}:${menuItemId}`, async () => {
+      try {
+        const res = await transferOrderItemFn({ data: { sourceRoomId, targetRoomId, menuItemId, qty } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not transfer item." };
       }
     });
   };
@@ -1415,7 +1428,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
+    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,

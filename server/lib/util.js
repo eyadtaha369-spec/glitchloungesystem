@@ -10,6 +10,7 @@ const ACTION_RISK = {
   LOGIN_SUCCESS: "green", LOGIN_FAILED: "yellow",
   ROOM_STARTED: "green", ITEM_ADDED: "green", CHECKOUT: "green",
   START_SHIFT: "green", END_SHIFT: "green",
+  ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red",
 };
 
 // Direct port of Code.gs's logActivity_ — appends one permanent,
