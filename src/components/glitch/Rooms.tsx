@@ -199,6 +199,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [logoReady, setLogoReady] = useState(false);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLogoReady(true);
+    img.src = logo;
+    if (img.complete) setLogoReady(true);
+  }, []);
   const [checkoutScreen, setCheckoutScreen] = useState<"preview" | "payment">("preview");
   const [ticketOpen, setTicketOpen] = useState(false);
   const [kotNumber, setKotNumber] = useState<number | null>(null);
@@ -813,30 +820,49 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
 
               {/* Check Preview — itemized summary, printable as-is before
                   any payment decision is made. */}
-              <div className="print-area rounded-2xl bg-white/70 border border-black/10 p-4">
+              <div className="print-area rounded-2xl bg-white/70 border border-black/10 p-4 font-mono text-sm">
                 <div className="text-center mb-3 receipt-block">
-                  <div className="text-sm font-bold uppercase tracking-widest">{room.name} — Check Preview</div>
+                  <img src={logo} alt="GLITCH" className="w-32 h-auto mx-auto receipt-logo" />
+                  <div className="text-lg font-bold tracking-widest mt-1">GLITCH</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.15em] mt-0.5">PlayStation &amp; Lounge</div>
                 </div>
-                <div className="space-y-1.5 text-sm">
+                <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+                  <div className="flex justify-between"><span>Room</span><span>{room.name}</span></div>
+                  {room.zone === "room" && room.startedAt && (
+                    <div className="flex justify-between"><span>Start</span><span>{fmtReceiptTime(new Date(room.startedAt))}</span></div>
+                  )}
+                  <div className="flex justify-between"><span>Printed</span><span>{fmtReceiptTime(new Date())}</span></div>
                   {room.zone === "room" && (
-                    <div className="flex justify-between receipt-line">
-                      <span>Room Time ({fmtDuration(checkoutElapsed)})</span>
-                      <span className="font-mono">{fmtMoney(checkoutTimeCost)}</span>
-                    </div>
+                    <div className="flex justify-between"><span>Elapsed</span><span>{fmtDuration(checkoutElapsed)}</span></div>
                   )}
-                  {room.orders.length === 0 && room.zone !== "room" && (
-                    <div className="text-center text-muted-foreground py-2">No items yet.</div>
-                  )}
-                  {room.orders.map((o) => (
-                    <div key={o.menuItemId} className="flex justify-between receipt-line">
-                      <span>{o.qty}× {o.name}</span>
-                      <span className="font-mono">{fmtMoney(o.qty * o.price)}</span>
-                    </div>
-                  ))}
                 </div>
-                <div className="flex justify-between border-t border-dashed border-black/20 mt-3 pt-2 text-base font-bold">
-                  <span>Subtotal</span>
+
+                {room.zone === "room" && (
+                  <div className="flex justify-between receipt-line mb-2">
+                    <span>Room Time ({fmtDuration(checkoutElapsed)})</span>
+                    <span>{fmtMoney(checkoutTimeCost)}</span>
+                  </div>
+                )}
+
+                <div className="text-xs uppercase tracking-widest opacity-70 mt-2">Orders</div>
+                {room.orders.length === 0 && (
+                  <div className="text-center text-muted-foreground py-2">
+                    {room.zone === "room" ? "No items ordered yet." : "No items yet."}
+                  </div>
+                )}
+                {room.orders.map((o) => (
+                  <div key={o.menuItemId} className="flex justify-between receipt-line">
+                    <span>{o.qty}× {o.name}</span>
+                    <span className="font-mono">{fmtMoney(o.qty * o.price)}</span>
+                  </div>
+                ))}
+
+                <div className="flex justify-between border-t border-dashed border-black/40 mt-3 pt-2 text-base font-bold receipt-block receipt-total">
+                  <span>Total</span>
                   <span className="font-mono">{fmtMoney(checkoutPreDiscountTotal)}</span>
+                </div>
+                <div className="text-center text-[10px] uppercase tracking-widest mt-3 opacity-70">
+                  Preview — payment not yet collected
                 </div>
               </div>
 
@@ -848,9 +874,10 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               <div className="grid grid-cols-2 gap-3 no-print">
                 <button
                   onClick={() => void printSmart()}
-                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold uppercase tracking-wide"
+                  disabled={!logoReady}
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-black/5 border-2 border-black/10 hover:bg-black/8 text-[#2b2416] font-bold uppercase tracking-wide disabled:opacity-50"
                 >
-                  <Printer className="w-5 h-5" /> Print Check
+                  <Printer className="w-5 h-5" /> {logoReady ? "Print Check" : "Preparing..."}
                 </button>
                 <button
                   onClick={() => setCheckoutScreen("payment")}
