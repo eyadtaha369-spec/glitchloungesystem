@@ -179,6 +179,15 @@ export function ReportsPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   });
   const { from: reportDayStart, to: reportDayEnd } = useMemo(() => businessDayBounds(selectedReportDate), [selectedReportDate]);
+
+  // Financial Reconciliation is genuinely monthly (Day 1 through the
+  // last day), independent of the daily date picker above — a
+  // separate month picker, not derived from selectedReportDate.
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
   const reportDayShiftIds = useMemo(
     () => new Set(state.shifts.filter((sh) => sh.openedAt >= reportDayStart && sh.openedAt <= reportDayEnd).map((sh) => sh.id)),
     [state.shifts, reportDayStart, reportDayEnd],
@@ -395,7 +404,7 @@ export function ReportsPage() {
 
       <HistoryLog />
       <AttendanceLog />
-      <MonthlyReconciliationDashboard selectedDate={selectedReportDate} onDateChange={setSelectedReportDate} />
+      <MonthlyReconciliationDashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
       <MonthlyExpensesLedger selectedDate={selectedReportDate} />
       <WastedComplimentaryLedger selectedDate={selectedReportDate} />
       <PnLLedgerPanel />
@@ -640,44 +649,56 @@ function BusinessDayPanel() {
 // panel's own Today/Week/Month/Custom picker below it, per the
 // explicit requirement that this is a standing monthly summary, not
 // another range selection.
-function MonthlyReconciliationDashboard({ selectedDate, onDateChange }: { selectedDate: string; onDateChange: (date: string) => void }) {
+function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { selectedMonth: string; onMonthChange: (month: string) => void }) {
   const { state } = useStore();
-  const { from: dayStart, to: dayEnd } = useMemo(() => businessDayBounds(selectedDate), [selectedDate]);
-  const dayLabel = new Date(dayStart).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
 
-  // Shift-first: a business day is defined by which shifts OPENED
-  // within this 8 AM-to-8 AM window, not by re-deriving a calendar
-  // date from each record's own timestamp — this is what keeps a
-  // shift that opens late (and runs past midnight, or even past 8 AM)
-  // fully counted on the day it started, never split across two.
-  const dayShiftIds = useMemo(
-    () => new Set(state.shifts.filter((sh) => sh.openedAt >= dayStart && sh.openedAt <= dayEnd).map((sh) => sh.id)),
-    [state.shifts, dayStart, dayEnd],
+  // A month's business-day range spans from Day 1's business-day start
+  // through the last day's business-day end — extending the same
+  // 8 AM (with grace window) shift-first logic across the whole month,
+  // rather than switching to a different midnight-based definition
+  // just because the scope widened from a day to a month.
+  const { monthStart, monthEnd, monthLabel } = useMemo(() => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const firstDay = `${selectedMonth}-01`;
+    const lastDayNum = new Date(y, m, 0).getDate();
+    const lastDay = `${selectedMonth}-${String(lastDayNum).padStart(2, "0")}`;
+    const start = businessDayBounds(firstDay).from;
+    const end = businessDayBounds(lastDay).to;
+    const label = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    return { monthStart: start, monthEnd: end, monthLabel: label };
+  }, [selectedMonth]);
+
+  // Shift-first: the month is defined by which shifts OPENED within
+  // this business-day range, not by re-deriving a calendar date from
+  // each record's own timestamp — this is what keeps a shift that
+  // opens late (and runs past midnight, or even past the business-day
+  // cutoff) fully counted in the month it started, never split across two.
+  const monthShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= monthStart && sh.openedAt <= monthEnd).map((sh) => sh.id)),
+    [state.shifts, monthStart, monthEnd],
   );
   const totalRevenue = useMemo(
-    () => filterByBusinessDay(state.sessions, dayShiftIds, dayStart, dayEnd).reduce((a, s) => a + s.total, 0),
-    [state.sessions, dayShiftIds, dayStart, dayEnd],
+    () => filterByBusinessDay(state.sessions, monthShiftIds, monthStart, monthEnd).reduce((a, s) => a + s.total, 0),
+    [state.sessions, monthShiftIds, monthStart, monthEnd],
   );
 
-  // Operational expenses and supplier purchases for this business day
-  // — already includes procurement/supplier invoices (the source of
+  // Operational expenses and supplier purchases for this month —
+  // already includes procurement/supplier invoices (the source of
   // COGS), so this deliberately does NOT add a separate COGS term
   // below -- doing so would double-count the same raw-material spend.
   const totalExpenses = useMemo(
-    () => filterByBusinessDay(state.ledger.filter(isOperationalExpense), dayShiftIds, dayStart, dayEnd)
+    () => filterByBusinessDay(state.ledger.filter(isOperationalExpense), monthShiftIds, monthStart, monthEnd)
       .reduce((a, l) => a + Number(l.amount), 0),
-    [state.ledger, dayShiftIds, dayStart, dayEnd],
+    [state.ledger, monthShiftIds, monthStart, monthEnd],
   );
 
   // Fixed recurring costs (rent, salaries, utilities, internet, etc.)
-  // are a flat MONTHLY definition, not a dated transaction log, so
-  // there's no way to know which day within the month they were
-  // "spent" on — prorated evenly across the days in this date's month
-  // for a sensible daily figure, clearly labeled as such.
-  const daysInMonth = useMemo(() => new Date(new Date(dayStart).getFullYear(), new Date(dayStart).getMonth() + 1, 0).getDate(), [dayStart]);
+  // are a flat monthly definition, so every currently-active one
+  // applies in full to this month's calculation — no prorating needed
+  // now that the scope is genuinely a full month again.
   const totalFixedExpenses = useMemo(
-    () => state.recurringExpenses.filter((r) => r.active).reduce((a, r) => a + Number(r.amount), 0) / daysInMonth,
-    [state.recurringExpenses, daysInMonth],
+    () => state.recurringExpenses.filter((r) => r.active).reduce((a, r) => a + Number(r.amount), 0),
+    [state.recurringExpenses],
   );
 
   const netProfit = totalRevenue - (totalExpenses + totalFixedExpenses);
@@ -691,12 +712,12 @@ function MonthlyReconciliationDashboard({ selectedDate, onDateChange }: { select
           <h2 className="text-lg font-semibold">Financial Reconciliation</h2>
         </div>
         <input
-          type="date" value={selectedDate} max={new Date().toISOString().slice(0, 10)}
-          onChange={(e) => onDateChange(e.target.value)}
+          type="month" value={selectedMonth} max={new Date().toISOString().slice(0, 7)}
+          onChange={(e) => onMonthChange(e.target.value)}
           className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
         />
       </div>
-      <p className="text-xs text-muted-foreground mb-4">{dayLabel} — by each shift's own start time; fixed monthly costs shown as a per-day share</p>
+      <p className="text-xs text-muted-foreground mb-4">{monthLabel} — Day 1 through the last day, by each shift's own start time</p>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white/60 rounded-xl p-5 border border-black/8">
@@ -708,7 +729,7 @@ function MonthlyReconciliationDashboard({ selectedDate, onDateChange }: { select
           <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalExpenses)}</div>
         </div>
         <div className="bg-white/60 rounded-xl p-5 border border-black/8">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Fixed Costs (per-day share)</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Fixed Monthly Costs</div>
           <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalFixedExpenses)}</div>
         </div>
         <div
