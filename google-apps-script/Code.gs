@@ -4331,32 +4331,45 @@ function importAllData_(payload) {
   const summary = {};
 
   IMPORT_TABLE_NAMES.forEach(function (tableName) {
-    const rows = payload.tables && payload.tables[tableName] ? payload.tables[tableName] : [];
-    const headers = sheetObjectHeaders_(tableName);
-    const sheet = getSheet_(tableName);
-    ensureHeaders_(sheet, headers);
+    try {
+      const rows = payload.tables && payload.tables[tableName] ? payload.tables[tableName] : [];
+      const headers = sheetObjectHeaders_(tableName);
+      const sheet = getSheet_(tableName);
+      ensureHeaders_(sheet, headers);
 
-    // Clear existing DATA rows only — row 1 (headers) stays untouched.
-    const lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
-    }
+      // Clear existing DATA rows only — row 1 (headers) stays untouched.
+      const lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+      }
 
-    if (rows.length > 0) {
-      const values = rows.map(function (obj) {
-        return headers.map(function (h) { return obj[h] === undefined || obj[h] === null ? "" : truncateForSheetCell_(obj[h]); });
-      });
-      sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+      if (rows.length > 0) {
+        const values = rows.map(function (obj) {
+          return headers.map(function (h) { return obj[h] === undefined || obj[h] === null ? "" : truncateForSheetCell_(obj[h]); });
+        });
+        sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+      }
+      summary[tableName] = rows.length;
+    } catch (e) {
+      // Re-thrown WITH the table name attached — without this, a cell-
+      // size (or any other) error here shows up as a bare, unlocatable
+      // "Exception: ..." with no way to tell which of the ~20 imported
+      // tables actually caused it.
+      throw new Error("Importing table '" + tableName + "': " + (e instanceof Error ? e.message : String(e)));
     }
-    summary[tableName] = rows.length;
   });
 
   // App state — menu, rooms, active shift, etc. Already stripped of
   // computed-only fields (stock, sessions, businessDays) by the local
   // server's own getState_ before export, so this is safe to write
-  // as-is.
+  // as-is. setState_ itself splits this across multiple rows if it's
+  // too large for one cell.
   if (payload.appState) {
-    setState_(payload.appState);
+    try {
+      setState_(payload.appState);
+    } catch (e) {
+      throw new Error("Saving appState: " + (e instanceof Error ? e.message : String(e)));
+    }
   }
 
   return { ok: true, tableSummary: summary };
@@ -4767,7 +4780,18 @@ function getState_() {
   for (let i = 1; i < values.length; i++) {
     if (values[i][0] === "app") {
       try {
-        const parsed = JSON.parse(values[i][1]);
+        // Reassemble any chunk_N rows written by setState_ when the
+        // state was too large for one cell — collected by chunk
+        // index so they're concatenated in the original order
+        // regardless of what row order the sheet happens to have.
+        const chunkRows = [];
+        for (let j = 1; j < values.length; j++) {
+          const m = /^app_chunk_(\d+)$/.exec(values[j][0]);
+          if (m) chunkRows.push([Number(m[1]), values[j][1]]);
+        }
+        chunkRows.sort(function (a, b) { return a[0] - b[0]; });
+        const fullJson = values[i][1] + chunkRows.map(function (c) { return c[1]; }).join("");
+        const parsed = JSON.parse(fullJson);
         if (!parsed.shifts) parsed.shifts = [];
         if (parsed.activeShiftId === undefined) parsed.activeShiftId = null;
         if (typeof parsed.fraudThresholdPercent !== "number") parsed.fraudThresholdPercent = 2;
@@ -4885,13 +4909,35 @@ function setState_(state) {
   delete toSave.pendingVoidCountForActiveShift; // also computed, never persisted
   delete toSave.sessions; // sessions live in their own sheet now — see getState_ above
   delete toSave.businessDays; // also computed, never persisted
+  const json = JSON.stringify(toSave);
+
+  // A single Sheets cell has a hard 50,000 character ceiling. appState
+  // is one big JSON blob, unlike a table's rows -- it can't be
+  // per-field-truncated without corrupting it, so instead it's split
+  // across as many rows as it needs: "app" holds the first chunk,
+  // "app_chunk_1", "app_chunk_2", ... hold the rest, in order.
+  // getState_ reassembles them the same way before parsing. This is
+  // the one part of state storage this app could never safely lose
+  // detail from, so instead of truncating it, it just uses more rows.
+  const chunks = [];
+  for (let i = 0; i < json.length; i += SHEET_CELL_CHAR_LIMIT) {
+    chunks.push(json.slice(i, i + SHEET_CELL_CHAR_LIMIT));
+  }
+  if (chunks.length === 0) chunks.push("");
+
   const sheet = getSheet_(STATE_SHEET);
   const values = sheet.getDataRange().getValues();
-  for (let i = 1; i < values.length; i++) {
-    if (values[i][0] === "app") {
-      sheet.getRange(i + 1, 2).setValue(JSON.stringify(toSave));
-      return;
+  // Remove every existing "app" / "app_chunk_N" row first (bottom-up,
+  // so earlier row indices don't shift out from under later deletes),
+  // then append the fresh set — simpler and safer than trying to
+  // update chunk rows in place when the chunk count itself can change
+  // from one save to the next as state grows or shrinks.
+  for (let i = values.length - 1; i >= 1; i--) {
+    if (values[i][0] === "app" || /^app_chunk_\d+$/.test(values[i][0])) {
+      sheet.deleteRow(i + 1);
     }
   }
-  sheet.appendRow(["app", JSON.stringify(toSave)]);
+  chunks.forEach(function (chunk, idx) {
+    sheet.appendRow([idx === 0 ? "app" : "app_chunk_" + idx, chunk]);
+  });
 }
