@@ -132,7 +132,7 @@ const handlers = {
   },
 
   transferOrderItem(body) {
-    requireRole_(body.username, ["admin"]);
+    requireRole_(body.username, ["admin", "cashier"]);
     const state0 = getState_();
     const result = bizTransferOrderItem_(state0, body.sourceRoomId, body.targetRoomId, body.menuItemId, body.qty);
     if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
@@ -196,13 +196,6 @@ const handlers = {
 
   endRoom(body) {
     requireRole_(body.username, ["admin", "cashier"]);
-    // The Single/Multi time-split override is admin-only, even though
-    // checkout itself isn't — this directly changes what a customer is
-    // charged, so a cashier can request a normal checkout but can't
-    // retroactively rewrite the billing split.
-    if (body.timeSplitOverride && roleForUsername_(body.username) !== "admin") {
-      return json_({ session: null, error: "Only an admin can adjust the Single/Multi time split.", state: withStockView_(getState_()) });
-    }
     const batches = readObjects_("Batches");
     const roomBefore = getState_().rooms.find((r) => r.id === body.roomId);
     const result = bizEndRoom_(getState_(), batches, body.roomId, body.splitBill, body.paymentMethod, body.cashAmount, body.secondaryAmount, body.frozenAt, {

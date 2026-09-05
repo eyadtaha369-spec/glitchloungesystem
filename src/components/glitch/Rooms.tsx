@@ -659,15 +659,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   >
                     <MessageSquare className="w-3 h-3" />
                   </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => setMoveItemTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty, price: o.price })}
-                      className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.7_0.19_260/0.2)] hover:text-[oklch(0.7_0.19_260)]"
-                      title="Move to another room/table — fixes an item added to the wrong one by mistake"
-                    >
-                      <ArrowRightLeft className="w-3 h-3" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setMoveItemTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty, price: o.price })}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.7_0.19_260/0.2)] hover:text-[oklch(0.7_0.19_260)]"
+                    title="Move to another room/table — fixes an item added to the wrong one by mistake"
+                  >
+                    <ArrowRightLeft className="w-3 h-3" />
+                  </button>
                 </div>
               </div>
 
@@ -927,7 +925,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               </div>
 
-              {isAdmin && room.zone === "room" && (
+              {room.zone === "room" && (
                 <div className="rounded-2xl bg-[oklch(0.62_0.24_25/0.06)] border border-[oklch(0.62_0.24_25/0.3)] p-4 space-y-3 no-print">
                   <button
                     onClick={() => {
