@@ -383,6 +383,25 @@ function riskFor_(actionType) {
 // `before`/`after` should be small plain objects (or omitted) — they get
 // JSON.stringify'd here. `location` is free text: a room name, shift id,
 // or similar human-readable context for where the action happened.
+// A single Google Sheets cell has a hard 50,000 character ceiling.
+// This is a defensive backstop, not the primary fix for any specific
+// feature that logs too much data -- it exists so a future mistake
+// like that can never again throw a fatal "input contains more than
+// the maximum of 50000 characters" error and halt an entire action;
+// it just loses detail on that one oversized log entry instead.
+var ACTIVITY_LOG_FIELD_LIMIT = 45000;
+function safeStringifyForLog_(obj) {
+  const json = JSON.stringify(obj);
+  if (json.length <= ACTIVITY_LOG_FIELD_LIMIT) return json;
+  // The preview slice is itself already-escaped JSON text -- wrapping
+  // it as a string VALUE inside another JSON.stringify re-escapes
+  // every quote and backslash in it, which can nearly double its
+  // length. Budget for the worst case rather than slicing close to
+  // the limit and overshooting it after re-escaping.
+  const preview = json.slice(0, Math.floor(ACTIVITY_LOG_FIELD_LIMIT / 2) - 200);
+  return JSON.stringify({ truncated: true, originalLength: json.length, preview: preview });
+}
+
 function logActivity_(params) {
   appendObject_("ActivityLogs", {
     id: newId_("log"),
@@ -393,8 +412,8 @@ function logActivity_(params) {
     location: params.location || "",
     riskLevel: params.riskLevel || riskFor_(params.actionType),
     description: params.description || "",
-    before: params.before !== undefined ? JSON.stringify(params.before) : "",
-    after: params.after !== undefined ? JSON.stringify(params.after) : "",
+    before: params.before !== undefined ? safeStringifyForLog_(params.before) : "",
+    after: params.after !== undefined ? safeStringifyForLog_(params.after) : "",
     shiftId: params.shiftId || null,
   });
 }
@@ -3719,7 +3738,9 @@ function doPost(e) {
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "EXPENSES_LEDGER_CLEARED",
           description: body.username + " cleared the entire Expenses Ledger — " + clearResult.count + " settlement(s) totaling " + clearResult.totalCleared.toFixed(2) + " EGP permanently deleted.",
-          before: { clearedRecords: clearResult.clearedRecords, count: clearResult.count, totalCleared: clearResult.totalCleared },
+          // NOT the full clearedRecords array — see the identical fix
+          // and reasoning in server/index.js.
+          before: { clearedRecordsSample: clearResult.clearedRecords.slice(0, 20), count: clearResult.count, totalCleared: clearResult.totalCleared },
           after: { count: 0 },
         });
         return json_({ ok: true, count: clearResult.count, totalCleared: clearResult.totalCleared, state: withStockView_(getState_()) });
@@ -4293,6 +4314,19 @@ function upsertAccountsFromPayload_(payload) {
   return accountsAdded;
 }
 
+// Google Sheets rejects any single cell over 50,000 characters
+// outright -- this is the actual point where that limit can be hit,
+// regardless of which table, field, or historical bug produced an
+// oversized value. Defensive on top of (not instead of) fixing the
+// specific known cause -- this exists so an import can never again
+// die completely over ONE oversized cell somewhere in months of
+// accumulated data; it just loses detail on that one value instead.
+var SHEET_CELL_CHAR_LIMIT = 49000;
+function truncateForSheetCell_(value) {
+  if (typeof value !== "string" || value.length <= SHEET_CELL_CHAR_LIMIT) return value;
+  return value.slice(0, SHEET_CELL_CHAR_LIMIT - 40) + "...[truncated, too long to import]";
+}
+
 function importAllData_(payload) {
   const summary = {};
 
@@ -4310,7 +4344,7 @@ function importAllData_(payload) {
 
     if (rows.length > 0) {
       const values = rows.map(function (obj) {
-        return headers.map(function (h) { return obj[h] === undefined || obj[h] === null ? "" : obj[h]; });
+        return headers.map(function (h) { return obj[h] === undefined || obj[h] === null ? "" : truncateForSheetCell_(obj[h]); });
       });
       sheet.getRange(2, 1, values.length, headers.length).setValues(values);
     }

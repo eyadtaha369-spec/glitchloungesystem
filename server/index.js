@@ -894,7 +894,15 @@ Object.assign(handlers, {
     logActivity_({
       actorUsername: body.username, actorRole: "admin", actionType: "EXPENSES_LEDGER_CLEARED",
       description: body.username + " cleared the entire Expenses Ledger — " + result.count + " settlement(s) totaling " + result.totalCleared.toFixed(2) + " EGP permanently deleted.",
-      before: { clearedRecords: result.clearedRecords, count: result.count, totalCleared: result.totalCleared },
+      // NOT the full clearedRecords array here — that grows unbounded
+      // with how many settlements ever existed (hundreds after months
+      // of real use), and a single audit log cell has a hard 50,000
+      // character ceiling once this data is exported to the cloud.
+      // The description above already carries the count and total in
+      // human-readable form; a small sample is enough context for
+      // anyone reviewing this specific log entry without risking that
+      // limit.
+      before: { clearedRecordsSample: result.clearedRecords.slice(0, 20), count: result.count, totalCleared: result.totalCleared },
       after: { count: 0 },
     });
     return { ok: true, count: result.count, totalCleared: result.totalCleared, state: withStockView_(getState_()) };
