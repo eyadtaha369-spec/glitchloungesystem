@@ -18,24 +18,6 @@ function startOfMonth(ts: number) {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
-function daysAgo(n: number) {
-  return startOfDay(Date.now()) - n * 86400000;
-}
-function monthsAgoLabel(n: number) {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - n);
-  return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
-}
-function monthBounds(n: number) {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  d.setMonth(d.getMonth() - n);
-  const from = d.getTime();
-  const to = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
-  return { from, to };
-}
 
 // Same exclusion rule used throughout Reports.tsx — waste/comp voids,
 // staff consumption, unpaid entries, and supplier-debt settlements are
@@ -197,48 +179,6 @@ export function AnalyticsPage() {
     });
     return Array.from(map.entries()).map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue).slice(0, 12);
   }, [monthSessions]);
-
-  // ---- Days comparison: today vs yesterday vs same day last week ----
-  const daysComparison = useMemo(() => {
-    const revenueOn = (from: number, to: number) => state.sessions.filter((s) => s.endedAt >= from && s.endedAt < to).reduce((a, s) => a + s.total, 0);
-    const today = daysAgo(0);
-    return [
-      { name: "Same Day Last Week", revenue: revenueOn(daysAgo(7), daysAgo(6)) },
-      { name: "Yesterday", revenue: revenueOn(daysAgo(1), daysAgo(0)) },
-      { name: "Today", revenue: revenueOn(today, today + 86400000) },
-    ];
-  }, [state.sessions]);
-
-  // ---- Weeks comparison: current week vs previous 3 weeks ----
-  const weeksComparison = useMemo(() => {
-    const now = Date.now();
-    const thisWeekStart = (() => {
-      const d = new Date();
-      d.setDate(d.getDate() - d.getDay());
-      d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    })();
-    const weeks: { name: string; revenue: number }[] = [];
-    for (let i = 3; i >= 0; i--) {
-      const from = thisWeekStart - i * 7 * 86400000;
-      const to = i === 0 ? now : from + 7 * 86400000;
-      const revenue = state.sessions.filter((s) => s.endedAt >= from && s.endedAt < to).reduce((a, s) => a + s.total, 0);
-      weeks.push({ name: i === 0 ? "This Week" : `${i} Week${i > 1 ? "s" : ""} Ago`, revenue });
-    }
-    return weeks;
-  }, [state.sessions]);
-
-  // ---- Months comparison: last 6 months, revenue/expenses/net profit ----
-  const monthsComparison = useMemo(() => {
-    const months: { name: string; revenue: number; expenses: number; netProfit: number }[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const { from, to } = monthBounds(i);
-      const revenue = state.sessions.filter((s) => s.endedAt >= from && s.endedAt <= to).reduce((a, s) => a + s.total, 0);
-      const expenses = state.ledger.filter((l) => isOperationalExpense(l) && l.ts >= from && l.ts <= to).reduce((a, l) => a + Number(l.amount), 0);
-      months.push({ name: monthsAgoLabel(i), revenue, expenses, netProfit: revenue - expenses });
-    }
-    return months;
-  }, [state.sessions, state.ledger]);
 
   return (
     <div className="space-y-6">
@@ -481,58 +421,6 @@ export function AnalyticsPage() {
             </BarChart>
           </ResponsiveContainer>
         )}
-      </div>
-
-      {/* Comparative Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass rounded-2xl p-6 min-w-0">
-          <h2 className="text-lg font-semibold mb-1">Days Comparison</h2>
-          <p className="text-xs text-muted-foreground mb-4">Today vs. yesterday vs. the same day last week.</p>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={daysComparison}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => fmtMoney(v)} />
-              <Bar dataKey="revenue" name="Revenue" fill="oklch(0.78 0.2 155)" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="glass rounded-2xl p-6 min-w-0">
-          <h2 className="text-lg font-semibold mb-1">Weeks Comparison</h2>
-          <p className="text-xs text-muted-foreground mb-4">This week vs. the previous three weeks.</p>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={weeksComparison}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => fmtMoney(v)} />
-              <Bar dataKey="revenue" name="Revenue" fill="oklch(0.7 0.19 260)" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="glass rounded-2xl p-6 min-w-0">
-        <h2 className="text-lg font-semibold mb-1">Months Comparison</h2>
-        <p className="text-xs text-muted-foreground mb-4">Month-over-month revenue, expenses, and net profit — last 6 months.</p>
-        <div className="overflow-x-auto">
-          <div className="min-w-[560px]">
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={monthsComparison}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => fmtMoney(v)} />
-                <Legend />
-                <Bar dataKey="revenue" name="Revenue" fill="oklch(0.78 0.2 155)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="oklch(0.62 0.24 25)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="netProfit" name="Net Profit" fill="oklch(0.7 0.19 260)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
       </div>
     </div>
   );
