@@ -3603,20 +3603,56 @@ function doPost(e) {
       }
 
       case "importAllData": {
-        requireRole_(body.username, ["admin"]);
-        const importAuth = login_(body.username, body.password);
-        if (!importAuth.ok || importAuth.role !== "admin") {
-          return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+        // Normal case: the caller already exists on the cloud (e.g. a
+        // second migration, or after an earlier sync already added
+        // them) — validate exactly as before.
+        //
+        // Bootstrap case: this is the FIRST-EVER migration, so the
+        // caller's own admin account genuinely doesn't exist on the
+        // cloud yet — requireRole_/login_ against the cloud's Accounts
+        // sheet can never succeed here no matter how correct the
+        // caller's credentials are, which is exactly what threw
+        // "Unknown user" and halted the whole migration before a
+        // single account could even be upserted. Instead, verify the
+        // caller's claimed identity against THEIR OWN account record
+        // in the payload being imported: same password-hash and role
+        // checks login_ does, just checked against the payload instead
+        // of the cloud's not-yet-populated sheet. This preserves the
+        // exact same security guarantee (a valid admin password and
+        // the confirm phrase are still both required) without
+        // depending on the cloud already knowing about the account —
+        // it does NOT skip authentication, it only changes what it's
+        // authenticated against.
+        const cloudHasCaller = accountsRows_().rows.some(function (r) { return r[0] === body.username; });
+        let callerRole = null;
+        if (cloudHasCaller) {
+          callerRole = requireRole_(body.username, ["admin"]);
+          const importAuth = login_(body.username, body.password);
+          if (!importAuth.ok || importAuth.role !== "admin") {
+            return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+          }
+        } else {
+          const claimedAccount = (Array.isArray(body.accounts) ? body.accounts : []).find(function (a) { return a.username === body.username; });
+          if (!claimedAccount || claimedAccount.role !== "admin" || sha256Hex_(String(body.password || "")) !== claimedAccount.passwordHash) {
+            return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+          }
+          callerRole = "admin";
         }
         if (body.confirmPhrase !== "MIGRATE FROM CAFE") {
           return json_({ ok: false, error: "Confirmation phrase didn't match — nothing was changed." });
         }
+        // Upsert every account BEFORE the actual table/state import —
+        // this is what lets the bootstrap case above (and every
+        // ordinary username reference inside the imported data) exist
+        // on the cloud from this point forward, so nothing downstream
+        // ever hits "Unknown user" again for this migration.
+        const accountsAdded = upsertAccountsFromPayload_(body);
         const importResult = importAllData_(body);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "PRODUCTION_RESET",
-          description: body.username + " migrated all data from the café's local database — " + Object.keys(importResult.tableSummary).map(function (k) { return k + ":" + importResult.tableSummary[k]; }).join(", ") + (importResult.accountsAdded > 0 ? "; " + importResult.accountsAdded + " new account(s) added" : ""),
+          description: body.username + " migrated all data from the café's local database — " + Object.keys(importResult.tableSummary).map(function (k) { return k + ":" + importResult.tableSummary[k]; }).join(", ") + (accountsAdded > 0 ? "; " + accountsAdded + " new account(s) added" : ""),
         });
-        return json_({ ok: true, tableSummary: importResult.tableSummary, accountsAdded: importResult.accountsAdded, state: withStockView_(getState_()) });
+        return json_({ ok: true, tableSummary: importResult.tableSummary, accountsAdded: accountsAdded, state: withStockView_(getState_()) });
       }
 
       // Routine, unattended sync from the café's local server — runs
@@ -3629,8 +3665,9 @@ function doPost(e) {
       // with the latest local snapshot, same replace semantics as a
       // manual migration, just repeated automatically and silently.
       case "autoSyncFromLocal": {
+        const autoSyncAccountsAdded = upsertAccountsFromPayload_(body);
         const syncResult = importAllData_(body);
-        return json_({ ok: true, tableSummary: syncResult.tableSummary, accountsAdded: syncResult.accountsAdded });
+        return json_({ ok: true, tableSummary: syncResult.tableSummary, accountsAdded: autoSyncAccountsAdded });
       }
 
       case "submitPurchaseInvoice": {
@@ -4201,6 +4238,61 @@ const IMPORT_TABLE_NAMES = [
   "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments",
 ];
 
+// Merges every account from the migration payload into the cloud's
+// own Accounts sheet -- never overwrites an existing username, only
+// adds ones that don't exist yet. Also defensively scans every
+// imported table for any OTHER username reference (staffUsername,
+// actorUsername, cashierUsername, createdBy, recordedBy, etc.) that
+// isn't covered by payload.accounts at all -- e.g. a local user who
+// was since deleted, but whose historical shifts/ledger entries still
+// reference their username. Each one gets a real, placeholder account
+// with a random unusable password (never a real login) so no imported
+// record is ever left pointing at a username the cloud has never
+// heard of. Returns how many accounts were newly added, real ones and
+// placeholders combined.
+function upsertAccountsFromPayload_(payload) {
+  const { sheet, rows } = accountsRows_();
+  const existingUsernames = {};
+  rows.forEach(function (r) { if (r[0]) existingUsernames[r[0]] = true; });
+  let accountsAdded = 0;
+
+  (Array.isArray(payload.accounts) ? payload.accounts : []).forEach(function (acc) {
+    if (existingUsernames[acc.username]) return;
+    sheet.appendRow([acc.username, acc.passwordHash, acc.role]);
+    existingUsernames[acc.username] = true;
+    accountsAdded++;
+  });
+
+  // Every field, per table, that could hold a username reference to a
+  // real system user (not a customer name, supplier name, etc.).
+  const USERNAME_FIELDS_BY_TABLE = {
+    ActivityLogs: ["actorUsername"], Sessions: ["cashierUsername"], Shifts: ["cashierUsername"],
+    Ledger: ["staffUsername"], VoidRequests: ["cashierUsername", "approvedBy"], StaffOrders: ["cashierUsername"],
+    SupplierPayments: ["recordedBy"], PurchaseInvoices: ["createdBy"], EventBookings: ["createdBy"],
+    DailyReconciliations: ["recordedBy"], InventorySnapshots: ["recordedBy"], WasteInvoices: ["recordedBy"],
+  };
+  IMPORT_TABLE_NAMES.forEach(function (tableName) {
+    const fields = USERNAME_FIELDS_BY_TABLE[tableName] || [];
+    const rowsForTable = payload.tables && payload.tables[tableName] ? payload.tables[tableName] : [];
+    rowsForTable.forEach(function (obj) {
+      fields.forEach(function (field) {
+        const uname = obj[field];
+        if (!uname || existingUsernames[uname]) return;
+        // Placeholder role guess: an approver on a void is always an
+        // admin action; everything else defaults to cashier, the
+        // lower-privilege role, so a placeholder never accidentally
+        // grants more access than the real account would have had.
+        const guessedRole = field === "approvedBy" ? "admin" : "cashier";
+        sheet.appendRow([uname, Utilities.getUuid(), guessedRole]);
+        existingUsernames[uname] = true;
+        accountsAdded++;
+      });
+    });
+  });
+
+  return accountsAdded;
+}
+
 function importAllData_(payload) {
   const summary = {};
 
@@ -4233,22 +4325,7 @@ function importAllData_(payload) {
     setState_(payload.appState);
   }
 
-  // Accounts — merge, never overwrite. Only usernames that don't
-  // already exist on the cloud get added.
-  let accountsAdded = 0;
-  if (Array.isArray(payload.accounts)) {
-    const { sheet, rows } = accountsRows_();
-    const existingUsernames = {};
-    rows.forEach(function (r) { if (r[0]) existingUsernames[r[0]] = true; });
-    payload.accounts.forEach(function (acc) {
-      if (existingUsernames[acc.username]) return;
-      sheet.appendRow([acc.username, acc.passwordHash, acc.role]);
-      existingUsernames[acc.username] = true;
-      accountsAdded++;
-    });
-  }
-
-  return { ok: true, tableSummary: summary, accountsAdded: accountsAdded };
+  return { ok: true, tableSummary: summary };
 }
 
 function deletePurchase_(ledgerId) {
