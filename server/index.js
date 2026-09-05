@@ -1285,6 +1285,61 @@ Object.assign(handlers, {
     requireRole_(body.username, ["admin"]);
     return { ok: deleteObjectById_("StaffMembers", body.id) };
   },
+  getEventBookings(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    return { items: readObjects_("EventBookings").sort((a, b) => a.eventAt - b.eventAt) };
+  },
+  addEventBooking(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const customerName = (body.customerName || "").trim();
+    if (!customerName) return { ok: false, error: "Customer name is required." };
+    if (!body.eventAt) return { ok: false, error: "Event date and time are required." };
+    const item = {
+      id: newId_("evt"),
+      customerName, phoneNumber: (body.phoneNumber || "").trim(),
+      roomId: body.roomId || null, roomName: body.roomName || null,
+      eventAt: Number(body.eventAt), depositAmount: Number(body.depositAmount) || 0,
+      depositPaymentMethod: body.depositPaymentMethod || "cash",
+      description: body.description || "", status: body.status || "confirmed",
+      createdAt: Date.now(), createdBy: body.username,
+    };
+    appendObject_("EventBookings", item);
+    logActivity_({
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EVENT_BOOKING_CREATED",
+      description: body.username + " booked an event for " + customerName + " on " + new Date(item.eventAt).toLocaleString() +
+        (item.roomName ? " in " + item.roomName : "") + (item.depositAmount > 0 ? " — " + item.depositAmount.toFixed(2) + " EGP deposit" : ""),
+      after: item,
+    });
+    return { ok: true, item };
+  },
+  updateEventBooking(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const before = readObjects_("EventBookings").find((b) => b.id === body.id);
+    if (!before) return { ok: false, error: "Booking not found." };
+    const ok = updateObjectById_("EventBookings", body.id, body.patch);
+    if (ok) {
+      logActivity_({
+        actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EVENT_BOOKING_UPDATED",
+        description: body.username + " updated the booking for " + before.customerName +
+          (body.patch && body.patch.status ? " — status set to " + body.patch.status : ""),
+        before, after: Object.assign({}, before, body.patch),
+      });
+    }
+    return { ok };
+  },
+  deleteEventBooking(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const before = readObjects_("EventBookings").find((b) => b.id === body.id);
+    const ok = deleteObjectById_("EventBookings", body.id);
+    if (ok && before) {
+      logActivity_({
+        actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EVENT_BOOKING_DELETED",
+        description: body.username + " deleted the booking for " + before.customerName + " (" + new Date(before.eventAt).toLocaleString() + ")",
+        before,
+      });
+    }
+    return { ok };
+  },
   getRecurringExpenses(body) {
     requireRole_(body.username, ["admin"]);
     return { items: readObjects_("RecurringExpenses") };
@@ -1436,7 +1491,7 @@ Object.assign(handlers, {
 
     // Transactional / test data — WIPED. Configuration (RawMaterials,
     // Suppliers, RecurringExpenses, Accounts) is never touched here.
-    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "Batches", "BusinessDays", "DailyReconciliations"]
+    ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "EventBookings", "RestockLog", "Batches", "BusinessDays", "DailyReconciliations"]
       .forEach((table) => db.exec(`DELETE FROM ${table}`));
 
     const state = getState_();
@@ -1468,7 +1523,7 @@ Object.assign(handlers, {
     // PurchaseInvoices/Items, SupplierPayments, RecurringExpenses, and
     // Accounts are all deliberately left untouched, unlike Production
     // Reset which wipes Ledger/Batches entirely.
-    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots", "DailyReconciliations"]
+    ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "EventBookings", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots", "DailyReconciliations"]
       .forEach((table) => db.exec(`DELETE FROM ${table}`));
 
     const state = getState_();

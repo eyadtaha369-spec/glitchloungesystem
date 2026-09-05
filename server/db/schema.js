@@ -125,6 +125,18 @@ CREATE TABLE IF NOT EXISTS StaffAllowanceUsage (
   shiftId TEXT, staffId TEXT, teaClaimed INTEGER, coffeeClaimed INTEGER
 );
 
+-- Birthday & Event Bookings — a reservation for a future (or past)
+-- date/time, independent of the room's current live session state.
+-- eventAt is the combined event_date + event_time as a single epoch
+-- ms timestamp, which is what every date-filter/tab on the Bookings
+-- page actually queries against.
+CREATE TABLE IF NOT EXISTS EventBookings (
+  id TEXT PRIMARY KEY,
+  customerName TEXT, phoneNumber TEXT, roomId TEXT, roomName TEXT,
+  eventAt INTEGER, depositAmount REAL, depositPaymentMethod TEXT,
+  description TEXT, status TEXT, createdAt INTEGER, createdBy TEXT
+);
+
 CREATE TABLE IF NOT EXISTS RestockLog (
   id TEXT PRIMARY KEY,
   ts INTEGER, materialId TEXT, materialName TEXT, qtyAdded REAL,

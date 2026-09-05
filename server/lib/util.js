@@ -11,6 +11,7 @@ const ACTION_RISK = {
   ROOM_STARTED: "green", ITEM_ADDED: "green", CHECKOUT: "green",
   START_SHIFT: "green", END_SHIFT: "green",
   ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red", EXPENSES_LEDGER_CLEARED: "red",
+  EVENT_BOOKING_CREATED: "green", EVENT_BOOKING_UPDATED: "green", EVENT_BOOKING_DELETED: "yellow",
 };
 
 // Direct port of Code.gs's logActivity_ — appends one permanent,

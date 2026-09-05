@@ -17,6 +17,7 @@ import { AuditLogPage } from "./AuditLog";
 import { StaffOrdersPage } from "./StaffOrders";
 import { LeaderboardPage } from "./Leaderboard";
 import { AnalyticsPage } from "./Analytics";
+import { BookingsPage } from "./Bookings";
 import { Gatekeeper } from "./Gatekeeper";
 import { Lock } from "lucide-react";
 
@@ -82,6 +83,7 @@ function Shell() {
             : view === "audit" ? <AuditLogPage />
             : view === "staffOrders" ? <StaffOrdersPage />
             : view === "leaderboard" ? <LeaderboardPage />
+            : view === "bookings" ? <BookingsPage onNavigateToRooms={() => setView("rooms")} />
             : view === "analytics" ? <AnalyticsPage />
             : <UsersPage />}
         </div>

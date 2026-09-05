@@ -38,6 +38,7 @@ export const translations = {
     dashboard: { en: "Dashboard", ar: "لوحة التحكم" },
     rooms: { en: "Rooms", ar: "الغرف" },
     lounge: { en: "Lounge", ar: "الصالة" },
+    bookings: { en: "Birthday Bookings", ar: "حجوزات أعياد الميلاد" },
     inventory: { en: "Inventory", ar: "المخزون" },
     procurement: { en: "Procurement", ar: "المشتريات" },
     unpaidExpenses: { en: "Unpaid Expenses", ar: "المصروفات والمشتريات الآجلة" },

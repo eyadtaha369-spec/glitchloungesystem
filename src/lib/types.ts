@@ -537,6 +537,25 @@ export interface StaffAllowanceUsage {
   coffeeClaimed: boolean;
 }
 
+export type EventBookingStatus = "confirmed" | "pending" | "completed" | "cancelled";
+export const EVENT_BOOKING_STATUSES: EventBookingStatus[] = ["confirmed", "pending", "completed", "cancelled"];
+export type EventDepositPaymentMethod = "cash" | "instapay";
+
+export interface EventBooking {
+  id: string;
+  customerName: string;
+  phoneNumber: string;
+  roomId: string | null;
+  roomName: string | null;
+  eventAt: number;
+  depositAmount: number;
+  depositPaymentMethod: EventDepositPaymentMethod;
+  description: string;
+  status: EventBookingStatus;
+  createdAt: number;
+  createdBy: string;
+}
+
 // ---------- System-wide Activity Log ("the Black Box") ----------
 // Write-Once, Read-Many — enforced by simply never providing an update or
 // delete path for this data, anywhere in the app or the backend.

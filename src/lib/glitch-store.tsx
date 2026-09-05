@@ -20,6 +20,9 @@ import type {
   AuditLogEntry,
   StaffOrder,
   StaffMember,
+  EventBooking,
+  EventBookingStatus,
+  EventDepositPaymentMethod,
   StaffAllowanceUsage,
   RestockLogEntry,
   PaymentSource,
@@ -88,14 +91,15 @@ import {
 } from "@/backend/void";
 import { getActivityLogsFn } from "@/backend/audit";
 import { submitStaffOrderFn, getStaffOrdersFn, endRoomAsStaffOrderFn, getStaffMembersFn, addStaffMemberFn, updateStaffMemberFn, deleteStaffMemberFn } from "@/backend/staffOrders";
+import { getEventBookingsFn, addEventBookingFn, updateEventBookingFn, deleteEventBookingFn } from "@/backend/bookings";
 
 export type {
   Role, StockItem, MenuItem, Room, Session, AppState, Shift, DailyReconciliation, PaymentMethod,
   RawMaterial, Supplier, RecurringExpense, LedgerEntry, VoidRequest, VoidReason, AuditLogEntry, AuditRiskLevel,
-  MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, StaffAllowanceUsage, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
+  MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, EventBooking, EventBookingStatus, EventDepositPaymentMethod, StaffAllowanceUsage, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
   WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
 } from "./types";
-export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES } from "./types";
+export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES, EVENT_BOOKING_STATUSES } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -110,6 +114,7 @@ interface State extends AppState {
   activityLogs: AuditLogEntry[];
   staffOrders: StaffOrder[];
   staffMembers: StaffMember[];
+  eventBookings: EventBooking[];
   restockLog: RestockLogEntry[];
 }
 
@@ -289,6 +294,14 @@ interface StoreContextValue {
   addStaffMember: (name: string) => Promise<{ ok: boolean; error?: string; item?: StaffMember }>;
   updateStaffMember: (id: string, patch: Partial<Pick<StaffMember, "name" | "active">>) => Promise<{ ok: boolean; error?: string }>;
   deleteStaffMember: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  refreshEventBookings: () => Promise<void>;
+  addEventBooking: (params: {
+    customerName: string; phoneNumber: string; roomId?: string; roomName?: string;
+    eventAt: number; depositAmount: number; depositPaymentMethod: EventDepositPaymentMethod;
+    description: string; status?: EventBookingStatus;
+  }) => Promise<{ ok: boolean; error?: string; item?: EventBooking }>;
+  updateEventBooking: (id: string, patch: Partial<Omit<EventBooking, "id" | "createdAt" | "createdBy">>) => Promise<{ ok: boolean; error?: string }>;
+  deleteEventBooking: (id: string) => Promise<{ ok: boolean; error?: string }>;
 
   // Cross-zone transfer & interactive split
   transferZone: (sourceId: string, targetId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
@@ -325,6 +338,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [activityLogs, setActivityLogs] = useState<AuditLogEntry[]>([]);
   const [staffOrders, setStaffOrders] = useState<StaffOrder[]>([]);
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+  const [eventBookings, setEventBookings] = useState<EventBooking[]>([]);
   const [restockLog, setRestockLog] = useState<RestockLogEntry[]>([]);
   const [wasteInvoices, setWasteInvoices] = useState<WasteInvoice[]>([]);
   const [inventorySnapshotMonths, setInventorySnapshotMonths] = useState<string[]>([]);
@@ -1248,6 +1262,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok };
     });
   };
+  const refreshEventBookings: StoreContextValue["refreshEventBookings"] = async () => {
+    setEventBookings(await getEventBookingsFn());
+  };
+  const addEventBooking: StoreContextValue["addEventBooking"] = async (params) => {
+    return withPending("addEventBooking", async () => {
+      const res = await addEventBookingFn({ data: params });
+      if (res.ok) await refreshEventBookings();
+      return { ok: res.ok, error: res.error, item: res.item };
+    });
+  };
+  const updateEventBooking: StoreContextValue["updateEventBooking"] = async (id, patch) => {
+    return withPending(`updateEventBooking:${id}`, async () => {
+      const res = await updateEventBookingFn({ data: { id, patch } });
+      if (res.ok) await refreshEventBookings();
+      return { ok: res.ok, error: res.error };
+    });
+  };
+  const deleteEventBooking: StoreContextValue["deleteEventBooking"] = async (id) => {
+    return withPending(`deleteEventBooking:${id}`, async () => {
+      const res = await deleteEventBookingFn({ data: { id } });
+      if (res.ok) await refreshEventBookings();
+      return { ok: res.ok, error: res.error };
+    });
+  };
   const submitStaffOrder: StoreContextValue["submitStaffOrder"] = async (params) => {
     return withPending("submitStaffOrder", async () => {
       try {
@@ -1431,7 +1469,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.floor(raw - pausedSoFar + (room.timeAdjustmentSec || 0)));
   };
 
-  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, staffMembers, restockLog };
+  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, staffMembers, eventBookings, restockLog };
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
@@ -1445,6 +1483,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
     submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, clearExpensesLedger, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders, refreshStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember,
+    refreshEventBookings, addEventBooking, updateEventBooking, deleteEventBooking,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };
 

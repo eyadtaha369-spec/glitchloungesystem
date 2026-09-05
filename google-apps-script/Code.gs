@@ -66,7 +66,7 @@ function initSheets() {
   state.appendRow(["key", "value"]);
   state.appendRow(["app", JSON.stringify(defaultAppState_())]);
 
-  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "StaffMembers", "StaffAllowanceUsage", "RestockLog", "BusinessDays"].forEach(function (name) {
+  ["RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger", "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders", "StaffMembers", "StaffAllowanceUsage", "RestockLog", "BusinessDays", "EventBookings"].forEach(function (name) {
     const sheet = getSheet_(name);
     sheet.clear();
     sheet.appendRow(sheetObjectHeaders_(name));
@@ -186,6 +186,7 @@ function sheetObjectHeaders_(name) {
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     StaffMembers: ["id", "name", "active"],
     StaffAllowanceUsage: ["id", "shiftId", "staffId", "teaClaimed", "coffeeClaimed"],
+    EventBookings: ["id", "customerName", "phoneNumber", "roomId", "roomName", "eventAt", "depositAmount", "depositPaymentMethod", "description", "status", "createdAt", "createdBy"],
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
     WasteInvoices: ["id", "invoiceNumber", "ts", "materialId", "materialName", "unit", "wastedQty", "reason", "reasonLabel", "note", "unitCost", "totalCost", "loggedBy", "shiftId"],
     InventorySnapshots: ["id", "month", "archivedAt", "materialId", "materialName", "unit", "category", "openingBalance", "purchasesIn", "salesWasteOut", "finalSystemBalance", "finalActualCount", "unitCost", "totalValue", "archivedBy"],
@@ -362,6 +363,7 @@ const ACTION_RISK = {
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
   ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red", WASTE_MARKETING_LOGGED: "yellow", ROOM_TIME_EXTENDED: "green",
   ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red", EXPENSES_LEDGER_CLEARED: "red",
+  EVENT_BOOKING_CREATED: "green", EVENT_BOOKING_UPDATED: "green", EVENT_BOOKING_DELETED: "yellow",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -1560,7 +1562,7 @@ function resetForProduction_(username, password) {
   }
 
   // Transactional / test data — WIPED.
-  ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "Batches", "BusinessDays"]
+  ["Sessions", "Shifts", "VoidRequests", "Ledger", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "EventBookings", "RestockLog", "Batches", "BusinessDays"]
     .forEach(function (name) { clearSheetData_(name); });
 
   // Configuration — PRESERVED (RawMaterials, Suppliers, RecurringExpenses,
@@ -1608,7 +1610,7 @@ function resetKeepingInventoryAndLedger_(username, password) {
     return { ok: false, error: "Password incorrect — reset cancelled. Nothing was deleted." };
   }
 
-  ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
+  ["Sessions", "Shifts", "VoidRequests", "ActivityLogs", "StaffOrders", "StaffAllowanceUsage", "EventBookings", "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots"]
     .forEach(function (name) { clearSheetData_(name); });
 
   const state = getState_();
@@ -3197,6 +3199,64 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_({ ok: deleteObjectById_("StaffMembers", body.id) });
 
+      case "getEventBookings":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_({ items: readObjects_("EventBookings").sort(function (a, b) { return a.eventAt - b.eventAt; }) });
+
+      case "addEventBooking": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const bookingCustomerName = (body.customerName || "").trim();
+        if (!bookingCustomerName) return json_({ ok: false, error: "Customer name is required." });
+        if (!body.eventAt) return json_({ ok: false, error: "Event date and time are required." });
+        const bookingItem = {
+          id: newId_("evt"),
+          customerName: bookingCustomerName, phoneNumber: (body.phoneNumber || "").trim(),
+          roomId: body.roomId || null, roomName: body.roomName || null,
+          eventAt: Number(body.eventAt), depositAmount: Number(body.depositAmount) || 0,
+          depositPaymentMethod: body.depositPaymentMethod || "cash",
+          description: body.description || "", status: body.status || "confirmed",
+          createdAt: Date.now(), createdBy: body.username,
+        };
+        appendObject_("EventBookings", bookingItem);
+        logActivity_({
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EVENT_BOOKING_CREATED",
+          description: body.username + " booked an event for " + bookingCustomerName + " on " + new Date(bookingItem.eventAt).toLocaleString() +
+            (bookingItem.roomName ? " in " + bookingItem.roomName : "") + (bookingItem.depositAmount > 0 ? " — " + bookingItem.depositAmount.toFixed(2) + " EGP deposit" : ""),
+          after: bookingItem,
+        });
+        return json_({ ok: true, item: bookingItem });
+      }
+
+      case "updateEventBooking": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const bookingBefore = readObjects_("EventBookings").find(function (b) { return b.id === body.id; });
+        if (!bookingBefore) return json_({ ok: false, error: "Booking not found." });
+        const updateOk = updateObjectById_("EventBookings", body.id, body.patch);
+        if (updateOk) {
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EVENT_BOOKING_UPDATED",
+            description: body.username + " updated the booking for " + bookingBefore.customerName +
+              (body.patch && body.patch.status ? " — status set to " + body.patch.status : ""),
+            before: bookingBefore, after: Object.assign({}, bookingBefore, body.patch),
+          });
+        }
+        return json_({ ok: updateOk });
+      }
+
+      case "deleteEventBooking": {
+        requireRole_(body.username, ["admin", "cashier"]);
+        const deleteBookingBefore = readObjects_("EventBookings").find(function (b) { return b.id === body.id; });
+        const deleteOk = deleteObjectById_("EventBookings", body.id);
+        if (deleteOk && deleteBookingBefore) {
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EVENT_BOOKING_DELETED",
+            description: body.username + " deleted the booking for " + deleteBookingBefore.customerName + " (" + new Date(deleteBookingBefore.eventAt).toLocaleString() + ")",
+            before: deleteBookingBefore,
+          });
+        }
+        return json_({ ok: deleteOk });
+      }
+
       case "getRecurringExpenses":
         requireRole_(body.username, ["admin"]);
         return json_({ items: readObjects_("RecurringExpenses") });
@@ -4143,7 +4203,7 @@ function batchIsUntouched_(batch) {
 const IMPORT_TABLE_NAMES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
   "VoidRequests", "ActivityLogs", "Sessions", "Shifts", "StaffOrders",
-  "StaffMembers", "StaffAllowanceUsage",
+  "StaffMembers", "StaffAllowanceUsage", "EventBookings",
   "RestockLog", "BusinessDays", "WasteInvoices", "InventorySnapshots",
   "PurchaseInvoices", "PurchaseInvoiceItems", "SupplierPayments",
 ];
