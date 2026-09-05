@@ -292,6 +292,13 @@ export const forceDeleteSupplierInvoiceFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; state?: AppState }>("forceDeleteSupplierInvoice", { ...data, username: user.username });
   });
 
+export const clearExpensesLedgerFn = createServerFn({ method: "POST" })
+  .validator((d: { confirmText: string; password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; count?: number; totalCleared?: number; state?: AppState }>("clearExpensesLedger", { ...data, username: user.username });
+  });
+
 export const updateSupplierInvoiceFn = createServerFn({ method: "POST" })
   .validator((d: {
     invoiceId: string;

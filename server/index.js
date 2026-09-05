@@ -34,7 +34,7 @@ const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
 const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_, bizForceDeleteSupplierInvoice_, bizUpdateSupplierInvoice_ } = require("./lib/procurement-edit");
-const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
+const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 const { scheduleCloudSync, getLastSyncStatus } = require("./lib/cloud-sync");
@@ -888,6 +888,23 @@ Object.assign(handlers, {
       before: paymentBefore || null,
     });
     return { ok: true, state: withStockView_(getState_()) };
+  },
+  clearExpensesLedger(body) {
+    // Admin-only, permanently deletes real financial history — same
+    // typed-confirmation-phrase + password re-auth safety level as
+    // Force Delete Invoice, since there's no undo for this.
+    requireRole_(body.username, ["admin"]);
+    if (body.confirmText !== "CLEAR LEDGER") return { ok: false, error: "Type CLEAR LEDGER exactly to confirm." };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing was cleared." };
+    const result = bizClearExpensesLedger_({ readObjects_, deleteObjectById_ });
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSES_LEDGER_CLEARED",
+      description: body.username + " cleared the entire Expenses Ledger — " + result.count + " settlement(s) totaling " + result.totalCleared.toFixed(2) + " EGP permanently deleted.",
+      before: { clearedRecords: result.clearedRecords, count: result.count, totalCleared: result.totalCleared },
+      after: { count: 0 },
+    });
+    return { ok: true, count: result.count, totalCleared: result.totalCleared, state: withStockView_(getState_()) };
   },
   exportAllData(body) {
     requireRole_(body.username, ["admin"]);

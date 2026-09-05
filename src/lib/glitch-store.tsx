@@ -80,7 +80,7 @@ import {
   submitPurchaseFn,
   submitExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
   submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
-  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
+  deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, clearExpensesLedgerFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
@@ -259,6 +259,7 @@ interface StoreContextValue {
   updatePurchase: (p: { ledgerId: string; description?: string; category?: string; supplierId?: string; qty?: number; unitCost?: number }) => Promise<{ ok: boolean; error?: string }>;
   deleteSupplierInvoice: (invoiceId: string) => Promise<{ ok: boolean; error?: string }>;
   forceDeleteSupplierInvoice: (invoiceId: string, confirmText: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  clearExpensesLedger: (confirmText: string, password: string) => Promise<{ ok: boolean; error?: string; count?: number; totalCleared?: number }>;
   updateSupplierInvoice: (params: {
     invoiceId: string; items?: { id: string; qty: number; unitPrice: number }[];
     invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
@@ -1117,6 +1118,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const clearExpensesLedger: StoreContextValue["clearExpensesLedger"] = async (confirmText, password) => {
+    return withPending("clearExpensesLedger", async () => {
+      const res = await clearExpensesLedgerFn({ data: { confirmText, password } });
+      if (res.ok && res.state) setAppState(res.state);
+      return { ok: res.ok, error: res.error, count: res.count, totalCleared: res.totalCleared };
+    });
+  };
   const updateSupplierInvoice: StoreContextValue["updateSupplierInvoice"] = async (params) => {
     return withPending(`updateSupplierInvoice:${params.invoiceId}`, async () => {
       const res = await updateSupplierInvoiceFn({ data: params });
@@ -1435,7 +1443,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, clearExpensesLedger, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders, refreshStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
   };

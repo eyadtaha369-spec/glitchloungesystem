@@ -361,7 +361,7 @@ const ACTION_RISK = {
   GEOFENCE_DENIED: "red",
   ROOM_STARTED: "green", ITEM_ADDED: "green", ITEM_QTY_CHANGED: "green", ITEM_NOTE_SET: "green",
   ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red", WASTE_MARKETING_LOGGED: "yellow", ROOM_TIME_EXTENDED: "green",
-  ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red",
+  ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red", EXPENSES_LEDGER_CLEARED: "red",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -3617,6 +3617,24 @@ function doPost(e) {
         return json_({ ok: true, state: withStockView_(getState_()) });
       }
 
+      case "clearExpensesLedger": {
+        // Admin-only, permanently deletes real financial history —
+        // same typed-confirmation-phrase + password re-auth safety
+        // level as Force Delete Invoice, since there's no undo.
+        requireRole_(body.username, ["admin"]);
+        if (body.confirmText !== "CLEAR LEDGER") return json_({ ok: false, error: "Type CLEAR LEDGER exactly to confirm." });
+        const clearAuth = login_(body.username, body.password);
+        if (!clearAuth.ok || clearAuth.role !== "admin") return json_({ ok: false, error: "Password incorrect — nothing was cleared." });
+        const clearResult = clearExpensesLedger_();
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSES_LEDGER_CLEARED",
+          description: body.username + " cleared the entire Expenses Ledger — " + clearResult.count + " settlement(s) totaling " + clearResult.totalCleared.toFixed(2) + " EGP permanently deleted.",
+          before: { clearedRecords: clearResult.clearedRecords, count: clearResult.count, totalCleared: clearResult.totalCleared },
+          after: { count: 0 },
+        });
+        return json_({ ok: true, count: clearResult.count, totalCleared: clearResult.totalCleared, state: withStockView_(getState_()) });
+      }
+
       case "getSupplierBalances":
         requireRole_(body.username, ["admin", "cashier"]);
         return json_({ balances: getSupplierBalances_() });
@@ -4023,6 +4041,31 @@ function deleteSupplierPayment_(paymentId) {
   if (payment.ledgerEntryId) deleteObjectById_("Ledger", payment.ledgerEntryId);
   deleteObjectById_("SupplierPayments", paymentId);
   return { ok: true, supplierId: payment.supplierId };
+}
+
+// Bulk clear of every settled supplier payment ever recorded.
+// Deliberately Ledger-first, not SupplierPayments-first: the Expenses
+// Ledger UI reads directly from Ledger entries with type
+// "supplierPayment", so clearing has to target that table directly to
+// guarantee nothing is left behind, even a payment record that
+// somehow has no matching SupplierPayments row. Also removes the
+// corresponding SupplierPayments row for each one, for consistency.
+// Deliberately explicit-trigger-only (never run automatically): this
+// deletes real financial history, so it exists purely as an admin
+// tool for correcting a specific known problem (payments mistakenly
+// recorded that were never actually paid), not as something that
+// runs on app launch or as part of any reset flow.
+function clearExpensesLedger_() {
+  const ledgerEntries = readObjects_("Ledger").filter(function (l) { return l.type === "supplierPayment"; });
+  const payments = readObjects_("SupplierPayments");
+  let totalCleared = 0;
+  ledgerEntries.forEach(function (l) {
+    deleteObjectById_("Ledger", l.id);
+    totalCleared += Number(l.amount) || 0;
+    const matchingPayment = payments.find(function (p) { return p.ledgerEntryId === l.id; });
+    if (matchingPayment) deleteObjectById_("SupplierPayments", matchingPayment.id);
+  });
+  return { ok: true, count: ledgerEntries.length, totalCleared: totalCleared, clearedRecords: ledgerEntries };
 }
 
 function getSupplierBalances_() {

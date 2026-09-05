@@ -188,4 +188,30 @@ function bizDeleteSupplierPayment_(deps, paymentId) {
   return { ok: true, supplierId: payment.supplierId };
 }
 
-module.exports = { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizGetSupplierBalances_, bizGetSupplierLedger_ };
+// Bulk clear of every settled supplier payment ever recorded.
+// Deliberately Ledger-first, not SupplierPayments-first: the Expenses
+// Ledger UI reads directly from Ledger entries with type
+// "supplierPayment", so clearing has to target that table directly to
+// guarantee nothing is left behind, even a payment record that
+// somehow has no matching SupplierPayments row. Also removes the
+// corresponding SupplierPayments row for each one, for consistency.
+// Deliberately explicit-trigger-only (never run automatically): this
+// deletes real financial history, so it exists purely as an admin
+// tool for correcting a specific known problem (payments mistakenly
+// recorded that were never actually paid), not as something that
+// runs on app launch or as part of any reset flow.
+function bizClearExpensesLedger_(deps) {
+  const { readObjects_, deleteObjectById_ } = deps;
+  const ledgerEntries = readObjects_("Ledger").filter((l) => l.type === "supplierPayment");
+  const payments = readObjects_("SupplierPayments");
+  let totalCleared = 0;
+  ledgerEntries.forEach((l) => {
+    deleteObjectById_("Ledger", l.id);
+    totalCleared += Number(l.amount) || 0;
+    const matchingPayment = payments.find((p) => p.ledgerEntryId === l.id);
+    if (matchingPayment) deleteObjectById_("SupplierPayments", matchingPayment.id);
+  });
+  return { ok: true, count: ledgerEntries.length, totalCleared, clearedRecords: ledgerEntries };
+}
+
+module.exports = { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_, bizGetSupplierBalances_, bizGetSupplierLedger_ };

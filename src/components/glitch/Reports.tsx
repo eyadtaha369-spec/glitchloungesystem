@@ -785,6 +785,8 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
 // whatever date happens to be selected in Total Revenue by Date.
 function MonthlyExpensesLedger() {
   const { state } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const [clearModalOpen, setClearModalOpen] = useState(false);
 
   const settlements = useMemo(
     () => state.ledger.filter((l) => l.type === "supplierPayment").sort((a, b) => b.ts - a.ts),
@@ -799,14 +801,24 @@ function MonthlyExpensesLedger() {
           <Wallet className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
           <h2 className="text-lg font-semibold">Expenses Ledger</h2>
         </div>
-        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled all-time</div>
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled all-time</div>
+          {isAdmin && settlements.length > 0 && (
+            <button
+              onClick={() => setClearModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.1)] border border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)] hover:bg-[oklch(0.62_0.24_25/0.2)]"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Clear Ledger
+            </button>
+          )}
+        </div>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
         Every deferred/credit supplier invoice or outstanding balance ever settled via Record Payment — logged
         automatically the instant it's paid. Global — never filtered by the date picker above.
       </p>
       {settlements.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settlements recorded yet.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settled supplier payments recorded yet.</div>
       ) : (
         <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
           <table className="w-full text-sm">
@@ -838,6 +850,66 @@ function MonthlyExpensesLedger() {
           </table>
         </div>
       )}
+      {clearModalOpen && (
+        <ClearExpensesLedgerModal count={settlements.length} total={total} onClose={() => setClearModalOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+function ClearExpensesLedgerModal({ count, total, onClose }: { count: number; total: number; onClose: () => void }) {
+  const { clearExpensesLedger } = useStore();
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const canSubmit = confirmText === "CLEAR LEDGER" && password.length > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await clearExpensesLedger(confirmText, password);
+      if (!res.ok) { setErr(res.error ?? "Could not clear the ledger."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.6)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Clear the entire Expenses Ledger</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Permanently deletes all {count} settlement record{count === 1 ? "" : "s"} ({fmtMoney(total)} total) from this ledger.
+          This does not affect the underlying supplier invoices or their outstanding balances — only the record that they were
+          ever paid. This can't be undone.
+        </p>
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Type CLEAR LEDGER to confirm</label>
+        <input
+          value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono mb-3"
+          placeholder="CLEAR LEDGER"
+        />
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Your admin password</label>
+        <input
+          type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+        />
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-2">{err}</div>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void handleSubmit()}
+            disabled={!canSubmit || submitting}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-40"
+          >
+            {submitting ? "Clearing..." : "Clear Ledger"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
