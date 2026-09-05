@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtDuration, fmtMoney, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
 // Stable reference (never recreated) — passing `[]` inline as a prop
@@ -119,7 +119,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   const [open, setOpen] = useState(false);
   const isActive = room.status === "active";
   const timeCost = computeTimeCost(room, elapsed);
-  const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+  const ordersCost = round2(room.orders.reduce((a, o) => a + o.qty * o.price, 0));
   const total = timeCost + ordersCost;
   const itemCount = room.orders.reduce((a, o) => a + o.qty, 0);
 
@@ -198,11 +198,24 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
 });
 
 const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckout, transferTargets, onClose }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[]; onClose: () => void }) {
-  const { state, startRoom, endRoom, endRoomAsStaffOrder, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid } = useStore();
+  const { state, startRoom, endRoom, endRoomAsStaffOrder, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid, computeElapsed } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  // Single source of truth for the entire checkout flow: the exact
+  // instant "End" is clicked, captured synchronously on the client —
+  // NOT room.pausedAt, which only gets set once the async pauseRoom
+  // request actually completes on the server, an unpredictable amount
+  // of time later. Using room.pausedAt here is exactly what let the
+  // Running Cost shown right before clicking End drift from the final
+  // bill: the live elapsed value kept ticking upward for however long
+  // that request took to round-trip, after the preview screen was
+  // already open and being read. Freezing on THIS timestamp instead,
+  // and using the SAME value for both the on-screen preview and the
+  // actual amount charged at endRoom(), makes drift structurally
+  // impossible regardless of network timing.
+  const [endClickedAt, setEndClickedAt] = useState<number | null>(null);
   const [logoReady, setLogoReady] = useState(false);
   useEffect(() => {
     const img = new Image();
@@ -233,7 +246,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [pickingRateToStart, setPickingRateToStart] = useState(false);
 
   const timeCost = computeTimeCost(room, elapsed);
-  const ordersCost = room.orders.reduce((a, o) => a + o.qty * o.price, 0);
+  const ordersCost = round2(room.orders.reduce((a, o) => a + o.qty * o.price, 0));
   const total = timeCost + ordersCost;
 
   const cardStyle = room.isVip
@@ -296,19 +309,27 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [timeSplitOpen, setTimeSplitOpen] = useState(false);
   const [timeSplitOverride, setTimeSplitOverride] = useState<{ singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number } | null>(null);
 
-  // Clicking "End" persistently pauses the room server-side (pauseRoom),
-  // which is what actually locks the bill to that exact instant — elapsed
-  // itself (computeElapsed in the store) already excludes all paused time,
-  // so it naturally stops advancing the moment the room is paused, with no
-  // separate client-side freeze needed. This holds even if the user closes
-  // the modal and comes back later, since the pause is backend-persisted.
-  const checkoutElapsed = elapsed;
-  const systemCheckoutTimeCost = (checkoutElapsed / 3600) * room.hourlyRate;
-  const checkoutTimeCost = timeSplitOverride
+  // Frozen the instant "End" was clicked (endClickedAt), not the live
+  // elapsed prop — see the comment on endClickedAt's declaration above
+  // for why relying on the room's own pausedAt (set only once the
+  // async pauseRoom request completes) let this drift from what the
+  // preview screen had already shown the cashier. Falls back to the
+  // live elapsed prop only in the brief window before End has been
+  // clicked at all (e.g. while just viewing the room, not checking out).
+  const checkoutElapsed = endClickedAt !== null ? computeElapsed(room, endClickedAt) : elapsed;
+  // Single source of truth: the exact same segment-aware formula the
+  // main Room Card uses (computeTimeCost), not a simplified
+  // current-rate-only approximation. A session that switched between
+  // Single and Multi mode partway through would otherwise show a
+  // correct, blended cost on the room card but an incorrect,
+  // current-rate-only cost here -- a real, systematic discrepancy,
+  // not just floating-point noise.
+  const systemCheckoutTimeCost = round2(computeTimeCost(room, checkoutElapsed));
+  const checkoutTimeCost = round2(timeSplitOverride
     ? (timeSplitOverride.singleHours + timeSplitOverride.singleMinutes / 60) * room.singleRate
       + (timeSplitOverride.multiHours + timeSplitOverride.multiMinutes / 60) * room.multiRate
-    : systemCheckoutTimeCost;
-  const checkoutPreDiscountTotal = checkoutTimeCost + ordersCost;
+    : systemCheckoutTimeCost);
+  const checkoutPreDiscountTotal = round2(checkoutTimeCost + ordersCost);
   const previewDiscount = (base: number, type: "fixed" | "percent", raw: string) => {
     const v = parseFloat(raw) || 0;
     if (v <= 0) return 0;
@@ -346,7 +367,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
         room.id, split, paymentOption,
         isMixed ? cashAmount : undefined,
         isMixed ? secondaryAmount : undefined,
-        room.pausedAt ?? undefined,
+        endClickedAt ?? room.pausedAt ?? undefined,
         hasManualDiscount ? {
           timeDiscountType, timeDiscountValue: parseFloat(timeDiscountInput) || 0,
           ordersDiscountType, ordersDiscountValue: parseFloat(ordersDiscountInput) || 0,
@@ -357,6 +378,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       setCheckoutOpen(false);
       setSecondaryInput(""); setPaymentOption("cash");
       setTimeSplitOverride(null);
+      setEndClickedAt(null);
       if (res.session) onCheckout(res.session);
     } finally {
       setCheckingOut(false);
@@ -368,11 +390,12 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
     if (!staffOrderName.trim()) { setCheckoutErr("Enter the staff member's name."); return; }
     setStaffOrderSubmitting(true);
     try {
-      const res = await endRoomAsStaffOrder(room.id, staffOrderName.trim(), room.pausedAt ?? undefined);
+      const res = await endRoomAsStaffOrder(room.id, staffOrderName.trim(), endClickedAt ?? room.pausedAt ?? undefined);
       if (!res.ok) { setCheckoutErr(res.error ?? "Could not close as staff order."); return; }
       setCheckoutOpen(false);
       setIsStaffOrder(false);
       setStaffOrderName("");
+      setEndClickedAt(null);
     } finally {
       setStaffOrderSubmitting(false);
     }
@@ -830,7 +853,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               </button>
             ) : (
               <button
-                onClick={() => { void pauseRoom(room.id); setCheckoutScreen("preview"); setCheckoutOpen(true); }}
+                onClick={() => { setEndClickedAt(Date.now()); void pauseRoom(room.id); setCheckoutScreen("preview"); setCheckoutOpen(true); }}
                 className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold uppercase tracking-wider text-xs hover:bg-[oklch(0.62_0.24_25/0.25)] transition"
               >
                 <Square className="w-4 h-4" /> End
@@ -995,7 +1018,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               </div>
               {room.isPaused && (
                 <button
-                  onClick={() => { void resumeRoom(room.id); setCheckoutOpen(false); }}
+                  onClick={() => { void resumeRoom(room.id); setCheckoutOpen(false); setEndClickedAt(null); }}
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[oklch(0.78_0.2_155/0.15)] border-2 border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] font-bold uppercase tracking-wide no-print"
                 >
                   <Play className="w-5 h-5" /> Resume — Not Checking Out

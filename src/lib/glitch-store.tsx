@@ -173,7 +173,7 @@ interface StoreContextValue {
   deleteMenuItem: (id: string) => Promise<void>;
   setActualCash: (n: number) => Promise<void>;
   canFulfill: (menuItemId: string, qty: number) => boolean;
-  computeElapsed: (room: Room) => number;
+  computeElapsed: (room: Room, asOf?: number) => number;
   isPending: (key: string) => boolean;
   activeShift: Shift | null;
   openShift: (openingBalance: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string }>;
@@ -1423,9 +1423,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return stk.initialStock - stk.used >= ing.qty * qty;
     });
   };
-  const computeElapsed = (room: Room) => {
+  const computeElapsed = (room: Room, asOf?: number) => {
     if (!room.startedAt || room.status !== "active") return 0;
-    const now = Date.now();
+    const now = asOf ?? Date.now();
     const raw = (now - room.startedAt) / 1000;
     const pausedSoFar = (room.pausedDurationSec || 0) + (room.isPaused && room.pausedAt ? (now - room.pausedAt) / 1000 : 0);
     return Math.max(0, Math.floor(raw - pausedSoFar + (room.timeAdjustmentSec || 0)));
@@ -1515,6 +1515,16 @@ export function computeTimeCost(room: Room, totalElapsedSec: number): number {
 export function computeCurrentSegmentElapsed(room: Room, totalElapsedSec: number): number {
   const frozenSec = (room.rateSegments || []).reduce((a, seg) => a + seg.durationSec, 0);
   return Math.max(0, totalElapsedSec - frozenSec);
+}
+// Rounds to exactly 2 decimal places immediately after computation --
+// NOT just at display time (fmtMoney below only formats for display,
+// it never changes the underlying number). Used on every monetary
+// value that feeds into a sum (room time cost, order line costs,
+// subtotals) so that individually-displayed amounts always add up
+// exactly to the total shown, with no invisible extra floating-point
+// digits causing the sum to round differently than the parts.
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 export function fmtMoney(n: number) {
   return `EGP ${n.toFixed(2)}`;
