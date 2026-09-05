@@ -37,16 +37,17 @@ function Shell() {
     img.src = receiptLogo;
   }, []);
 
-  // Dashboard is admin-only and redirects rather than showing a locked
-  // message (unlike the other admin-only views below) — a cashier should
-  // never even see a "restricted" screen here, just land straight on
-  // their actual working view instead. Covers every path that could put
-  // a cashier here: a stale view left over from being demoted mid-session,
-  // or simply the app's default initial state before any nav click. Must
-  // stay above every early return in this component — hooks can never be
-  // called conditionally.
+  // Dashboard, Procurement, Unpaid Expenses, and Leaderboard are
+  // admin-only and redirect rather than showing a locked message
+  // (unlike the other admin-only views below) — a cashier should never
+  // even see a "restricted" screen for these, just land straight on
+  // Rooms instead. Covers every path that could put a cashier here: a
+  // stale view left over from being demoted mid-session, or simply the
+  // app's default initial state before any nav click. Must stay above
+  // every early return in this component — hooks can never be called
+  // conditionally.
   useEffect(() => {
-    if (!isAdmin && view === "dashboard") setView("rooms");
+    if (!isAdmin && (view === "dashboard" || view === "procurement" || view === "unpaidExpenses" || view === "leaderboard")) setView("rooms");
   }, [isAdmin, view]);
 
   if (!ready) return null;
