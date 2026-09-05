@@ -1118,11 +1118,28 @@ function ReopenCheckModal({ session, onClose }: { session: Session; onClose: () 
 function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; sessions: Session[] }) {
   const { state } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
-  const revenue = sessions.reduce((a, s) => a + s.total, 0);
   const isOpen = !shift.closedAt;
-  const discrepancy = shift.discrepancy;
   const pendingVoids = state.voidRequests.filter((v) => v.shiftId === shift.id && v.status === "pending").length;
   const [showRecalc, setShowRecalc] = useState(false);
+
+  // Full reconciliation breakdown — every figure derived straight from
+  // this shift's own sessions/ledger, the same source data
+  // bizCloseActiveShift_ used to produce the stored expectedCash/
+  // discrepancy in the first place, so this panel can never drift from
+  // what was actually calculated at close time.
+  const grossSales = sessions.reduce((a, s) => a + s.total, 0);
+  const cashCollected = sessions.reduce((a, s) => a + s.cashAmount, 0);
+  const digitalCollected = sessions.reduce((a, s) => a + s.visaAmount + s.instapayAmount, 0);
+  const shiftLedger = state.ledger.filter((l) => l.shiftId === shift.id && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow");
+  const supplierPayments = shiftLedger.filter((l) => l.type === "supplierPayment").reduce((a, l) => a + Number(l.amount), 0);
+  const operationalExpenses = shiftLedger.filter((l) => l.type !== "supplierPayment").reduce((a, l) => a + Number(l.amount), 0);
+  const drawerOutflows = operationalExpenses + supplierPayments;
+  const expectedCash = shift.expectedCash;
+  const discrepancy = shift.discrepancy;
+  const isReconciled = discrepancy !== null && Math.abs(discrepancy) < 0.005;
+  const isShortage = discrepancy !== null && discrepancy < -0.005;
+  const isSurplus = discrepancy !== null && discrepancy > 0.005;
+
   return (
     <div className="bg-white/60 rounded-lg p-4 border border-black/8">
       <div className="flex items-center justify-between mb-2">
@@ -1137,26 +1154,66 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
       </div>
       {pendingVoids > 0 && (
         <div className="mb-2 text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded bg-[oklch(0.62_0.24_25/0.15)] text-[oklch(0.62_0.24_25)] border border-[oklch(0.62_0.24_25/0.4)] inline-block">
-          ⚠ {pendingVoids} Unapproved Discrepanc{pendingVoids > 1 ? "ies" : "y"}
+          ⚠ {pendingVoids} Unapproved Void{pendingVoids > 1 ? "s" : ""} — awaiting admin approval, not a cash discrepancy
         </div>
       )}
-      <div className="text-xs font-mono text-muted-foreground space-y-1">
+
+      <div className="text-xs font-mono text-muted-foreground space-y-1 mb-3">
         <div className="flex justify-between"><span>Opened</span><span>{new Date(shift.openedAt).toLocaleTimeString()}</span></div>
         <div className="flex justify-between"><span>Closed</span><span>{shift.closedAt ? new Date(shift.closedAt).toLocaleTimeString() : "—"}</span></div>
-        <div className="flex justify-between"><span>Opening Balance</span><span>{fmtMoney(shift.openingBalance)}</span></div>
-        <div className="flex justify-between"><span>Revenue</span><span>{fmtMoney(revenue)}</span></div>
-        {shift.expectedCash !== null && (
-          <div className="flex justify-between"><span>Expected Cash</span><span>{fmtMoney(shift.expectedCash)}</span></div>
-        )}
-        {shift.closingActualCash !== null && (
-          <div className="flex justify-between"><span>Actual Cash</span><span>{fmtMoney(shift.closingActualCash)}</span></div>
-        )}
-        {discrepancy !== null && (
-          <div className={`flex justify-between font-bold ${Math.abs(discrepancy) < 0.005 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
-            <span>Discrepancy</span><span>{fmtMoney(discrepancy)}</span>
-          </div>
-        )}
       </div>
+
+      {!isOpen && (
+        <div className="rounded-xl border border-black/10 bg-white/50 divide-y divide-black/8 text-xs font-mono mb-2">
+          {/* 1. Total Gross Sales */}
+          <div className="px-3 py-2">
+            <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">Total Gross Sales — إجمالي المبيعات</div>
+            <div className="flex justify-between font-bold"><span>Room Time + Café/Beverage Orders</span><span>{fmtMoney(grossSales)}</span></div>
+          </div>
+
+          {/* 2. Payment Channel Breakdown */}
+          <div className="px-3 py-2">
+            <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">Payment Channels — تفاصيل طرق الدفع</div>
+            <div className="flex justify-between"><span>Cash Collected</span><span>{fmtMoney(cashCollected)}</span></div>
+            <div className="flex justify-between"><span>InstaPay / Visa / Digital</span><span>{fmtMoney(digitalCollected)}</span></div>
+          </div>
+
+          {/* 3. Drawer Outflows */}
+          <div className="px-3 py-2">
+            <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">Drawer Outflows — المصروفات النقدية من الدرج</div>
+            <div className="flex justify-between"><span>Operational Expenses</span><span className="text-[oklch(0.62_0.24_25)]">−{fmtMoney(operationalExpenses)}</span></div>
+            <div className="flex justify-between"><span>Supplier Payments</span><span className="text-[oklch(0.62_0.24_25)]">−{fmtMoney(supplierPayments)}</span></div>
+          </div>
+
+          {/* 4. Final Cash Drawer Reconciliation */}
+          <div className="px-3 py-2 bg-black/[0.02]">
+            <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">Final Cash Reconciliation — تقفيل الخزينة</div>
+            <div className="flex justify-between"><span>Opening Balance (العهدة)</span><span>{fmtMoney(shift.openingBalance)}</span></div>
+            <div className="flex justify-between"><span>+ Cash Collected</span><span>{fmtMoney(cashCollected)}</span></div>
+            <div className="flex justify-between"><span>− Cash Expenses &amp; Supplier Outflows</span><span>{fmtMoney(drawerOutflows)}</span></div>
+            {expectedCash !== null && (
+              <div className="flex justify-between font-bold border-t border-black/10 mt-1 pt-1"><span>= Net Expected Cash (الصافي المتوقع)</span><span>{fmtMoney(expectedCash)}</span></div>
+            )}
+            {shift.closingActualCash !== null && (
+              <div className="flex justify-between"><span>Actual Cash (الفعلية)</span><span>{fmtMoney(shift.closingActualCash)}</span></div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!isOpen && discrepancy !== null && (
+        <div className={`flex items-center justify-between rounded-lg px-3 py-2 border font-bold text-sm ${
+          isReconciled ? "bg-[oklch(0.78_0.2_155/0.12)] border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]"
+          : isSurplus ? "bg-[oklch(0.85_0.18_85/0.2)] border-[oklch(0.85_0.18_85/0.6)] text-[oklch(0.6_0.15_85)]"
+          : "bg-[oklch(0.62_0.24_25/0.15)] border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)]"
+        }`}>
+          <span className="uppercase tracking-wide text-xs">
+            {isReconciled ? "Reconciled — العجز أو الزيادة صفر" : isSurplus ? "Surplus — زيادة" : "Deficit / Shortage — عجز"}
+          </span>
+          <span>{isReconciled ? fmtMoney(0) : `${discrepancy > 0 ? "+" : ""}${fmtMoney(discrepancy)}`}</span>
+        </div>
+      )}
+
       {isAdmin && !isOpen && (
         <button
           onClick={() => setShowRecalc(true)}
