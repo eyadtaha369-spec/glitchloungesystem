@@ -21,66 +21,66 @@ function ControllerIcon({ color, glow, stickColor, broken, size = 120 }: { color
   const gradId = `ctrl-body-${uid}`;
   const gripGradId = `ctrl-grip-${uid}`;
   const aoId = `ctrl-ao-${uid}`;
+  const padId = `ctrl-pad-${uid}`;
   // Sticks, d-pad, buttons, and center bar render as true black —
   // matching a black-and-white controller color scheme — rather than
   // a light, semi-transparent gray overlay on the body color.
   const accent = "#161616";
   const stickFill = stickColor || accent;
-
+  // Wider, flatter wing silhouette with fuller, forward-curling grip
+  // pods — closer to a modern two-stick pad's proportions than the
+  // narrower, more rounded shape this replaced.
   const body = (
-    <g transform={broken ? "rotate(-13 60 62)" : undefined} opacity={broken ? 0.5 : 1}>
-      {/* Grips — the join into the main body is now one continuous
-          curve (no straight-line segment), so the grip reads as
-          flaring naturally out of the body rather than being a
-          separately-drawn lobe stitched on at a visible seam. */}
-      <path d="M32 50 Q12 51 8 74 Q5 99 28 100 Q43 100 47 84 Q49 74 46 64 Q42 55 32 50 Z" fill={`url(#${gripGradId})`} />
-      <path d="M88 50 Q108 51 112 74 Q115 99 92 100 Q77 100 73 84 Q71 74 74 64 Q78 55 88 50 Z" fill={`url(#${gripGradId})`} />
-      {/* Soft ambient-occlusion shadow exactly where each grip tucks
-          under the main body — this is what was missing before; flat
-          shapes touching at a curve with no shadow between them read
-          as a paper cutout rather than one continuous molded surface. */}
-      <ellipse cx="38" cy="61" rx="10" ry="6" fill={`url(#${aoId})`} transform="rotate(28 38 61)" />
-      <ellipse cx="82" cy="61" rx="10" ry="6" fill={`url(#${aoId})`} transform="rotate(-28 82 61)" />
-      {/* Main body — wider, smoother wing shape */}
-      <path d="M30 44 Q60 23 90 44 Q109 54 102 69 Q96 81 79 77 Q69 74 60 74 Q51 74 41 77 Q24 81 18 69 Q11 54 30 44 Z" fill={`url(#${gradId})`} />
-      {/* Rim light along the top edge — a thin, bright stroke that
-          catches the "overhead light" the drop-shadow already implies,
-          the detail that reads as an actual lit product photo rather
-          than a silhouette with a gradient dropped on top. */}
-      <path d="M31 43.5 Q60 23.5 89 43.5" fill="none" stroke="#fff" strokeOpacity={broken ? 0.2 : 0.75} strokeWidth="1.1" strokeLinecap="round" />
+    <g transform={broken ? "rotate(-10 70 55)" : undefined} opacity={broken ? 0.5 : 1}>
+      {/* Grips — a clear waist where they meet the body, tapering to a
+          blunt, slightly inward-curled tip so they read as molded
+          handles rather than round teardrops. */}
+      <path d="M38 48 Q16 51 11 72 Q7 88 24 89 Q37 89 40 76 Q42 66 38 58 Q35 52 38 48 Z" fill={`url(#${gripGradId})`} />
+      <path d="M102 48 Q124 51 129 72 Q133 88 116 89 Q103 89 100 76 Q98 66 102 58 Q105 52 102 48 Z" fill={`url(#${gripGradId})`} />
+      {/* Ambient-occlusion where each grip tucks under the main body */}
+      <ellipse cx="43" cy="56" rx="9" ry="7" fill={`url(#${aoId})`} transform="rotate(35 43 56)" />
+      <ellipse cx="97" cy="56" rx="9" ry="7" fill={`url(#${aoId})`} transform="rotate(-35 97 56)" />
+      {/* Main body — wide, low wing */}
+      <path d="M24 40 Q38 13 70 12 Q102 13 116 40 Q128 48 121 59 Q114 69 96 65 Q82 62 70 62 Q58 62 44 65 Q26 69 19 59 Q12 48 24 40 Z" fill={`url(#${gradId})`} />
+      {/* Rim light along the top edge */}
+      <path d="M25 39 Q38 14 70 13 Q102 14 115 39" fill="none" stroke="#fff" strokeOpacity={broken ? 0.2 : 0.85} strokeWidth="1.2" strokeLinecap="round" />
       {/* Gloss highlight streak */}
-      <path d="M35 39 Q60 29.5 85 39 Q77 45.5 60 46.5 Q43 45.5 35 39 Z" fill="#fff" fillOpacity={broken ? 0.14 : 0.5} />
-      {/* Left stick — black housing, black cap, subtle specular dot */}
-      <circle cx="45" cy="59" r="10.5" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
-      <circle cx="45" cy="59" r="10.5" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.75" />
-      <circle cx="45" cy="59" r="6.8" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
-      <circle cx="45" cy="59" r="6.8" fill="none" stroke="#fff" strokeOpacity={broken ? 0.08 : 0.22} strokeWidth="0.6" />
-      <circle cx="42.6" cy="56.6" r="2.1" fill="#fff" fillOpacity="0.4" />
-      {/* Right stick */}
-      <circle cx="75" cy="59" r="10.5" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
-      <circle cx="75" cy="59" r="10.5" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.75" />
-      <circle cx="75" cy="59" r="6.8" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
-      <circle cx="75" cy="59" r="6.8" fill="none" stroke="#fff" strokeOpacity={broken ? 0.08 : 0.22} strokeWidth="0.6" />
-      <circle cx="72.6" cy="56.6" r="2.1" fill="#fff" fillOpacity="0.4" />
-      {/* D-pad */}
+      <path d="M30 33 Q70 18 110 33 Q98 42 70 43 Q42 42 30 33 Z" fill="#fff" fillOpacity={broken ? 0.14 : 0.45} />
+      {/* Touchpad */}
+      <rect x="54" y="20" width="32" height="10" rx="4" fill={`url(#${padId})`} stroke={accent} strokeOpacity={broken ? 0.2 : 0.35} strokeWidth="0.6" />
+      {/* D-pad — left of the left stick */}
       <g fill={accent} fillOpacity={broken ? 0.4 : 0.9}>
-        <rect x="25" y="45.5" width="4.2" height="13" rx="1.2" />
-        <rect x="19.5" y="51" width="15" height="4.2" rx="1.2" />
+        <rect x="28" y="41" width="4.4" height="14" rx="1.2" />
+        <rect x="22" y="47" width="16.4" height="4.4" rx="1.2" />
       </g>
-      {/* Face buttons */}
+      {/* Face buttons — right of the right stick, kept as plain dots
+          (no PlayStation glyphs) so this stays a generic pad. */}
       <g fill={accent} fillOpacity={broken ? 0.4 : 0.85}>
-        <circle cx="91" cy="45" r="2.7" />
-        <circle cx="96.5" cy="50.5" r="2.7" />
-        <circle cx="91" cy="56" r="2.7" />
-        <circle cx="85.5" cy="50.5" r="2.7" />
+        <circle cx="108" cy="40.5" r="2.9" />
+        <circle cx="114" cy="46.5" r="2.9" />
+        <circle cx="108" cy="52.5" r="2.9" />
+        <circle cx="102" cy="46.5" r="2.9" />
       </g>
-      {/* Center bar */}
-      <rect x="51" y="36.5" width="18" height="6" rx="3" fill={accent} fillOpacity={broken ? 0.35 : 0.8} />
-      <rect x="53" y="37.8" width="14" height="1.4" rx="0.7" fill="#fff" fillOpacity="0.35" />
+      {/* Left stick — black housing, colored cap, ringed grip texture */}
+      <circle cx="50" cy="55" r="12" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
+      <circle cx="50" cy="55" r="12" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.8" />
+      <circle cx="50" cy="55" r="7.6" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
+      <circle cx="50" cy="55" r="7.6" fill="none" stroke="#fff" strokeOpacity={broken ? 0.08 : 0.25} strokeWidth="0.7" />
+      <circle cx="50" cy="55" r="4.6" fill="none" stroke="#000" strokeOpacity={broken ? 0.1 : 0.3} strokeWidth="0.5" />
+      <circle cx="47.2" cy="52.2" r="2.3" fill="#fff" fillOpacity="0.42" />
+      {/* Right stick */}
+      <circle cx="90" cy="55" r="12" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
+      <circle cx="90" cy="55" r="12" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.8" />
+      <circle cx="90" cy="55" r="7.6" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
+      <circle cx="90" cy="55" r="7.6" fill="none" stroke="#fff" strokeOpacity={broken ? 0.08 : 0.25} strokeWidth="0.7" />
+      <circle cx="90" cy="55" r="4.6" fill="none" stroke="#000" strokeOpacity={broken ? 0.1 : 0.3} strokeWidth="0.5" />
+      <circle cx="87.2" cy="52.2" r="2.3" fill="#fff" fillOpacity="0.42" />
+      {/* Small center button below the touchpad */}
+      <circle cx="70" cy="34" r="2.6" fill={accent} fillOpacity={broken ? 0.3 : 0.55} />
       {broken && (
         <>
-          <path d="M60 36 L50 58 L64 61 L46 92" stroke="#141414" strokeWidth="2.2" fill="none" strokeLinecap="round" opacity="0.65" />
-          <path d="M45 58 L52 66" stroke="#141414" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.5" />
+          <path d="M70 19 L56 54 L73 58 L52 91" stroke="#141414" strokeWidth="2.3" fill="none" strokeLinecap="round" opacity="0.65" />
+          <path d="M51 54 L59 63" stroke="#141414" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.5" />
         </>
       )}
     </g>
@@ -88,7 +88,7 @@ function ControllerIcon({ color, glow, stickColor, broken, size = 120 }: { color
 
   return (
     <svg
-      viewBox="0 0 120 112" width={size} height={size * (112 / 120)}
+      viewBox="0 0 140 100" width={size} height={size * (100 / 140)}
       style={glow && !broken ? { filter: `drop-shadow(0 6px 16px ${glow})` } : { filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.12))" }}
     >
       <defs>
@@ -100,6 +100,10 @@ function ControllerIcon({ color, glow, stickColor, broken, size = 120 }: { color
         <linearGradient id={gripGradId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity={broken ? 0.65 : 0.95} />
           <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.32 : 0.16} />
+        </linearGradient>
+        <linearGradient id={padId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#000" stopOpacity={broken ? 0.12 : 0.22} />
+          <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.06 : 0.1} />
         </linearGradient>
         <radialGradient id={aoId}>
           <stop offset="0%" stopColor="#000" stopOpacity={broken ? 0.1 : 0.22} />
