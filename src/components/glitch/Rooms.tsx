@@ -16,10 +16,15 @@ import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote
 // Single, Multi, and VIP gold/white variants. useId keeps each
 // instance's gradient/filter IDs unique, since several of these
 // render on screen at once (one per room card).
-function ControllerIcon({ color, glow, broken, size = 120 }: { color: string; glow?: string; broken?: boolean; size?: number }) {
+function ControllerIcon({ color, glow, stickColor, broken, size = 120 }: { color: string; glow?: string; stickColor?: string; broken?: boolean; size?: number }) {
   const uid = useId().replace(/[:]/g, "");
   const gradId = `ctrl-body-${uid}`;
   const gripGradId = `ctrl-grip-${uid}`;
+  // Sticks, d-pad, buttons, and center bar render as true black —
+  // matching a black-and-white controller color scheme — rather than
+  // a light, semi-transparent gray overlay on the body color.
+  const accent = "#161616";
+  const stickFill = stickColor || accent;
 
   const body = (
     <g transform={broken ? "rotate(-13 60 62)" : undefined} opacity={broken ? 0.5 : 1}>
@@ -31,31 +36,31 @@ function ControllerIcon({ color, glow, broken, size = 120 }: { color: string; gl
       <path d="M30 44 Q60 24 90 44 Q108 54 102 68 Q97 80 80 76 Q69 73 60 73 Q51 73 40 76 Q23 80 18 68 Q12 54 30 44 Z" fill={`url(#${gradId})`} />
       {/* Gloss highlight streak */}
       <path d="M34 40 Q60 30 86 40 Q78 46 60 47 Q42 46 34 40 Z" fill="#fff" fillOpacity={broken ? 0.15 : 0.55} />
-      {/* Left stick */}
-      <circle cx="45" cy="58" r="10.5" fill="#000" fillOpacity="0.14" />
-      <circle cx="45" cy="58" r="10.5" fill="none" stroke="#000" strokeOpacity="0.15" strokeWidth="0.75" />
-      <circle cx="45" cy="58" r="7" fill={glow || "#e8e8e8"} />
-      <circle cx="43" cy="56" r="2.4" fill="#fff" fillOpacity="0.7" />
+      {/* Left stick — black housing, black cap, subtle specular dot */}
+      <circle cx="45" cy="58" r="10.5" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
+      <circle cx="45" cy="58" r="10.5" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.75" />
+      <circle cx="45" cy="58" r="6.8" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
+      <circle cx="43" cy="56" r="2.2" fill="#fff" fillOpacity="0.35" />
       {/* Right stick */}
-      <circle cx="75" cy="58" r="10.5" fill="#000" fillOpacity="0.14" />
-      <circle cx="75" cy="58" r="10.5" fill="none" stroke="#000" strokeOpacity="0.15" strokeWidth="0.75" />
-      <circle cx="75" cy="58" r="7" fill={glow || "#e8e8e8"} />
-      <circle cx="73" cy="56" r="2.4" fill="#fff" fillOpacity="0.7" />
+      <circle cx="75" cy="58" r="10.5" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
+      <circle cx="75" cy="58" r="10.5" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.75" />
+      <circle cx="75" cy="58" r="6.8" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
+      <circle cx="73" cy="56" r="2.2" fill="#fff" fillOpacity="0.35" />
       {/* D-pad */}
-      <g fill="#000" fillOpacity="0.28">
+      <g fill={accent} fillOpacity={broken ? 0.4 : 0.9}>
         <rect x="25" y="45" width="4.2" height="13" rx="1.2" />
         <rect x="19.5" y="50.5" width="15" height="4.2" rx="1.2" />
       </g>
       {/* Face buttons */}
-      <g fill="#000" fillOpacity="0.22">
-        <circle cx="91" cy="44.5" r="2.6" />
-        <circle cx="96.5" cy="50" r="2.6" />
-        <circle cx="91" cy="55.5" r="2.6" />
-        <circle cx="85.5" cy="50" r="2.6" />
+      <g fill={accent} fillOpacity={broken ? 0.4 : 0.85}>
+        <circle cx="91" cy="44.5" r="2.7" />
+        <circle cx="96.5" cy="50" r="2.7" />
+        <circle cx="91" cy="55.5" r="2.7" />
+        <circle cx="85.5" cy="50" r="2.7" />
       </g>
-      {/* Center touch bar */}
-      <rect x="51" y="36" width="18" height="6" rx="3" fill="#000" fillOpacity="0.18" />
-      <rect x="53" y="37.3" width="14" height="1.4" rx="0.7" fill="#fff" fillOpacity="0.4" />
+      {/* Center bar */}
+      <rect x="51" y="36" width="18" height="6" rx="3" fill={accent} fillOpacity={broken ? 0.35 : 0.8} />
+      <rect x="53" y="37.3" width="14" height="1.4" rx="0.7" fill="#fff" fillOpacity="0.35" />
       {broken && (
         <>
           <path d="M60 36 L50 58 L64 61 L46 92" stroke="#141414" strokeWidth="2.2" fill="none" strokeLinecap="round" opacity="0.65" />
@@ -300,8 +305,8 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#8fa3c9" }}>VIP Room</div>
 
             <div className="flex-1 flex items-center justify-center gap-1 my-4">
-              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#EDEDED" glow="#D4AF37" size={92} /></div>
-              <div style={{ transform: "rotate(8deg) translateX(-6px)", filter: "drop-shadow(0 0 18px #D4AF37)" }}><ControllerIcon color="#D4AF37" glow="#fff" size={92} /></div>
+              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#EDEDED" glow="rgba(212,175,55,0.55)" stickColor="#D4AF37" size={92} /></div>
+              <div style={{ transform: "rotate(8deg) translateX(-6px)", filter: "drop-shadow(0 0 18px #D4AF37)" }}><ControllerIcon color="#D4AF37" glow="rgba(255,255,255,0.4)" stickColor="#fff" size={92} /></div>
             </div>
 
             <div
