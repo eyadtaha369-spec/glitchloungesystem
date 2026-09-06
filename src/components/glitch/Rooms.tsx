@@ -431,7 +431,11 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
 
             <TiledDigits value={isActive ? elapsedLabel : "00:00:00"} dim={!isActive} />
             {isActive && (
-              <div className="mt-3 text-lg font-bold" style={{ color: "#D4AF37" }}>{fmtMoney(total)}</div>
+              <div className="mt-3 flex items-center justify-center gap-3 text-sm font-bold" style={{ color: "#D4AF37" }}>
+                <span title="Room time cost">⏱ {fmtMoney(timeCost)}</span>
+                <span className="opacity-40">·</span>
+                <span title="Orders cost">🍽 {fmtMoney(ordersCost)}</span>
+              </div>
             )}
             {!isActive && (
               <div className="mt-3 text-[10px] uppercase tracking-widest" style={{ color: "#8fa3c9" }}>Tap to begin</div>
@@ -513,7 +517,11 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         {room.isOwnerTable && <div className="mt-2 text-[9px] uppercase tracking-widest font-bold text-black text-center">Owner · 25% Off</div>}
 
         {isActive ? (
-          <div className="mt-2 text-center text-xs font-mono font-bold" style={{ color: accent }}>{fmtMoney(total)}</div>
+          <div className="mt-2 flex items-center justify-center gap-3 text-[11px] font-mono font-bold" style={{ color: accent }}>
+            <span title="Room time cost">⏱ {fmtMoney(timeCost)}</span>
+            <span className="opacity-40">·</span>
+            <span title="Orders cost">🍽 {fmtMoney(ordersCost)}</span>
+          </div>
         ) : (
           <div className="mt-2 text-center text-[10px] text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
         )}
