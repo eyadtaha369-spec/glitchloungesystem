@@ -148,6 +148,8 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
   const [receipt, setReceipt] = useState<Session | null>(null);
+  const [reopenTarget, setReopenTarget] = useState<Session | null>(null);
+  const isAdmin = state.currentUser?.role === "admin";
 
   // Memoized on state.rooms specifically (not the 1-second tick) — these
   // arrays would otherwise get a brand-new reference every second even
@@ -224,7 +226,13 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         </div>
       )}
 
-      {receipt && <ReceiptModal session={receipt} onClose={() => setReceipt(null)} />}
+      {receipt && (
+        <ReceiptModal
+          session={receipt} onClose={() => setReceipt(null)}
+          onReopen={isAdmin ? () => { setReopenTarget(receipt); setReceipt(null); } : undefined}
+        />
+      )}
+      {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
     </div>
   );
 }
@@ -1705,6 +1713,53 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
       </div>
     </div>,
     document.body,
+  );
+}
+
+export function ReopenCheckModal({ session, onClose }: { session: Session; onClose: () => void }) {
+  const { state, reopenSession } = useStore();
+  const room = state.rooms.find((r) => r.id === session.roomId);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await reopenSession(session.id);
+      if (!res.ok) { setErr(res.error ?? "Could not reopen this check"); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Reopen check #{session.orderNumber}?</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          {room?.name ?? session.roomName} will become active again with its original orders restored, and this
+          check's {fmtMoney(session.total)} is removed from past revenue totals until it's checked out again.
+          {room?.status === "active" && (
+            <span className="block mt-2 font-bold text-[oklch(0.62_0.24_25)]">
+              {room.name} currently has a different active session — this will fail until it's freed up.
+            </span>
+          )}
+        </p>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+          >
+            {submitting ? "Reopening..." : "Reopen Check"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
