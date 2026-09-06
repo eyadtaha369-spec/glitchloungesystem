@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
@@ -7,44 +7,80 @@ import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote
 
 // A generic, stylized controller silhouette (not a literal replica of
 // any specific manufacturer's product) — grips, two sticks, a d-pad
-// and face buttons, a center touch bar. Supports a "broken" variant
-// (cracked, tilted, desaturated) for the OFF card state, and a
-// color/glow prop so the same shape serves Single, Multi, and VIP
-// gold/white variants without duplicating the path data three times.
+// and face buttons, a center touch bar. Gradient-shaded for a glossy
+// plastic look (a soft top-lit body gradient plus a diagonal
+// highlight streak) rather than a flat vector fill, since a flat fill
+// reads as a cheap icon rather than a product illustration. Supports
+// a "broken" variant (cracked, tilted, desaturated) for the OFF card
+// state, and a color/glow prop so the same shape data serves the
+// Single, Multi, and VIP gold/white variants. useId keeps each
+// instance's gradient/filter IDs unique, since several of these
+// render on screen at once (one per room card).
 function ControllerIcon({ color, glow, broken, size = 120 }: { color: string; glow?: string; broken?: boolean; size?: number }) {
+  const uid = useId().replace(/[:]/g, "");
+  const gradId = `ctrl-body-${uid}`;
+  const gripGradId = `ctrl-grip-${uid}`;
+
   const body = (
-    <g transform={broken ? "rotate(-14 60 62)" : undefined} opacity={broken ? 0.55 : 1}>
-      {/* Grips */}
-      <path d="M22 58 Q10 58 10 76 Q10 96 26 96 Q36 96 40 82 L44 66 Z" fill={color} />
-      <path d="M98 58 Q110 58 110 76 Q110 96 94 96 Q84 96 80 82 L76 66 Z" fill={color} />
-      {/* Main body */}
-      <path d="M34 40 Q60 26 86 40 Q104 48 100 64 Q96 78 78 74 Q68 71 60 71 Q52 71 42 74 Q24 78 20 64 Q16 48 34 40 Z" fill={color} />
+    <g transform={broken ? "rotate(-13 60 62)" : undefined} opacity={broken ? 0.5 : 1}>
+      {/* Grips — softer, wider taper than a simple lobe, closer to how
+          a controller's grip actually flares out from the body */}
+      <path d="M28 52 Q10 54 8 74 Q6 98 28 99 Q42 99 46 84 L49 62 Q40 50 28 52 Z" fill={`url(#${gripGradId})`} />
+      <path d="M92 52 Q110 54 112 74 Q114 98 92 99 Q78 99 74 84 L71 62 Q80 50 92 52 Z" fill={`url(#${gripGradId})`} />
+      {/* Main body — wider, smoother wing shape */}
+      <path d="M30 44 Q60 24 90 44 Q108 54 102 68 Q97 80 80 76 Q69 73 60 73 Q51 73 40 76 Q23 80 18 68 Q12 54 30 44 Z" fill={`url(#${gradId})`} />
+      {/* Gloss highlight streak */}
+      <path d="M34 40 Q60 30 86 40 Q78 46 60 47 Q42 46 34 40 Z" fill="#fff" fillOpacity={broken ? 0.15 : 0.55} />
       {/* Left stick */}
-      <circle cx="46" cy="56" r="9" fill="#000" fillOpacity="0.18" />
-      <circle cx="46" cy="56" r="6.5" fill={glow || "#fff"} fillOpacity="0.9" />
+      <circle cx="45" cy="58" r="10.5" fill="#000" fillOpacity="0.14" />
+      <circle cx="45" cy="58" r="10.5" fill="none" stroke="#000" strokeOpacity="0.15" strokeWidth="0.75" />
+      <circle cx="45" cy="58" r="7" fill={glow || "#e8e8e8"} />
+      <circle cx="43" cy="56" r="2.4" fill="#fff" fillOpacity="0.7" />
       {/* Right stick */}
-      <circle cx="74" cy="56" r="9" fill="#000" fillOpacity="0.18" />
-      <circle cx="74" cy="56" r="6.5" fill={glow || "#fff"} fillOpacity="0.9" />
+      <circle cx="75" cy="58" r="10.5" fill="#000" fillOpacity="0.14" />
+      <circle cx="75" cy="58" r="10.5" fill="none" stroke="#000" strokeOpacity="0.15" strokeWidth="0.75" />
+      <circle cx="75" cy="58" r="7" fill={glow || "#e8e8e8"} />
+      <circle cx="73" cy="56" r="2.4" fill="#fff" fillOpacity="0.7" />
       {/* D-pad */}
-      <rect x="27" y="47" width="4" height="12" rx="1" fill="#000" fillOpacity="0.35" />
-      <rect x="22" y="52" width="14" height="4" rx="1" fill="#000" fillOpacity="0.35" />
+      <g fill="#000" fillOpacity="0.28">
+        <rect x="25" y="45" width="4.2" height="13" rx="1.2" />
+        <rect x="19.5" y="50.5" width="15" height="4.2" rx="1.2" />
+      </g>
       {/* Face buttons */}
-      <circle cx="90" cy="46" r="2.4" fill="#000" fillOpacity="0.3" />
-      <circle cx="95" cy="51" r="2.4" fill="#000" fillOpacity="0.3" />
-      <circle cx="90" cy="56" r="2.4" fill="#000" fillOpacity="0.3" />
-      <circle cx="85" cy="51" r="2.4" fill="#000" fillOpacity="0.3" />
-      {/* Center bar */}
-      <rect x="53" y="38" width="14" height="5" rx="2.5" fill="#000" fillOpacity="0.25" />
+      <g fill="#000" fillOpacity="0.22">
+        <circle cx="91" cy="44.5" r="2.6" />
+        <circle cx="96.5" cy="50" r="2.6" />
+        <circle cx="91" cy="55.5" r="2.6" />
+        <circle cx="85.5" cy="50" r="2.6" />
+      </g>
+      {/* Center touch bar */}
+      <rect x="51" y="36" width="18" height="6" rx="3" fill="#000" fillOpacity="0.18" />
+      <rect x="53" y="37.3" width="14" height="1.4" rx="0.7" fill="#fff" fillOpacity="0.4" />
       {broken && (
         <>
-          <path d="M60 38 L52 58 L64 60 L48 90" stroke="#1a1a1a" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.6" />
-          <circle cx="46" cy="56" r="6.5" fill="none" stroke="#1a1a1a" strokeWidth="1" opacity="0.4" />
+          <path d="M60 36 L50 58 L64 61 L46 92" stroke="#141414" strokeWidth="2.2" fill="none" strokeLinecap="round" opacity="0.65" />
+          <path d="M45 58 L52 66" stroke="#141414" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.5" />
         </>
       )}
     </g>
   );
+
   return (
-    <svg viewBox="0 0 120 110" width={size} height={size * (110 / 120)} style={glow && !broken ? { filter: `drop-shadow(0 0 18px ${glow})` } : undefined}>
+    <svg
+      viewBox="0 0 120 112" width={size} height={size * (112 / 120)}
+      style={glow && !broken ? { filter: `drop-shadow(0 6px 16px ${glow})` } : { filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.12))" }}
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={broken ? 0.7 : 1} />
+          <stop offset="55%" stopColor={color} stopOpacity={broken ? 0.6 : 0.92} />
+          <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.28 : 0.12} />
+        </linearGradient>
+        <linearGradient id={gripGradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={broken ? 0.65 : 0.95} />
+          <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.32 : 0.16} />
+        </linearGradient>
+      </defs>
       {body}
     </svg>
   );
@@ -323,17 +359,19 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           </span>
         </div>
 
-        {/* Controller illustration */}
+        {/* Controller illustration — white body, colored ambient glow
+            supplies the Single/Multi tint (per spec: "white controller
+            with a soft ambient underglow", not a colored controller). */}
         <div className="flex items-center justify-center py-3 relative" style={{ minHeight: 118 }}>
           {!isActive ? (
-            <ControllerIcon color="#B9B9B2" broken size={104} />
+            <ControllerIcon color="#D8D8D4" broken size={104} />
           ) : isMulti ? (
             <div className="flex items-center">
-              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color="#0f766e" glow={glow} size={78} /></div>
-              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color="#14b8a6" glow={glow} size={78} /></div>
+              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color="#F7F7F5" glow={glow} size={78} /></div>
+              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color="#FFFFFF" glow={glow} size={78} /></div>
             </div>
           ) : (
-            <ControllerIcon color="#16a34a" glow={glow} size={104} />
+            <ControllerIcon color="#FFFFFF" glow={glow} size={104} />
           )}
 
           {/* Floating badge under the controller(s) */}
