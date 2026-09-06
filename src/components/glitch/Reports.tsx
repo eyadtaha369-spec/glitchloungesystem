@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2 } from "lucide-react";
+import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X } from "lucide-react";
 import { ReceiptModal } from "./Rooms";
 
 // What counts as a real, same-day operational expense — used
@@ -39,6 +39,7 @@ function isOperationalExpense(l: LedgerEntry): boolean {
     l.direction === "outflow" &&
     l.type !== "sale" &&
     l.type !== "supplierPayment" &&
+    l.type !== "fixedMonthlyCost" &&
     l.category !== "Staff Consumption Expense" &&
     l.status === "approved" &&
     l.paymentStatus !== "unpaid" &&
@@ -272,6 +273,10 @@ export function ReportsPage() {
 
       {/* 1. Financial Reconciliation — top-level monthly overview */}
       <MonthlyReconciliationDashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+
+      {/* 1b. Fixed Monthly Costs — dedicated ledger, directly below
+          Financial Reconciliation per explicit request */}
+      <FixedMonthlyCostsLedger />
 
       {/* 2. Current Business Day Overview */}
       <BusinessDayPanel />
@@ -714,14 +719,17 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
     [state.ledger, monthShiftIds, monthStart, monthEnd],
   );
 
-  // Fixed recurring costs (rent, salaries, utilities, internet, etc.)
-  // are a flat monthly definition, so every currently-active one
-  // applies in full to this month's calculation — no prorating needed
-  // now that the scope is genuinely a full month again.
-  const totalFixedExpenses = useMemo(
-    () => state.recurringExpenses.filter((r) => r.active).reduce((a, r) => a + Number(r.amount), 0),
-    [state.recurringExpenses],
+  // Fixed monthly costs are now genuine, dated Ledger entries
+  // (fixedMonthlyCost type) logged via the dedicated module below,
+  // not a flat sum of RecurringExpenses config rows — this is what
+  // makes the figure change month to month rather than always
+  // reporting the same static total regardless of which month is
+  // selected.
+  const monthFixedCosts = useMemo(
+    () => filterByBusinessDay(state.ledger.filter((l) => l.type === "fixedMonthlyCost" && l.status === "approved"), monthShiftIds, monthStart, monthEnd),
+    [state.ledger, monthShiftIds, monthStart, monthEnd],
   );
+  const totalFixedExpenses = useMemo(() => monthFixedCosts.reduce((a, l) => a + Number(l.amount), 0), [monthFixedCosts]);
 
   const netProfit = totalRevenue - (totalExpenses + totalFixedExpenses);
   const isProfit = netProfit >= 0;
@@ -765,6 +773,241 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
           <div className={`text-2xl font-mono font-black mt-2 ${isProfit ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>
             {fmtMoney(netProfit)}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const FIXED_COST_CATEGORIES = ["Fixed Overhead", "Rent", "Utilities", "Internet", "Subscriptions", "Salaries", "Other"];
+
+// A dedicated ledger for actually-paid fixed monthly costs (rent,
+// utilities, internet, subscriptions) — distinct from the old
+// RecurringExpenses config list, which had no UI anywhere to
+// populate it and no date/logger per entry, only a static list of
+// templates. Every entry here is a real, dated, admin-logged payment
+// from owner revenue, explicitly outside the daily cash drawer.
+function FixedMonthlyCostsLedger() {
+  const { state, deleteFixedMonthlyCost } = useStore();
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
+
+  const entries = useMemo(
+    () => state.ledger.filter((l) => l.type === "fixedMonthlyCost").sort((a, b) => b.ts - a.ts),
+    [state.ledger],
+  );
+  const total = entries.reduce((a, l) => a + Number(l.amount), 0);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await deleteFixedMonthlyCost(deleteTarget.id);
+    setDeleteTarget(null);
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+          <h2 className="text-lg font-semibold">Fixed Monthly Costs — المصاريف الشهرية الثابتة</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} all-time</div>
+          <button
+            onClick={() => { setEditingEntry(null); setFormOpen(true); }}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.1)] border border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)] hover:bg-[oklch(0.62_0.24_25/0.2)] font-bold"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Fixed Monthly Cost
+          </button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Rent, utilities, internet, subscriptions — paid directly from owner revenue, never from the daily cashier
+        drawer. These never affect a shift's Expected Cash or count toward a drawer discrepancy.
+      </p>
+      {entries.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-8">No fixed monthly costs logged yet.</div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-auto max-h-[28rem] border border-black/8 rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pt-3 pl-3 pr-3">Date &amp; Time</th>
+                <th className="pb-2 pt-3 pr-3">Expense</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
+                <th className="pb-2 pt-3 pr-3">Category</th>
+                <th className="pb-2 pt-3 pr-3">Logged By</th>
+                <th className="pb-2 pt-3 pr-3">Payment Source</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((l) => (
+                <tr key={l.id} className="border-b border-black/5">
+                  <td className="py-2 pl-3 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
+                  <td className="py-2 pr-3 font-semibold">{l.description}</td>
+                  <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
+                  <td className="py-2 pr-3">{l.category}</td>
+                  <td className="py-2 pr-3">{l.staffUsername}</td>
+                  <td className="py-2 pr-3 text-xs uppercase">Owner Revenue</td>
+                  <td className="py-2 pr-3">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button onClick={() => { setEditingEntry(l); setFormOpen(true); }} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => setDeleteTarget(l)} title="Delete" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {formOpen && <FixedMonthlyCostFormModal entry={editingEntry} onClose={() => setFormOpen(false)} />}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setDeleteTarget(null)}>
+          <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this entry?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently removes <strong>{deleteTarget.description}</strong> ({fmtMoney(Number(deleteTarget.amount))}). This can't be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+              <button onClick={() => void confirmDelete()} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FixedMonthlyCostFormModal({ entry, onClose }: { entry: LedgerEntry | null; onClose: () => void }) {
+  const { addFixedMonthlyCost, updateFixedMonthlyCost } = useStore();
+  const isEdit = !!entry;
+  const entryDate = entry ? new Date(entry.ts) : new Date();
+
+  const [description, setDescription] = useState(entry?.description ?? "");
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : "");
+  const [category, setCategory] = useState(entry?.category ?? "Fixed Overhead");
+  const [date, setDate] = useState(entryDate.toISOString().slice(0, 10));
+  const [time, setTime] = useState(`${String(entryDate.getHours()).padStart(2, "0")}:${String(entryDate.getMinutes()).padStart(2, "0")}`);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    if (!description.trim()) { setErr("Expense description is required."); return; }
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { setErr("Amount must be greater than zero."); return; }
+    const ts = new Date(`${date}T${time}`).getTime();
+    if (Number.isNaN(ts)) { setErr("Invalid date/time."); return; }
+
+    setSubmitting(true);
+    try {
+      if (isEdit && entry) {
+        const res = await updateFixedMonthlyCost(entry.id, { description: description.trim(), amount: amt, category, ts });
+        if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
+      } else {
+        const res = await addFixedMonthlyCost({ description: description.trim(), amount: amt, category, notes: notes.trim() || undefined, ts });
+        if (!res.ok) { setErr(res.error ?? "Could not log this expense."); return; }
+      }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-lg max-h-[90vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-black/8 shrink-0">
+          <h3 className="text-lg font-bold">{isEdit ? "Edit Fixed Monthly Cost" : "Add Fixed Monthly Cost"}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Expense Name / Description</label>
+            <input
+              value={description} onChange={(e) => setDescription(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+              placeholder="e.g. إيجار المحل / فاتورة الكهرباء"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount (EGP)</label>
+              <input
+                type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Category</label>
+              <select
+                value={category} onChange={(e) => setCategory(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+              >
+                {FIXED_COST_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Date</label>
+              <input
+                type="date" value={date} onChange={(e) => setDate(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Time</label>
+              <input
+                type="time" value={time} onChange={(e) => setTime(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+              />
+            </div>
+          </div>
+
+          {!isEdit && (
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Notes (optional)</label>
+              <textarea
+                value={notes} onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm resize-none"
+                placeholder="Any extra detail worth keeping with this entry"
+              />
+            </div>
+          )}
+
+          <div className="text-xs text-muted-foreground bg-black/[0.03] rounded-lg px-3 py-2">
+            Payment Source: <strong>Owner Revenue</strong> — this is always paid outside the daily cash drawer and never affects a shift's Expected Cash.
+          </div>
+
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+        </div>
+
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/8 shrink-0">
+          <button onClick={onClose} disabled={submitting} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-5 py-2.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-50"
+          >
+            {submitting ? "Saving..." : isEdit ? "Save Changes" : "Log Expense"}
+          </button>
         </div>
       </div>
     </div>

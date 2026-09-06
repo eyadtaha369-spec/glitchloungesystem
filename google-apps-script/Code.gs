@@ -364,6 +364,7 @@ const ACTION_RISK = {
   ROOM_PAUSED: "green", ROOM_RESUMED: "green", BUSINESS_DAY_CLOSED: "yellow", PRODUCTION_RESET: "red", WASTE_MARKETING_LOGGED: "yellow", ROOM_TIME_EXTENDED: "green",
   ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red", EXPENSES_LEDGER_CLEARED: "red",
   EVENT_BOOKING_CREATED: "green", EVENT_BOOKING_UPDATED: "green", EVENT_BOOKING_DELETED: "yellow",
+  FIXED_MONTHLY_COST_LOGGED: "green", FIXED_MONTHLY_COST_UPDATED: "yellow", FIXED_MONTHLY_COST_DELETED: "yellow",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -3284,6 +3285,62 @@ function doPost(e) {
       case "deleteRecurringExpense":
         requireRole_(body.username, ["admin"]);
         return json_({ ok: deleteObjectById_("RecurringExpenses", body.id) });
+
+      case "addFixedMonthlyCost": {
+        requireRole_(body.username, ["admin"]);
+        const fixedCostDescription = (body.description || "").trim();
+        if (!fixedCostDescription) return json_({ ok: false, error: "Expense description is required." });
+        if (!body.amount || Number(body.amount) <= 0) return json_({ ok: false, error: "Amount must be greater than zero." });
+        const fixedCostItem = {
+          id: newId_("ledg"), ts: body.ts || Date.now(), amount: Number(body.amount), direction: "outflow",
+          type: "fixedMonthlyCost", category: body.category || "Fixed Overhead",
+          description: fixedCostDescription + (body.notes ? " — " + body.notes : ""),
+          supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+          paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
+          paymentSource: "owner_revenue",
+        };
+        appendObject_("Ledger", fixedCostItem);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_LOGGED",
+          description: body.username + " logged a fixed monthly cost: " + fixedCostDescription + " — " + Number(body.amount).toFixed(2) + " EGP (owner revenue, outside drawer)",
+          after: fixedCostItem,
+        });
+        return json_({ ok: true, item: fixedCostItem });
+      }
+
+      case "updateFixedMonthlyCost": {
+        requireRole_(body.username, ["admin"]);
+        const fixedCostBefore = readObjects_("Ledger").find(function (l) { return l.id === body.id && l.type === "fixedMonthlyCost"; });
+        if (!fixedCostBefore) return json_({ ok: false, error: "Entry not found." });
+        const fixedCostSafePatch = {};
+        if (body.patch && body.patch.description !== undefined) fixedCostSafePatch.description = body.patch.description;
+        if (body.patch && body.patch.amount !== undefined) fixedCostSafePatch.amount = Number(body.patch.amount);
+        if (body.patch && body.patch.category !== undefined) fixedCostSafePatch.category = body.patch.category;
+        if (body.patch && body.patch.ts !== undefined) fixedCostSafePatch.ts = Number(body.patch.ts);
+        const fixedCostUpdateOk = updateObjectById_("Ledger", body.id, fixedCostSafePatch);
+        if (fixedCostUpdateOk) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_UPDATED",
+            description: body.username + " updated a fixed monthly cost entry",
+            before: fixedCostBefore, after: Object.assign({}, fixedCostBefore, fixedCostSafePatch),
+          });
+        }
+        return json_({ ok: fixedCostUpdateOk });
+      }
+
+      case "deleteFixedMonthlyCost": {
+        requireRole_(body.username, ["admin"]);
+        const deleteFixedCostBefore = readObjects_("Ledger").find(function (l) { return l.id === body.id && l.type === "fixedMonthlyCost"; });
+        const deleteFixedCostOk = deleteObjectById_("Ledger", body.id);
+        if (deleteFixedCostOk && deleteFixedCostBefore) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_DELETED",
+            description: body.username + " deleted a fixed monthly cost entry: " + deleteFixedCostBefore.description + " — " + Number(deleteFixedCostBefore.amount).toFixed(2) + " EGP",
+            before: deleteFixedCostBefore,
+          });
+        }
+        return json_({ ok: deleteFixedCostOk });
+      }
 
       // Admin logs an actual payment of a recurring expense (rent paid this
       // month, etc). Always auto-approved — this isn't a cashier-facing

@@ -1359,6 +1359,74 @@ Object.assign(handlers, {
     requireRole_(body.username, ["admin"]);
     return { ok: deleteObjectById_("RecurringExpenses", body.id) };
   },
+  // A genuine, dated ledger entry for an actually-paid fixed monthly
+  // cost (rent, utilities, subscriptions) -- distinct from
+  // RecurringExpenses above, which is just a static list of recurring
+  // expense templates with no date, no logger, and no way to log an
+  // individual month's actual payment. paidFromDrawer is explicitly
+  // false and never settable by the caller: these are paid from owner
+  // revenue, outside the daily cashier drawer entirely, and must never
+  // affect a shift's Expected Cash or read as a drawer discrepancy —
+  // that deduction at shift close already filters on paidFromDrawer,
+  // so this is what keeps these two concepts structurally separate
+  // rather than relying on every future caller remembering to exclude
+  // this type by name.
+  addFixedMonthlyCost(body) {
+    requireRole_(body.username, ["admin"]);
+    const description = (body.description || "").trim();
+    if (!description) return { ok: false, error: "Expense description is required." };
+    if (!body.amount || Number(body.amount) <= 0) return { ok: false, error: "Amount must be greater than zero." };
+    const item = {
+      id: newId_("ledg"), ts: body.ts || Date.now(), amount: Number(body.amount), direction: "outflow",
+      type: "fixedMonthlyCost", category: body.category || "Fixed Overhead",
+      description: description + (body.notes ? " — " + body.notes : ""),
+      supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+      paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
+      paymentSource: "owner_revenue",
+    };
+    appendObject_("Ledger", item);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_LOGGED",
+      description: body.username + " logged a fixed monthly cost: " + description + " — " + Number(body.amount).toFixed(2) + " EGP (owner revenue, outside drawer)",
+      after: item,
+    });
+    return { ok: true, item };
+  },
+  updateFixedMonthlyCost(body) {
+    requireRole_(body.username, ["admin"]);
+    const before = readObjects_("Ledger").find((l) => l.id === body.id && l.type === "fixedMonthlyCost");
+    if (!before) return { ok: false, error: "Entry not found." };
+    // paidFromDrawer, type, and paymentSource are never patchable here —
+    // this action only ever edits the describable fields of an
+    // existing fixed-cost entry, never what fundamentally classifies it.
+    const safePatch = {};
+    if (body.patch?.description !== undefined) safePatch.description = body.patch.description;
+    if (body.patch?.amount !== undefined) safePatch.amount = Number(body.patch.amount);
+    if (body.patch?.category !== undefined) safePatch.category = body.patch.category;
+    if (body.patch?.ts !== undefined) safePatch.ts = Number(body.patch.ts);
+    const ok = updateObjectById_("Ledger", body.id, safePatch);
+    if (ok) {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_UPDATED",
+        description: body.username + " updated a fixed monthly cost entry",
+        before, after: Object.assign({}, before, safePatch),
+      });
+    }
+    return { ok };
+  },
+  deleteFixedMonthlyCost(body) {
+    requireRole_(body.username, ["admin"]);
+    const before = readObjects_("Ledger").find((l) => l.id === body.id && l.type === "fixedMonthlyCost");
+    const ok = deleteObjectById_("Ledger", body.id);
+    if (ok && before) {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_DELETED",
+        description: body.username + " deleted a fixed monthly cost entry: " + before.description + " — " + Number(before.amount).toFixed(2) + " EGP",
+        before,
+      });
+    }
+    return { ok };
+  },
 
   // ---- Accounts ----
   getAccounts(body) {

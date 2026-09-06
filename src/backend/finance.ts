@@ -299,6 +299,27 @@ export const clearExpensesLedgerFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; count?: number; totalCleared?: number; state?: AppState }>("clearExpensesLedger", { ...data, username: user.username });
   });
 
+export const addFixedMonthlyCostFn = createServerFn({ method: "POST" })
+  .validator((d: { description: string; amount: number; category?: string; notes?: string; ts?: number }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; item?: LedgerEntry }>("addFixedMonthlyCost", { ...data, username: user.username });
+  });
+
+export const updateFixedMonthlyCostFn = createServerFn({ method: "POST" })
+  .validator((d: { id: string; patch: { description?: string; amount?: number; category?: string; ts?: number } }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string }>("updateFixedMonthlyCost", { ...data, username: user.username });
+  });
+
+export const deleteFixedMonthlyCostFn = createServerFn({ method: "POST" })
+  .validator((d: { id: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string }>("deleteFixedMonthlyCost", { ...data, username: user.username });
+  });
+
 export const updateSupplierInvoiceFn = createServerFn({ method: "POST" })
   .validator((d: {
     invoiceId: string;

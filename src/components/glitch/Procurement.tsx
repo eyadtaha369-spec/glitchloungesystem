@@ -1361,7 +1361,7 @@ function PurchaseHistory() {
                     <td className="py-2 px-2 font-semibold">{material?.name ?? e.materialId ?? e.description ?? e.category}</td>
                     <td className="py-2 px-2 text-right font-mono">{e.qty ?? "—"} {material?.unit}</td>
                     <td className="py-2 px-2 text-right font-mono">{e.unitCost != null ? fmtMoney(e.unitCost) : "—"}</td>
-                    <td className="py-2 px-2 text-xs">{e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource] : "—"}</td>
+                    <td className="py-2 px-2 text-xs">{e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource as PaymentSource] : "—"}</td>
                     <td className="py-2 px-2 text-xs">{e.staffUsername}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{fmtMoney(e.amount)}</td>
                     <td className="py-2 px-2 text-right">
@@ -1540,7 +1540,7 @@ function ReportModal({ entries, materials, onClose }: {
   const total = filtered.reduce((a, e) => a + e.amount, 0);
   const bySource = { cash_drawer: 0, out_of_pocket: 0, bank_transfer: 0, unspecified: 0 };
   filtered.forEach((e) => {
-    if (e.paymentSource) bySource[e.paymentSource] += e.amount;
+    if (e.paymentSource) bySource[e.paymentSource as PaymentSource] += e.amount;
     else bySource.unspecified += e.amount;
   });
 
@@ -1580,7 +1580,7 @@ function ReportModal({ entries, materials, onClose }: {
         <td>${m?.name ?? e.materialId ?? ""}</td>
         <td>${e.qty ?? ""} ${m?.unit ?? ""}</td>
         <td>${(e.unitCost ?? 0).toFixed(2)} EGP</td>
-        <td>${e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource] : "—"}</td>
+        <td>${e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource as PaymentSource] : "—"}</td>
         <td>${e.staffUsername}</td>
         <td>${e.amount.toFixed(2)} EGP</td>
       </tr>`;
@@ -1598,7 +1598,7 @@ function ReportModal({ entries, materials, onClose }: {
       const m = materials.find((mm) => mm.id === e.materialId);
       return [
         new Date(e.ts).toLocaleString(), m?.name ?? e.materialId ?? "", e.qty ?? "", (e.unitCost ?? 0).toFixed(2),
-        e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource] : "", e.staffUsername, e.amount.toFixed(2),
+        e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource as PaymentSource] : "", e.staffUsername, e.amount.toFixed(2),
       ];
     });
     const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");

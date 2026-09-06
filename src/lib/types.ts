@@ -397,7 +397,8 @@ export type LedgerType =
   | "recurringExpense"
   | "manualAdjustment"
   | "supplierInvoice"
-  | "supplierPayment";
+  | "supplierPayment"
+  | "fixedMonthlyCost";
 export type LedgerStatus = "approved" | "pending" | "rejected";
 export type LedgerDirection = "inflow" | "outflow";
 
@@ -420,7 +421,7 @@ export interface LedgerEntry {
   // (owner/staff personal expense, no till effect) from "Bank Transfer"
   // (digital payment, also no till effect) so reporting can break out
   // Till vs Personal vs Digital separately, not just drawer-or-not.
-  paymentSource: PaymentSource | null;
+  paymentSource: PaymentSource | "owner_revenue" | null;
   shiftId: string | null;
   materialId: string | null;
   qty: number | null;
