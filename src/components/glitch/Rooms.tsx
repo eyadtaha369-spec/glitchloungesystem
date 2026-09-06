@@ -262,6 +262,13 @@ function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 56 }: { name: string
   // haven't had a real photo uploaded through the app yet.
   const avatarUrl = uploadedUrl || OWNER_TABLE_AVATARS[key];
   const [failed, setFailed] = useState(false);
+  // Without this, once an <img> load fails once (e.g. an earlier,
+  // now-fixed URL format that never actually worked), failed stays
+  // true forever for this component instance -- a brand new, valid
+  // avatarUrl uploaded afterward would never even get a chance to
+  // load, since the fallback branch below short-circuits before the
+  // <img> ever renders again. Re-arm on every actual URL change.
+  useEffect(() => { setFailed(false); }, [avatarUrl]);
 
   if (avatarUrl && !failed) {
     return (
