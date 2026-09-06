@@ -54,6 +54,7 @@ import {
   markOrdersPrintedToKitchenFn,
   setRoomRateFn,
   renameRoomFn,
+  setRoomAvatarFn,
   addMenuItemFn,
   updateMenuItemFn,
   deleteMenuItemFn,
@@ -155,6 +156,7 @@ interface StoreContextValue {
   deleteAccount: (username: string) => Promise<void>;
   setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
   renameRoom: (roomId: string, name: string) => Promise<{ ok: boolean; error?: string }>;
+  setRoomAvatar: (roomId: string, avatarBase64: string, avatarMimeType: string) => Promise<{ ok: boolean; error?: string }>;
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number, discount?: { timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number; ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number }, timeSplitOverride?: { singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number }) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -557,6 +559,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Rename failed unexpectedly." };
+      }
+    });
+  };
+  const setRoomAvatar: StoreContextValue["setRoomAvatar"] = async (roomId, avatarBase64, avatarMimeType) => {
+    return withPending(`setRoomAvatar:${roomId}`, async () => {
+      try {
+        const res = await setRoomAvatarFn({ data: { roomId, avatarBase64, avatarMimeType } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Photo upload failed unexpectedly." };
       }
     });
   };
@@ -1500,7 +1513,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
+    setRoomRate, renameRoom, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,

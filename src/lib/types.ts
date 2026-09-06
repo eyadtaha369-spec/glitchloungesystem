@@ -117,6 +117,11 @@ export interface Room {
   // Owners Tables: lounge tables flagged for an automatic 25% discount on
   // every checkout/split against them.
   isOwnerTable: boolean;
+  // Custom uploaded face photo for an Owner Table, set via the admin
+  // upload UI (Change Photo in the room detail modal) -- takes
+  // priority over the static OWNER_TABLE_AVATARS name-based mapping
+  // when present.
+  avatarUrl?: string | null;
 }
 
 export interface Session {

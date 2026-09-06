@@ -1,9 +1,9 @@
-import { memo, useEffect, useId, useMemo, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
-import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
+import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2 } from "lucide-react";
 
 // A generic, stylized controller silhouette (not a literal replica of
 // any specific manufacturer's product) — grips, two sticks, a d-pad
@@ -255,9 +255,12 @@ const OWNER_TABLE_AVATARS: Record<string, string> = {
   "3omda": "/assets/avatars/3omda.jpg",
 };
 
-function OwnerAvatar({ name, size = 32 }: { name: string; size?: number }) {
+function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 32 }: { name: string; avatarUrl?: string | null; size?: number }) {
   const key = name.trim().toLowerCase();
-  const avatarUrl = OWNER_TABLE_AVATARS[key];
+  // An admin-uploaded photo always wins over the static name-based
+  // mapping — that mapping exists only as a fallback for tables that
+  // haven't had a real photo uploaded through the app yet.
+  const avatarUrl = uploadedUrl || OWNER_TABLE_AVATARS[key];
   const [failed, setFailed] = useState(false);
 
   if (avatarUrl && !failed) {
@@ -315,7 +318,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2 min-w-0">
               {room.isOwnerTable ? (
-                <OwnerAvatar name={room.name} />
+                <OwnerAvatar name={room.name} avatarUrl={room.avatarUrl} />
               ) : room.isVip ? (
                 <Crown className="w-6 h-6 text-black shrink-0" />
               ) : (
@@ -491,7 +494,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
 });
 
 const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckout, transferTargets, onClose }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[]; onClose: () => void }) {
-  const { state, startRoom, endRoom, endRoomAsStaffOrder, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, canFulfill, requestVoid, computeElapsed } = useStore();
+  const { state, startRoom, endRoom, endRoomAsStaffOrder, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, addOrder, setOrderLineQty, setOrderLineNote, setRoomRate, renameRoom, setRoomAvatar, canFulfill, requestVoid, computeElapsed } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [split, setSplit] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -528,6 +531,30 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [multiRateInput, setMultiRateInput] = useState(String(room.multiRate));
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(room.name);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFileSelected = async (file: File) => {
+    setAvatarError(null);
+    if (!file.type.startsWith("image/")) { setAvatarError("Please choose an image file."); return; }
+    if (file.size > 5 * 1024 * 1024) { setAvatarError("Photo is too large — please choose one under 5MB."); return; }
+    setAvatarUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+        reader.onerror = () => reject(new Error("Could not read the selected file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await setRoomAvatar(room.id, base64, file.type);
+      if (!res.ok) setAvatarError(res.error ?? "Could not upload the photo.");
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : "Could not upload the photo.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
   const [voidTarget, setVoidTarget] = useState<{ menuItemId: string; name: string; maxQty: number } | null>(null);
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState("");
@@ -700,11 +727,34 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
-          {room.isVip ? (
+          {room.isOwnerTable ? (
+            <button
+              onClick={() => isAdmin && !avatarUploading && avatarFileInputRef.current?.click()}
+              disabled={!isAdmin || avatarUploading}
+              className="relative shrink-0 group/avatar disabled:cursor-default"
+              title={isAdmin ? "Click to change photo" : undefined}
+            >
+              <OwnerAvatar name={room.name} avatarUrl={room.avatarUrl} size={28} />
+              {isAdmin && (
+                <span className="absolute inset-0 rounded-full bg-black/0 group-hover/avatar:bg-black/40 flex items-center justify-center transition-colors">
+                  <Edit2 className="w-3 h-3 text-white opacity-0 group-hover/avatar:opacity-100 transition-opacity" />
+                </span>
+              )}
+              {avatarUploading && (
+                <span className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
+                  <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                </span>
+              )}
+            </button>
+          ) : room.isVip ? (
             <Crown className="w-5 h-5 text-black shrink-0" />
           ) : (
             <Gamepad2 className="w-5 h-5 text-[oklch(0.7_0.19_260)] shrink-0" />
           )}
+          <input
+            ref={avatarFileInputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const file = e.target.files?.[0]; if (file) void handleAvatarFileSelected(file); e.target.value = ""; }}
+          />
           {editingName ? (
             <div className="flex items-center gap-1.5 min-w-0">
               <input
@@ -759,6 +809,12 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           </button>
         </div>
       </div>
+
+      {avatarError && (
+        <div className="mt-2 text-xs text-[oklch(0.62_0.24_25)] bg-[oklch(0.62_0.24_25/0.08)] border border-[oklch(0.62_0.24_25/0.3)] rounded-lg px-3 py-1.5">
+          {avatarError}
+        </div>
+      )}
 
       {room.isPaused && (
         <div className="mt-2 text-[10px] uppercase tracking-widest text-black font-mono" dir="rtl">

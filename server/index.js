@@ -476,6 +476,25 @@ Object.assign(handlers, {
     });
     return { ok: true, state: withStockView_(result.state) };
   },
+  // Reuses the same local-upload mechanism already used for receipts —
+  // saves the photo as a static file and stores its URL directly on
+  // the room, in the appState blob (rooms have no separate table, so
+  // this needs no schema change on either backend).
+  setRoomAvatar(body) {
+    requireRole_(body.username, ["admin"]);
+    if (!body.avatarBase64) return { ok: false, error: "No photo provided." };
+    const state0 = getState_();
+    const room = state0.rooms.find((r) => r.id === body.roomId);
+    if (!room) return { ok: false, error: "Room not found." };
+    const avatarUrl = saveReceiptLocally_(body.avatarBase64, "avatar-" + body.roomId + "-" + Date.now() + ".jpg");
+    room.avatarUrl = avatarUrl;
+    setState_(state0);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "ROOM_AVATAR_UPDATED",
+      location: room.name, description: body.username + " updated the profile photo for " + room.name,
+    });
+    return { ok: true, avatarUrl, state: withStockView_(state0) };
+  },
 
   logWasteMarketing(body) {
     requireRole_(body.username, ["admin", "cashier"]);

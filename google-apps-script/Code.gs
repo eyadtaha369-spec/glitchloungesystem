@@ -365,6 +365,7 @@ const ACTION_RISK = {
   ORDER_ITEM_TRANSFERRED: "red", SESSION_TIME_SPLIT_ADJUSTED: "red", EXPENSES_LEDGER_CLEARED: "red",
   EVENT_BOOKING_CREATED: "green", EVENT_BOOKING_UPDATED: "green", EVENT_BOOKING_DELETED: "yellow",
   FIXED_MONTHLY_COST_LOGGED: "green", FIXED_MONTHLY_COST_UPDATED: "yellow", FIXED_MONTHLY_COST_DELETED: "yellow",
+  ROOM_AVATAR_UPDATED: "green",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -2269,6 +2270,23 @@ function doPost(e) {
         });
         return json_({ ok: true, state: withStockView_(result.state) });
       }
+
+      case "setRoomAvatar": {
+        requireRole_(body.username, ["admin"]);
+        if (!body.avatarBase64) return json_({ ok: false, error: "No photo provided." });
+        const avatarState = getState_();
+        const avatarRoom = avatarState.rooms.find(function (r) { return r.id === body.roomId; });
+        if (!avatarRoom) return json_({ ok: false, error: "Room not found." });
+        const avatarUrl = uploadReceipt_(body.avatarBase64, body.avatarMimeType, "avatar-" + body.roomId + "-" + Date.now() + ".jpg");
+        avatarRoom.avatarUrl = avatarUrl;
+        setState_(avatarState);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "ROOM_AVATAR_UPDATED",
+          location: avatarRoom.name, description: body.username + " updated the profile photo for " + avatarRoom.name,
+        });
+        return json_({ ok: true, avatarUrl: avatarUrl, state: withStockView_(avatarState) });
+      }
+
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
         const result = bizStartRoom_(getState_(), body.roomId, body.rateMode);
