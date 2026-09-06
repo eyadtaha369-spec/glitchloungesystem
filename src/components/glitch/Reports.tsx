@@ -926,8 +926,8 @@ function FixedMonthlyCostFormModal({ entry, onClose }: { entry: LedgerEntry | nu
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
-      <div className="w-full max-w-lg max-h-[90vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[200] flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-lg max-h-[85vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)] my-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/8 shrink-0">
           <h3 className="text-lg font-bold">{isEdit ? "Edit Fixed Monthly Cost" : "Add Fixed Monthly Cost"}</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-5 h-5" /></button>
