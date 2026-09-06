@@ -242,6 +242,49 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 // (elapsed time, running cost). Every other control (order management,
 // pause/resume, split, transfer, KOT, checkout) lives one click away in
 // RoomDetailModal, not cluttering the grid.
+// Maps an Owner Table's name to a custom face photo. Keyed by the
+// lowercased, trimmed room name, so renaming an owner table to match
+// a new mapping (or adding a new mapping for an existing table's
+// current name) just works without touching any component code.
+// Drop a real photo at the given path (e.g. in the public/ folder,
+// or wherever this app's build serves static assets from) and it
+// renders automatically; until then, or for any name with no entry
+// here, OwnerAvatar below falls back to a styled initials avatar.
+const OWNER_TABLE_AVATARS: Record<string, string> = {
+  "abdelrazek": "/assets/avatars/abdelrazek.jpg",
+  "3omda": "/assets/avatars/3omda.jpg",
+};
+
+function OwnerAvatar({ name, size = 32 }: { name: string; size?: number }) {
+  const key = name.trim().toLowerCase();
+  const avatarUrl = OWNER_TABLE_AVATARS[key];
+  const [failed, setFailed] = useState(false);
+
+  if (avatarUrl && !failed) {
+    return (
+      <img
+        src={avatarUrl} alt={name}
+        onError={() => setFailed(true)}
+        className="w-8 h-8 rounded-full object-cover border border-amber-500/30 shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  // Fallback: styled initials avatar — same size/shape/border as the
+  // real-photo case, so a table without a mapped photo yet still
+  // fits cleanly into the same row layout, not a jarring size jump
+  // once a real photo is later added.
+  const initials = name.trim().slice(0, 2).toUpperCase();
+  return (
+    <div
+      className="w-8 h-8 rounded-full border border-amber-500/30 bg-gradient-to-br from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+      style={{ width: size, height: size }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
   const [open, setOpen] = useState(false);
   const isActive = room.status === "active";
@@ -271,7 +314,13 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2 min-w-0">
-              {room.isVip ? <Crown className="w-6 h-6 text-black shrink-0" /> : <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />}
+              {room.isOwnerTable ? (
+                <OwnerAvatar name={room.name} />
+              ) : room.isVip ? (
+                <Crown className="w-6 h-6 text-black shrink-0" />
+              ) : (
+                <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />
+              )}
               <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
             </div>
             <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border ${isActive ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]" : "bg-black/5 text-muted-foreground border-black/10"}`}>
