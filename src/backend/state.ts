@@ -134,10 +134,10 @@ export const renameRoomFn = createServerFn({ method: "POST" })
   });
 
 export const setRoomAvatarFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; avatarBase64: string; avatarMimeType: string }) => d)
+  .validator((d: { roomId: string; avatarDataUrl: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    return callAppsScript<{ ok: boolean; error?: string; avatarUrl?: string; state: AppState }>("setRoomAvatar", { ...data, username: user.username });
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("setRoomAvatar", { ...data, username: user.username });
   });
 
 // NOTE: raw stock is no longer edited directly here. It's a computed view

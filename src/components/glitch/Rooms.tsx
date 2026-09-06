@@ -535,22 +535,51 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Resizes and center-crops to a small square thumbnail before ever
+  // reading it as base64 — keeps the resulting data URI small (a
+  // typical phone photo can be several MB; this brings it down to
+  // roughly 15-40KB regardless of the original size) and square,
+  // matching how it's actually displayed (a circle crops from a
+  // square, not an arbitrary aspect ratio). Stored directly on the
+  // room object as a data: URI rather than uploaded anywhere — this
+  // sidesteps Google Drive's sharing-link format entirely, which
+  // turned out to be unreliable for direct <img> embedding regardless
+  // of which URL format was used to construct it. A data: URI always
+  // renders correctly in an <img> tag, with no external hosting or
+  // permissions involved at all.
+  const resizeToSquareDataUrl = (file: File, targetSize = 200): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("Could not process this image.")); return; }
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, targetSize, targetSize);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Could not read the selected file.")); };
+      img.src = objectUrl;
+    });
+  };
+
   const handleAvatarFileSelected = async (file: File) => {
     setAvatarError(null);
     if (!file.type.startsWith("image/")) { setAvatarError("Please choose an image file."); return; }
-    if (file.size > 5 * 1024 * 1024) { setAvatarError("Photo is too large — please choose one under 5MB."); return; }
+    if (file.size > 8 * 1024 * 1024) { setAvatarError("Photo is too large — please choose one under 8MB."); return; }
     setAvatarUploading(true);
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-        reader.onerror = () => reject(new Error("Could not read the selected file."));
-        reader.readAsDataURL(file);
-      });
-      const res = await setRoomAvatar(room.id, base64, file.type);
-      if (!res.ok) setAvatarError(res.error ?? "Could not upload the photo.");
+      const dataUrl = await resizeToSquareDataUrl(file);
+      const res = await setRoomAvatar(room.id, dataUrl);
+      if (!res.ok) setAvatarError(res.error ?? "Could not save the photo.");
     } catch (err) {
-      setAvatarError(err instanceof Error ? err.message : "Could not upload the photo.");
+      setAvatarError(err instanceof Error ? err.message : "Could not save the photo.");
     } finally {
       setAvatarUploading(false);
     }

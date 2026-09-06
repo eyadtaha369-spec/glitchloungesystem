@@ -476,24 +476,29 @@ Object.assign(handlers, {
     });
     return { ok: true, state: withStockView_(result.state) };
   },
-  // Reuses the same local-upload mechanism already used for receipts —
-  // saves the photo as a static file and stores its URL directly on
-  // the room, in the appState blob (rooms have no separate table, so
-  // this needs no schema change on either backend).
+  // Stores the photo directly as a data: URI on the room object,
+  // rather than uploading it anywhere -- the frontend has already
+  // resized it to a small square thumbnail before this is ever
+  // called, so this stays well under any reasonable size. A data:
+  // URI always renders correctly in an <img> tag with zero external
+  // hosting or sharing/permissions involved, unlike a Google Drive
+  // share link, which turned out to be unreliable for direct <img>
+  // embedding regardless of which URL format was used to construct
+  // it.
   setRoomAvatar(body) {
     requireRole_(body.username, ["admin"]);
-    if (!body.avatarBase64) return { ok: false, error: "No photo provided." };
+    if (!body.avatarDataUrl || !body.avatarDataUrl.startsWith("data:image/")) return { ok: false, error: "No valid photo provided." };
+    if (body.avatarDataUrl.length > 45000) return { ok: false, error: "Photo is too large after processing — please try a different photo." };
     const state0 = getState_();
     const room = state0.rooms.find((r) => r.id === body.roomId);
     if (!room) return { ok: false, error: "Room not found." };
-    const avatarUrl = saveReceiptLocally_(body.avatarBase64, "avatar-" + body.roomId + "-" + Date.now() + ".jpg");
-    room.avatarUrl = avatarUrl;
+    room.avatarUrl = body.avatarDataUrl;
     setState_(state0);
     logActivity_({
       actorUsername: body.username, actorRole: "admin", actionType: "ROOM_AVATAR_UPDATED",
       location: room.name, description: body.username + " updated the profile photo for " + room.name,
     });
-    return { ok: true, avatarUrl, state: withStockView_(state0) };
+    return { ok: true, state: withStockView_(state0) };
   },
 
   logWasteMarketing(body) {

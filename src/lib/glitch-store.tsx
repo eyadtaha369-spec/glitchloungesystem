@@ -156,7 +156,7 @@ interface StoreContextValue {
   deleteAccount: (username: string) => Promise<void>;
   setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
   renameRoom: (roomId: string, name: string) => Promise<{ ok: boolean; error?: string }>;
-  setRoomAvatar: (roomId: string, avatarBase64: string, avatarMimeType: string) => Promise<{ ok: boolean; error?: string }>;
+  setRoomAvatar: (roomId: string, avatarDataUrl: string) => Promise<{ ok: boolean; error?: string }>;
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number, discount?: { timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number; ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number }, timeSplitOverride?: { singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number }) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -562,10 +562,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const setRoomAvatar: StoreContextValue["setRoomAvatar"] = async (roomId, avatarBase64, avatarMimeType) => {
+  const setRoomAvatar: StoreContextValue["setRoomAvatar"] = async (roomId, avatarDataUrl) => {
     return withPending(`setRoomAvatar:${roomId}`, async () => {
       try {
-        const res = await setRoomAvatarFn({ data: { roomId, avatarBase64, avatarMimeType } });
+        const res = await setRoomAvatarFn({ data: { roomId, avatarDataUrl } });
         if (res.ok) setAppState(res.state);
         return { ok: res.ok, error: res.error };
       } catch (err) {

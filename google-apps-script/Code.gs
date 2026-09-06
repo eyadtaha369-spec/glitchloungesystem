@@ -2280,18 +2280,18 @@ function doPost(e) {
 
       case "setRoomAvatar": {
         requireRole_(body.username, ["admin"]);
-        if (!body.avatarBase64) return json_({ ok: false, error: "No photo provided." });
+        if (!body.avatarDataUrl || body.avatarDataUrl.indexOf("data:image/") !== 0) return json_({ ok: false, error: "No valid photo provided." });
+        if (body.avatarDataUrl.length > 45000) return json_({ ok: false, error: "Photo is too large after processing — please try a different photo." });
         const avatarState = getState_();
         const avatarRoom = avatarState.rooms.find(function (r) { return r.id === body.roomId; });
         if (!avatarRoom) return json_({ ok: false, error: "Room not found." });
-        const avatarUrl = uploadReceipt_(body.avatarBase64, body.avatarMimeType, "avatar-" + body.roomId + "-" + Date.now() + ".jpg");
-        avatarRoom.avatarUrl = avatarUrl;
+        avatarRoom.avatarUrl = body.avatarDataUrl;
         setState_(avatarState);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "ROOM_AVATAR_UPDATED",
           location: avatarRoom.name, description: body.username + " updated the profile photo for " + avatarRoom.name,
         });
-        return json_({ ok: true, avatarUrl: avatarUrl, state: withStockView_(avatarState) });
+        return json_({ ok: true, state: withStockView_(avatarState) });
       }
 
       case "startRoom": {
