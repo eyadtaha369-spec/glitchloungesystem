@@ -392,15 +392,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // requests are admin-only.
   const refreshFinance = useCallback(async (user: CurrentUser | null) => {
     if (!user) {
-      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]);
+      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]); setEventBookings([]);
       return;
     }
     try {
-      const [mats, sups, restocks, staffMems] = await Promise.all([getRawMaterialsFn(), getSuppliersFn(), getRestockLogFn(), getStaffMembersFn()]);
+      const [mats, sups, restocks, staffMems, bookings] = await Promise.all([getRawMaterialsFn(), getSuppliersFn(), getRestockLogFn(), getStaffMembersFn(), getEventBookingsFn()]);
       setMaterials(mats);
       setSuppliers(sups);
       setRestockLog(restocks);
       setStaffMembers(staffMems);
+      setEventBookings(bookings);
     } catch { /* leave as-is */ }
     if (user.role === "admin") {
       try {
@@ -465,9 +466,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (pendingRef.current.size > 0) return;
       setConnectionStatus((prev) => (prev === "offline" ? "syncing" : prev));
       try {
-        const state = await getStateFn();
+        const [state, bookings] = await Promise.all([getStateFn(), getEventBookingsFn()]);
         if (pendingRef.current.size > 0) return;
         setAppState(state);
+        setEventBookings(bookings);
         setConnectionStatus("synced");
         setLastSyncedAt(Date.now());
       } catch (e) {
@@ -1565,6 +1567,24 @@ export function computeCurrentSegmentElapsed(room: Room, totalElapsedSec: number
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+// Shared trigger condition for the Birthday Booking alert system —
+// defined once here so the Dashboard card and the Sidebar badge can
+// never drift into checking slightly different things. "Within the
+// next 24 hours" is a rolling window from right now, not "today" by
+// calendar date (so 11pm tonight through 11pm tomorrow all count,
+// not just whatever's left of today) — matches the explicit "within
+// the next 24 hours / 1 day" wording. Only Confirmed/Pending bookings
+// count; Completed and Cancelled are already resolved and shouldn't
+// alert anyone.
+export function upcomingBookingAlerts(bookings: EventBooking[]): EventBooking[] {
+  const now = Date.now();
+  const windowEnd = now + 24 * 60 * 60 * 1000;
+  return bookings
+    .filter((b) => (b.status === "confirmed" || b.status === "pending") && b.eventAt >= now && b.eventAt <= windowEnd)
+    .sort((a, b) => a.eventAt - b.eventAt);
+}
+
 export function fmtMoney(n: number) {
   return `EGP ${n.toFixed(2)}`;
 }

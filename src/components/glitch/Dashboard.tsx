@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useStore, fmtMoney, computeShiftFinancials } from "@/lib/glitch-store";
+import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History } from "lucide-react";
+import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
 
-export function Dashboard() {
-  const { state, computeElapsed } = useStore();
+export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () => void }) {
+  const { state, computeElapsed, updateEventBooking } = useStore();
   const { t } = useLanguage();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
@@ -21,6 +21,17 @@ export function Dashboard() {
     const remaining = s.initialStock - s.used;
     return remaining < s.minStock || remaining < s.initialStock * 0.2;
   });
+  const bookingAlerts = upcomingBookingAlerts(state.eventBookings);
+  const [bookingPanelOpen, setBookingPanelOpen] = useState(false);
+  const [markingComplete, setMarkingComplete] = useState<string | null>(null);
+  const markBookingComplete = async (id: string) => {
+    setMarkingComplete(id);
+    try {
+      await updateEventBooking(id, { status: "completed" });
+    } finally {
+      setMarkingComplete(null);
+    }
+  };
 
   const revByRoom = state.rooms.map((r) => {
     const past = state.sessions.filter((s) => s.roomId === r.id).reduce((a, s) => a + s.total, 0);
@@ -65,7 +76,66 @@ export function Dashboard() {
           accent={stockAlerts.length > 0 ? "red" : "blue"}
           pulse={stockAlerts.length > 0}
         />
+        <MetricCard
+          label="Birthday Booking Alert · تنبيهات أعياد الميلاد"
+          value={String(bookingAlerts.length)}
+          icon={PartyPopper}
+          accent={bookingAlerts.length > 0 ? "gold" : "blue"}
+          pulse={bookingAlerts.length > 0}
+          onClick={bookingAlerts.length > 0 ? () => setBookingPanelOpen((v) => !v) : undefined}
+        />
       </div>
+
+      {bookingPanelOpen && bookingAlerts.length > 0 && (
+        <div className="glass rounded-2xl p-6 border-2 border-black/40 bg-gradient-to-br from-black/10 to-transparent">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <PartyPopper className="w-5 h-5 text-black" />
+              <h2 className="text-lg font-semibold">Upcoming Birthday &amp; Event Bookings — Next 24 Hours</h2>
+            </div>
+            <button onClick={() => setBookingPanelOpen(false)} className="text-xs text-muted-foreground hover:text-[#2b2416] underline">Close</button>
+          </div>
+          <div className="space-y-3">
+            {bookingAlerts.map((b) => {
+              const eventDate = new Date(b.eventAt);
+              const isToday = eventDate.toDateString() === new Date().toDateString();
+              const timeLabel = `${isToday ? "Today" : "Tomorrow"} at ${eventDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+              return (
+                <div key={b.id} className="bg-white/70 rounded-xl p-4 border border-black/10 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold">{b.customerName}</span>
+                      {b.phoneNumber && (
+                        <span className="flex items-center gap-1 text-xs font-mono text-muted-foreground"><Phone className="w-3 h-3" /> {b.phoneNumber}</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span>{b.roomName ?? "No room set"}</span>
+                      <span className="font-semibold text-black">{timeLabel}</span>
+                      <span>{b.depositAmount > 0 ? `Deposit paid ${fmtMoney(b.depositAmount)} via ${b.depositPaymentMethod === "instapay" ? "InstaPay" : "Cash"}` : "No deposit recorded"}</span>
+                    </div>
+                    {b.description && <div className="text-xs text-muted-foreground mt-1 italic truncate">{b.description}</div>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {onNavigateToBookings && (
+                      <button onClick={onNavigateToBookings} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide bg-black/5 border border-black/15 hover:bg-black/10">
+                        Open Booking Details
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void markBookingComplete(b.id)}
+                      disabled={markingComplete === b.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide bg-[oklch(0.78_0.2_155/0.15)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] hover:bg-[oklch(0.78_0.2_155/0.25)] disabled:opacity-50"
+                    >
+                      {markingComplete === b.id ? "..." : "Mark Complete"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Analytics grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -359,11 +429,12 @@ function DarkInputCard({ label, icon: Icon, value, onChange }: {
   );
 }
 
-function MetricCard({ label, value, icon: Icon, accent, pulse }: {
+function MetricCard({ label, value, icon: Icon, accent, pulse, onClick }: {
   label: string; value: string;
   icon: React.ComponentType<{ className?: string }>;
   accent: "blue" | "cyan" | "purple" | "gold" | "green" | "red";
   pulse?: boolean;
+  onClick?: () => void;
 }) {
   const map = {
     blue: "from-[oklch(0.7_0.19_260/0.15)] border-[oklch(0.7_0.19_260/0.4)] text-[oklch(0.7_0.19_260)]",
@@ -373,13 +444,17 @@ function MetricCard({ label, value, icon: Icon, accent, pulse }: {
     green: "from-[oklch(0.78_0.2_155/0.15)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]",
     red: "from-[oklch(0.62_0.24_25/0.15)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]",
   };
+  const Wrapper = onClick ? "button" : "div";
   return (
-    <div className={`glass rounded-2xl p-5 border bg-gradient-to-br to-transparent ${map[accent]} ${pulse ? "animate-pulse-red" : ""}`}>
+    <Wrapper
+      onClick={onClick}
+      className={`w-full text-start glass rounded-2xl p-5 border bg-gradient-to-br to-transparent transition-transform ${onClick ? "cursor-pointer hover:scale-[1.02]" : ""} ${map[accent]} ${pulse ? "animate-pulse-red" : ""}`}
+    >
       <div className="flex items-start justify-between">
         <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
         <Icon className={`w-5 h-5 ${map[accent].split(" ").pop()}`} />
       </div>
       <div className="mt-3 text-3xl font-bold font-mono">{value}</div>
-    </div>
+    </Wrapper>
   );
 }

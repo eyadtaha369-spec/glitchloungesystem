@@ -71,7 +71,7 @@ function Shell() {
               <h2 className="mt-4 text-xl font-semibold">{t("common.restrictedZone")}</h2>
               <p className="text-sm text-muted-foreground mt-2 font-mono uppercase tracking-widest">{t("common.adminCredentialsRequired")}</p>
             </div>
-          ) : view === "dashboard" ? <Dashboard />
+          ) : view === "dashboard" ? <Dashboard onNavigateToBookings={() => setView("bookings")} />
             : view === "rooms" ? <RoomsPage />
             : view === "lounge" ? <LoungePage />
             : view === "inventory" ? <InventoryPage />

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw, Menu, X, Trophy, BarChart3, PartyPopper } from "lucide-react";
-import { useStore } from "@/lib/glitch-store";
+import { useStore, upcomingBookingAlerts } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
@@ -27,6 +27,7 @@ const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ c
 
 export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   const { state, logout } = useStore();
+  const bookingAlertCount = upcomingBookingAlerts(state.eventBookings).length;
   const { t, lang, toggleLang } = useLanguage();
   const isAdmin = state.currentUser?.role === "admin";
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -95,7 +96,13 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
             >
               <Icon className={`w-4 h-4 ${active ? "text-[oklch(0.7_0.19_260)]" : ""}`} />
               <span>{t(item.labelKey)}</span>
-              {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[oklch(0.7_0.19_260)] shadow-[0_0_10px_oklch(0.7_0.19_260)]" />}
+              {item.id === "bookings" && bookingAlertCount > 0 ? (
+                <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold text-white bg-[oklch(0.62_0.24_25)] animate-pulse-red shadow-[0_0_10px_oklch(0.62_0.24_25/0.7)]">
+                  {bookingAlertCount}
+                </span>
+              ) : (
+                active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[oklch(0.7_0.19_260)] shadow-[0_0_10px_oklch(0.7_0.19_260)]" />
+              )}
             </button>
           );
         })}
