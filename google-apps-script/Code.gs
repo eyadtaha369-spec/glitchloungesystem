@@ -346,7 +346,14 @@ function uploadReceipt_(base64Data, mimeType, filename) {
   const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType || "image/jpeg", filename);
   const file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return file.getUrl();
+  // file.getUrl() returns Drive's VIEWER page (drive.google.com/file/d/.../view)
+  // — that's an HTML page for a human to open in a browser tab, not raw
+  // image bytes, so it silently fails to render inside an <img> tag (the
+  // browser requests it, gets back an HTML document, and the image just
+  // never appears — no visible error, which is exactly why this went
+  // unnoticed). This direct-content URL format is what actually serves
+  // the image itself and works correctly as an <img src>.
+  return "https://lh3.googleusercontent.com/d/" + file.getId();
 }
 
 // ---------- Activity Log — The Black Box ----------

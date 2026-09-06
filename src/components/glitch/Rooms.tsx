@@ -255,7 +255,7 @@ const OWNER_TABLE_AVATARS: Record<string, string> = {
   "3omda": "/assets/avatars/3omda.jpg",
 };
 
-function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 32 }: { name: string; avatarUrl?: string | null; size?: number }) {
+function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 56 }: { name: string; avatarUrl?: string | null; size?: number }) {
   const key = name.trim().toLowerCase();
   // An admin-uploaded photo always wins over the static name-based
   // mapping — that mapping exists only as a fallback for tables that
@@ -268,7 +268,7 @@ function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 32 }: { name: string
       <img
         src={avatarUrl} alt={name}
         onError={() => setFailed(true)}
-        className="w-8 h-8 rounded-full object-cover border border-amber-500/30 shrink-0"
+        className="w-14 h-14 rounded-full object-cover border-2 border-amber-500/40 shrink-0"
         style={{ width: size, height: size }}
       />
     );
@@ -280,7 +280,7 @@ function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 32 }: { name: string
   const initials = name.trim().slice(0, 2).toUpperCase();
   return (
     <div
-      className="w-8 h-8 rounded-full border border-amber-500/30 bg-gradient-to-br from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+      className="w-14 h-14 rounded-full border-2 border-amber-500/40 bg-gradient-to-br from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] flex items-center justify-center text-base font-bold text-white shrink-0"
       style={{ width: size, height: size }}
     >
       {initials}
@@ -734,15 +734,15 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
               className="relative shrink-0 group/avatar disabled:cursor-default"
               title={isAdmin ? "Click to change photo" : undefined}
             >
-              <OwnerAvatar name={room.name} avatarUrl={room.avatarUrl} size={28} />
+              <OwnerAvatar name={room.name} avatarUrl={room.avatarUrl} size={48} />
               {isAdmin && (
                 <span className="absolute inset-0 rounded-full bg-black/0 group-hover/avatar:bg-black/40 flex items-center justify-center transition-colors">
-                  <Edit2 className="w-3 h-3 text-white opacity-0 group-hover/avatar:opacity-100 transition-opacity" />
+                  <Edit2 className="w-4 h-4 text-white opacity-0 group-hover/avatar:opacity-100 transition-opacity" />
                 </span>
               )}
               {avatarUploading && (
                 <span className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
-                  <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                 </span>
               )}
             </button>
