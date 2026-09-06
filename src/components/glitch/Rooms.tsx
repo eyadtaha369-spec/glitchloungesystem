@@ -5,6 +5,51 @@ import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock } from "lucide-react";
 
+// A generic, stylized controller silhouette (not a literal replica of
+// any specific manufacturer's product) — grips, two sticks, a d-pad
+// and face buttons, a center touch bar. Supports a "broken" variant
+// (cracked, tilted, desaturated) for the OFF card state, and a
+// color/glow prop so the same shape serves Single, Multi, and VIP
+// gold/white variants without duplicating the path data three times.
+function ControllerIcon({ color, glow, broken, size = 120 }: { color: string; glow?: string; broken?: boolean; size?: number }) {
+  const body = (
+    <g transform={broken ? "rotate(-14 60 62)" : undefined} opacity={broken ? 0.55 : 1}>
+      {/* Grips */}
+      <path d="M22 58 Q10 58 10 76 Q10 96 26 96 Q36 96 40 82 L44 66 Z" fill={color} />
+      <path d="M98 58 Q110 58 110 76 Q110 96 94 96 Q84 96 80 82 L76 66 Z" fill={color} />
+      {/* Main body */}
+      <path d="M34 40 Q60 26 86 40 Q104 48 100 64 Q96 78 78 74 Q68 71 60 71 Q52 71 42 74 Q24 78 20 64 Q16 48 34 40 Z" fill={color} />
+      {/* Left stick */}
+      <circle cx="46" cy="56" r="9" fill="#000" fillOpacity="0.18" />
+      <circle cx="46" cy="56" r="6.5" fill={glow || "#fff"} fillOpacity="0.9" />
+      {/* Right stick */}
+      <circle cx="74" cy="56" r="9" fill="#000" fillOpacity="0.18" />
+      <circle cx="74" cy="56" r="6.5" fill={glow || "#fff"} fillOpacity="0.9" />
+      {/* D-pad */}
+      <rect x="27" y="47" width="4" height="12" rx="1" fill="#000" fillOpacity="0.35" />
+      <rect x="22" y="52" width="14" height="4" rx="1" fill="#000" fillOpacity="0.35" />
+      {/* Face buttons */}
+      <circle cx="90" cy="46" r="2.4" fill="#000" fillOpacity="0.3" />
+      <circle cx="95" cy="51" r="2.4" fill="#000" fillOpacity="0.3" />
+      <circle cx="90" cy="56" r="2.4" fill="#000" fillOpacity="0.3" />
+      <circle cx="85" cy="51" r="2.4" fill="#000" fillOpacity="0.3" />
+      {/* Center bar */}
+      <rect x="53" y="38" width="14" height="5" rx="2.5" fill="#000" fillOpacity="0.25" />
+      {broken && (
+        <>
+          <path d="M60 38 L52 58 L64 60 L48 90" stroke="#1a1a1a" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.6" />
+          <circle cx="46" cy="56" r="6.5" fill="none" stroke="#1a1a1a" strokeWidth="1" opacity="0.4" />
+        </>
+      )}
+    </g>
+  );
+  return (
+    <svg viewBox="0 0 120 110" width={size} height={size * (110 / 120)} style={glow && !broken ? { filter: `drop-shadow(0 0 18px ${glow})` } : undefined}>
+      {body}
+    </svg>
+  );
+}
+
 // Stable reference (never recreated) — passing `[]` inline as a prop
 // creates a brand-new array every render, which alone defeats
 // React.memo on whatever receives it.
@@ -56,6 +101,8 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
   // view you're on — transfer is explicitly cross-zone.
   const transferTargets = useMemo(() => [...roomZone, ...loungeZone], [roomZone, loungeZone]);
   const primaryZone = scope === "room" ? roomZone : standardTables;
+  const standardBays = useMemo(() => (scope === "room" ? primaryZone.filter((r) => !r.isVip) : primaryZone), [primaryZone, scope]);
+  const vipRooms = useMemo(() => (scope === "room" ? primaryZone.filter((r) => r.isVip) : []), [primaryZone, scope]);
 
   return (
     <div className="space-y-8">
@@ -78,10 +125,21 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">
           {scope === "room" ? "Rooms & VIP" : "Lounge Tables"}
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {primaryZone.map((r) => (
-            <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
-          ))}
+        <div className={vipRooms.length > 0 ? "flex flex-col lg:flex-row gap-5 items-stretch" : undefined}>
+          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 ${vipRooms.length > 0 ? "flex-[3]" : ""}`}>
+            {standardBays.map((r) => (
+              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
+            ))}
+          </div>
+          {vipRooms.length > 0 && (
+            <div className="flex flex-col gap-5 flex-1 lg:min-w-[260px]">
+              {vipRooms.map((r) => (
+                <div key={r.id} className="flex-1">
+                  <RoomCard room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -122,77 +180,192 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   const ordersCost = round2(room.orders.reduce((a, o) => a + o.qty * o.price, 0));
   const total = timeCost + ordersCost;
   const itemCount = room.orders.reduce((a, o) => a + o.qty, 0);
+  const isMulti = isActive && room.rateMode === "multi";
+  const elapsedLabel = fmtDuration(computeCurrentSegmentElapsed(room, elapsed));
 
-  const cardStyle = room.isVip
-    ? "animate-vip bg-gradient-to-br from-black/8 via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-black/40"
-    : isActive
-      ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
-      : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]";
+  // Waste/Marketing and lounge tables keep the plain utility card —
+  // this visual language (OFF/Single/Multi/VIP, controller
+  // illustrations) is specifically the Rooms 1-8 + VIP spec, not a
+  // restyle of every card in the app.
+  if (room.zone === "waste" || room.zone === "lounge") {
+    return (
+      <>
+        <button
+          onClick={() => setOpen(true)}
+          className={`w-full text-start glass rounded-2xl p-6 border transition-all cursor-pointer ${
+            room.isVip
+              ? "animate-vip bg-gradient-to-br from-black/8 via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-black/40"
+              : isActive
+                ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
+                : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2 min-w-0">
+              {room.isVip ? <Crown className="w-6 h-6 text-black shrink-0" /> : <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />}
+              <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
+            </div>
+            <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border ${isActive ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]" : "bg-black/5 text-muted-foreground border-black/10"}`}>
+              {isActive ? "Running" : "Available"}
+            </span>
+          </div>
+          {room.isOwnerTable && <div className="mb-3 text-[9px] uppercase tracking-widest font-bold text-black">Owner · 25% Off</div>}
+          {room.zone === "waste" ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white/70 rounded-xl p-3 border border-black/8">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items</div>
+                <div className="mt-1 font-mono text-xl font-bold text-black">{itemCount}</div>
+              </div>
+              <div className="bg-white/70 rounded-xl p-3 border border-black/8">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
+                <div className="mt-1 font-mono text-xl font-bold text-black">{fmtMoney(total)}</div>
+              </div>
+            </div>
+          ) : isActive ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
+                <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.7_0.19_260)]"}`}>{elapsedLabel}</div>
+              </div>
+              <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
+                <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>{fmtMoney(total)}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-3 text-center text-xs text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
+          )}
+        </button>
+        {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
+      </>
+    );
+  }
+
+  // ---- VIP: double-height luxury card ----
+  if (room.isVip) {
+    return (
+      <>
+        <button
+          onClick={() => setOpen(true)}
+          className="group relative w-full h-full min-h-[420px] text-start rounded-[20px] overflow-hidden cursor-pointer transition-transform hover:scale-[1.01]"
+          style={{
+            background: "linear-gradient(160deg, #0B1B3D 0%, #0d2050 60%, #0B1B3D 100%)",
+            border: "3px double #C9A24B",
+            boxShadow: "0 0 0 1px #C9A24B, 0 0 40px 6px oklch(0.75 0.18 200 / 0.35), 0 25px 60px -15px rgba(0,0,0,0.6), inset 0 0 60px rgba(201,162,75,0.08)",
+          }}
+        >
+          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(circle at 30% 20%, #fff 0, transparent 45%)" }} />
+          <div className="relative flex flex-col items-center h-full px-6 py-8 text-center">
+            <div className="flex items-center gap-2">
+              <Crown className="w-6 h-6" style={{ color: "#D4AF37" }} />
+              <span className="text-xs font-bold uppercase tracking-[0.3em]" style={{ color: "#D4AF37" }}>VIP</span>
+            </div>
+            <h3 className="mt-1 text-2xl font-black tracking-wide" style={{ color: "#D4AF37", textShadow: "0 0 20px rgba(212,175,55,0.5)" }}>{room.name}</h3>
+            <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#8fa3c9" }}>VIP Room</div>
+
+            <div className="flex-1 flex items-center justify-center gap-1 my-4">
+              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#EDEDED" glow="#D4AF37" size={92} /></div>
+              <div style={{ transform: "rotate(8deg) translateX(-6px)", filter: "drop-shadow(0 0 18px #D4AF37)" }}><ControllerIcon color="#D4AF37" glow="#fff" size={92} /></div>
+            </div>
+
+            <div
+              className="w-full rounded-xl px-4 py-3 font-mono text-3xl font-black tracking-widest"
+              style={{
+                background: "linear-gradient(180deg, #050d22, #0a1530)",
+                border: "1px solid rgba(212,175,55,0.4)",
+                color: isActive ? "#F4D77A" : "#5a6584",
+                textShadow: isActive ? "0 0 14px rgba(244,215,122,0.7)" : "none",
+              }}
+            >
+              {isActive ? elapsedLabel : "00:00:00"}
+            </div>
+            {isActive && (
+              <div className="mt-3 text-lg font-bold" style={{ color: "#D4AF37" }}>{fmtMoney(total)}</div>
+            )}
+            {!isActive && (
+              <div className="mt-3 text-[10px] uppercase tracking-widest" style={{ color: "#8fa3c9" }}>Tap to begin</div>
+            )}
+          </div>
+        </button>
+        {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
+      </>
+    );
+  }
+
+  // ---- Standard bay: OFF / Single / Multi ----
+  const accent = !isActive ? "#8b8b8b" : isMulti ? "#0f766e" : "#16a34a";
+  const glow = !isActive ? undefined : isMulti ? "oklch(0.65 0.14 185 / 0.35)" : "oklch(0.75 0.18 200 / 0.4)";
 
   return (
     <>
       <button
         onClick={() => setOpen(true)}
-        className={`w-full text-start glass rounded-2xl p-6 border transition-all cursor-pointer ${cardStyle}`}
+        className="group relative w-full text-start rounded-[20px] p-6 transition-all cursor-pointer overflow-hidden"
+        style={{
+          background: !isActive ? "#EBEAE4" : "#FFFFFF",
+          boxShadow: isActive
+            ? `0 18px 40px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.04), 0 0 34px 4px ${glow}`
+            : "0 10px 24px -10px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
+        }}
       >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            {room.isVip ? (
-              <Crown className="w-6 h-6 text-black shrink-0" />
-            ) : (
-              <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />
-            )}
-            <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
-          </div>
+        {/* Top row: name + status pill */}
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-base font-bold tracking-wide truncate" style={{ color: !isActive ? "#8b8b8b" : "#1c1c1c" }}>{room.name}</h3>
           <span
-            className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
-              isActive
-                ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]"
-                : "bg-black/5 text-muted-foreground border-black/10"
-            }`}
+            className="shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
+            style={{
+              background: !isActive ? "rgba(0,0,0,0.06)" : isMulti ? "rgba(15,118,110,0.12)" : "rgba(22,163,74,0.12)",
+              color: accent,
+              border: `1px solid ${!isActive ? "rgba(0,0,0,0.12)" : accent}`,
+            }}
           >
-            {isActive ? "Running" : "Available"}
+            {!isActive ? "OFF" : isMulti ? "MULTI" : "SINGLE"}
           </span>
         </div>
 
-        {room.isOwnerTable && (
-          <div className="mb-3 text-[9px] uppercase tracking-widest font-bold text-black">Owner · 25% Off</div>
-        )}
+        {/* Controller illustration */}
+        <div className="flex items-center justify-center py-3 relative" style={{ minHeight: 118 }}>
+          {!isActive ? (
+            <ControllerIcon color="#B9B9B2" broken size={104} />
+          ) : isMulti ? (
+            <div className="flex items-center">
+              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color="#0f766e" glow={glow} size={78} /></div>
+              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color="#14b8a6" glow={glow} size={78} /></div>
+            </div>
+          ) : (
+            <ControllerIcon color="#16a34a" glow={glow} size={104} />
+          )}
 
-        {room.zone === "waste" ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/70 rounded-xl p-3 border border-black/8">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items</div>
-              <div className="mt-1 font-mono text-xl font-bold text-black">{itemCount}</div>
-            </div>
-            <div className="bg-white/70 rounded-xl p-3 border border-black/8">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
-              <div className="mt-1 font-mono text-xl font-bold text-black">{fmtMoney(total)}</div>
-            </div>
+          {/* Floating badge under the controller(s) */}
+          {isActive && (
+            <span
+              className="absolute -bottom-1 text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full text-white shadow-md"
+              style={{ background: isMulti ? "#0f766e" : "#16a34a" }}
+            >
+              {isMulti ? "MULTI" : "SINGLE"}
+            </span>
+          )}
+        </div>
+
+        {/* Digital timer */}
+        <div className="mt-3 rounded-xl px-3 py-2.5 text-center" style={{ background: !isActive ? "rgba(0,0,0,0.04)" : "#0f1115" }}>
+          <div
+            className="font-mono text-2xl font-black tracking-widest"
+            style={{ color: !isActive ? "#9a9a94" : accent, textShadow: isActive ? `0 0 10px ${accent}55` : "none" }}
+          >
+            {!isActive ? "00:00" : elapsedLabel}
           </div>
-        ) : isActive ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
-              <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.7_0.19_260)]"}`}>
-                {fmtDuration(computeCurrentSegmentElapsed(room, elapsed))}
-              </div>
-            </div>
-            <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
-              <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>
-                {fmtMoney(total)}
-              </div>
-            </div>
-          </div>
+        </div>
+
+        {room.isOwnerTable && <div className="mt-2 text-[9px] uppercase tracking-widest font-bold text-black text-center">Owner · 25% Off</div>}
+
+        {isActive ? (
+          <div className="mt-2 text-center text-xs font-mono font-bold" style={{ color: accent }}>{fmtMoney(total)}</div>
         ) : (
-          <div className="py-3 text-center text-xs text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
+          <div className="mt-2 text-center text-[10px] text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
         )}
       </button>
-
-      {open && (
-        <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />
-      )}
+      {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
     </>
   );
 });
