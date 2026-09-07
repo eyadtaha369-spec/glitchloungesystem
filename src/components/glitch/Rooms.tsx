@@ -193,7 +193,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
           {scope === "room" ? "Rooms & VIP" : "Lounge Tables"}
         </h2>
         <div className={vipRooms.length > 0 ? "flex flex-col lg:flex-row gap-5 items-stretch" : undefined}>
-          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 ${vipRooms.length > 0 ? "flex-[3]" : ""}`}>
+          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 ${vipRooms.length > 0 ? "flex-[3]" : ""}`}>
             {standardBays.map((r) => (
               <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
             ))}
@@ -486,12 +486,12 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         </div>
 
         {/* Digital timer */}
-        <div className="mt-3 rounded-xl px-3 py-2.5 text-center" style={{ background: !isActive ? "rgba(0,0,0,0.04)" : "#0f1115" }}>
+        <div className="mt-3 rounded-xl px-2 py-2.5 text-center overflow-hidden" style={{ background: !isActive ? "rgba(0,0,0,0.04)" : "#0f1115" }}>
           <div
-            className="font-mono text-2xl font-black tracking-widest"
+            className="font-mono text-xl font-black tracking-normal whitespace-nowrap"
             style={{ color: !isActive ? "#9a9a94" : accent, textShadow: isActive ? `0 0 10px ${accent}55` : "none" }}
           >
-            {!isActive ? "00:00" : elapsedLabel}
+            {!isActive ? "00:00:00" : elapsedLabel}
           </div>
         </div>
 
