@@ -88,25 +88,58 @@ function RoomNeonIcon({ src, size = 120, dim }: { src: string; size?: number; di
 // appears on the left chair when the table is occupied, an empty
 // table otherwise. Matches the metallic-card/gold-icon reference
 // look without depending on any external image asset.
-function TableIcon({ seated, size = 100 }: { seated: boolean; size?: number }) {
-  const accent = "#c9a24b";
+// Lounge tables: a flat gold "table + chairs" glyph — solid brass
+// gradient fill (not just an outline), ladder-back chairs on each
+// side, and a seated silhouette on both chairs when the table is
+// occupied. Matches the metallic-card reference far more closely
+// than an outline icon does — the reference icon is a solid filled
+// glyph, not a line-art one.
+function TableIcon({ seated, size = 110 }: { seated: boolean; size?: number }) {
+  const uid = useId().replace(/[:]/g, "");
+  const gradId = `table-gold-${uid}`;
+  const chair = (x: number, flip?: boolean) => (
+    <g transform={`translate(${x},0) scale(${flip ? -1 : 1},1)`} fill={`url(#${gradId})`}>
+      <rect x="-9" y="0" width="3" height="42" rx="1.5" />
+      <rect x="6" y="0" width="3" height="42" rx="1.5" />
+      <rect x="-9" y="4" width="18" height="4" rx="1.5" />
+      <rect x="-9" y="13" width="18" height="4" rx="1.5" />
+      <rect x="-9" y="22" width="18" height="4" rx="1.5" />
+      <rect x="-11" y="30" width="22" height="6" rx="2" />
+      <rect x="-10" y="36" width="3.5" height="14" />
+      <rect x="6.5" y="36" width="3.5" height="14" />
+    </g>
+  );
+  const person = (x: number) => (
+    <g transform={`translate(${x},0)`} fill={`url(#${gradId})`}>
+      <circle cx="0" cy="6" r="8.5" />
+      <path d="M-13 40 Q-13 18 0 18 Q13 18 13 40 Z" />
+    </g>
+  );
   return (
-    <svg viewBox="0 0 100 76" width={size} height={size * 0.76}>
-      {seated && (
-        <g fill={accent}>
-          <circle cx="30" cy="30" r="8" />
-          <path d="M18 58 Q18 38 30 38 Q42 38 42 58 Z" />
-        </g>
-      )}
-      <g fill="none" stroke={accent} strokeWidth="2.5">
-        <rect x="10" y="42" width="16" height="22" rx="3" />
-        <rect x="10" y="30" width="16" height="14" rx="3" />
-        <rect x="74" y="42" width="16" height="22" rx="3" />
-        <rect x="74" y="30" width="16" height="14" rx="3" />
+    <svg viewBox="0 0 200 100" width={size} height={size * 0.5}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#e8d9ad" />
+          <stop offset="45%" stopColor="#c9a961" />
+          <stop offset="100%" stopColor="#9c7c3f" />
+        </linearGradient>
+      </defs>
+      <g transform="translate(100,18)">
+        {chair(-64)}
+        {chair(64, true)}
+        {seated && (
+          <>
+            {person(-38)}
+            {person(38)}
+          </>
+        )}
+        <path
+          d="M-38 38 Q-38 32 -32 32 L32 32 Q38 32 38 38 L34 60 Q32 66 25 66 L-25 66 Q-32 66 -34 60 Z"
+          fill={`url(#${gradId})`}
+        />
+        <rect x="-3.5" y="66" width="7" height="16" fill={`url(#${gradId})`} />
+        <rect x="-13" y="82" width="26" height="4" rx="2" fill={`url(#${gradId})`} />
       </g>
-      <path d="M26 46 Q26 66 50 66 Q74 66 74 46 L70 46 Q70 60 50 60 Q30 60 30 46 Z" fill={accent} fillOpacity="0.5" />
-      <ellipse cx="50" cy="46" rx="24" ry="8.5" fill="none" stroke={accent} strokeWidth="2.5" />
-      <rect x="47" y="46" width="6" height="22" fill={accent} fillOpacity="0.6" />
     </svg>
   );
 }
@@ -336,52 +369,57 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
     );
   }
 
-  // Lounge tables — metallic brushed-steel card, gold table+chairs
-  // glyph (a seated figure appears when occupied), green/red status
-  // glow border matching "Open" (occupied, timer running) vs "Closed"
-  // (empty, available) exactly as in the reference, and a pill at the
-  // bottom styled like a button (the whole card is still the single
-  // click target, opening the same detail modal as every other card).
+  // Lounge tables — metallic brushed-steel card, solid-gold table+chairs
+  // glyph (a seated figure appears on both chairs when occupied),
+  // green/red status capsule matching "Open" (occupied, timer running)
+  // vs "Closed" (empty, available) exactly as in the reference, and a
+  // pill at the bottom styled like a button (the whole card is still
+  // the single click target, opening the same detail modal as every
+  // other card).
   if (room.zone === "lounge") {
     const tableAccent = isActive ? "#22c55e" : "#ef4444";
     return (
       <>
         <button
           onClick={() => setOpen(true)}
-          className="group relative w-full text-start rounded-[20px] p-6 transition-all cursor-pointer overflow-hidden"
+          className="group relative w-full text-start rounded-[24px] p-5 transition-all cursor-pointer overflow-hidden"
           style={{
-            background: "linear-gradient(155deg, #3d3d42 0%, #232326 45%, #1a1a1c 100%)",
-            border: `1.5px solid ${tableAccent}99`,
-            boxShadow: `0 18px 40px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px 2px ${tableAccent}40`,
+            background: "linear-gradient(155deg, #4c4c50 0%, #2b2b2e 45%, #19191b 100%)",
+            border: `2px solid ${tableAccent}cc`,
+            boxShadow: `0 18px 40px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), 0 0 26px 3px ${tableAccent}55`,
           }}
         >
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="text-2xl font-black tracking-wide truncate" style={{ color: "#D4AF37", fontFamily: "Georgia, serif" }}>{room.name}</h3>
+          <div className="absolute top-4 left-4 right-4 h-14 rounded-2xl bg-white/[0.03] pointer-events-none" />
+          <div className="relative flex items-center justify-between mb-2">
+            <h3 className="text-3xl font-black tracking-wide truncate" style={{ color: "#e9d18f" }}>{room.name}</h3>
             {room.isOwnerTable && (
-              <span className="shrink-0 flex items-center gap-1 text-[10px] font-bold uppercase" style={{ color: "#D4AF37" }}>
-                <Crown className="w-4 h-4" /> VIP
+              <span className="shrink-0 flex flex-col items-center gap-0.5" style={{ color: "#D4AF37" }}>
+                <Crown className="w-5 h-5" />
+                <span className="text-[9px] font-bold uppercase">VIP</span>
               </span>
             )}
           </div>
 
-          <div className="flex items-center justify-center py-4" style={{ minHeight: 100 }}>
-            <TableIcon seated={isActive} size={110} />
+          <div className="relative flex items-center justify-center py-3" style={{ minHeight: 90 }}>
+            <TableIcon seated={isActive} size={130} />
           </div>
 
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: tableAccent, boxShadow: `0 0 8px ${tableAccent}` }} />
-            <span className="text-sm font-bold uppercase tracking-wide" style={{ color: tableAccent }}>{isActive ? "Open" : "Closed"}</span>
+          <div
+            className="relative flex items-center gap-2 rounded-full px-4 py-1.5 w-fit"
+            style={{ background: tableAccent, boxShadow: `0 0 14px ${tableAccent}88` }}
+          >
+            <span className="text-[13px] font-bold uppercase tracking-wide text-black/80">{isActive ? "Open" : "Closed"}</span>
           </div>
-          <div className="text-xs font-mono" style={{ color: "#a8a8ac" }}>
+          <div className="mt-2 text-[13px] font-mono" style={{ color: "#b8b8bc" }}>
             {isActive ? `Sitting: ${elapsedLabel}` : "Closed: --"}
           </div>
           {isActive && (
-            <div className="mt-1 text-xs font-mono font-bold" style={{ color: tableAccent }}>{fmtMoney(total)}</div>
+            <div className="mt-0.5 text-[13px] font-mono font-bold" style={{ color: tableAccent }}>{fmtMoney(total)}</div>
           )}
 
           <div
-            className="mt-3 rounded-full text-center text-[11px] font-bold uppercase tracking-wide py-2"
-            style={{ background: `${tableAccent}22`, border: `1px solid ${tableAccent}80`, color: tableAccent }}
+            className="mt-3 rounded-full text-center text-[12px] font-bold uppercase tracking-wide py-2.5"
+            style={{ background: `${tableAccent}26`, border: `1.5px solid ${tableAccent}90`, color: tableAccent }}
           >
             {isActive ? "View Order" : "Open Booking"}
           </div>
