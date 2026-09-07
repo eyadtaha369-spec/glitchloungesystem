@@ -5,115 +5,43 @@ import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2 } from "lucide-react";
 
-// A generic, stylized controller silhouette (not a literal replica of
-// any specific manufacturer's product) — grips, two sticks, a d-pad
-// and face buttons, a center touch bar. Gradient-shaded for a glossy
-// plastic look (a soft top-lit body gradient plus a diagonal
-// highlight streak) rather than a flat vector fill, since a flat fill
-// reads as a cheap icon rather than a product illustration. Supports
-// a "broken" variant (cracked, tilted, desaturated) for the OFF card
-// state, and a color/glow prop so the same shape data serves the
-// Single, Multi, and VIP gold/white variants. useId keeps each
-// instance's gradient/filter IDs unique, since several of these
-// render on screen at once (one per room card).
-function ControllerIcon({ color, glow, stickColor, broken, size = 120 }: { color: string; glow?: string; stickColor?: string; broken?: boolean; size?: number }) {
-  const uid = useId().replace(/[:]/g, "");
-  const gradId = `ctrl-body-${uid}`;
-  const gripGradId = `ctrl-grip-${uid}`;
-  const aoId = `ctrl-ao-${uid}`;
-  const padId = `ctrl-pad-${uid}`;
-  // Sticks, d-pad, buttons, and center bar render as true black —
-  // matching a black-and-white controller color scheme — rather than
-  // a light, semi-transparent gray overlay on the body color.
-  const accent = "#161616";
-  const stickFill = stickColor || accent;
-  // Wider, flatter wing silhouette with fuller, forward-curling grip
-  // pods — closer to a modern two-stick pad's proportions than the
-  // narrower, more rounded shape this replaced.
-  const body = (
-    <g transform={broken ? "rotate(-10 70 55)" : undefined} opacity={broken ? 0.5 : 1}>
-      {/* Grips — a clear waist where they meet the body, tapering to a
-          blunt, slightly inward-curled tip so they read as molded
-          handles rather than round teardrops. */}
-      <path d="M38 48 Q16 51 11 72 Q7 88 24 89 Q37 89 40 76 Q42 66 38 58 Q35 52 38 48 Z" fill={`url(#${gripGradId})`} />
-      <path d="M102 48 Q124 51 129 72 Q133 88 116 89 Q103 89 100 76 Q98 66 102 58 Q105 52 102 48 Z" fill={`url(#${gripGradId})`} />
-      {/* Ambient-occlusion where each grip tucks under the main body */}
-      <ellipse cx="43" cy="56" rx="9" ry="7" fill={`url(#${aoId})`} transform="rotate(35 43 56)" />
-      <ellipse cx="97" cy="56" rx="9" ry="7" fill={`url(#${aoId})`} transform="rotate(-35 97 56)" />
-      {/* Main body — wide, low wing */}
-      <path d="M24 40 Q38 13 70 12 Q102 13 116 40 Q128 48 121 59 Q114 69 96 65 Q82 62 70 62 Q58 62 44 65 Q26 69 19 59 Q12 48 24 40 Z" fill={`url(#${gradId})`} />
-      {/* Rim light along the top edge */}
-      <path d="M25 39 Q38 14 70 13 Q102 14 115 39" fill="none" stroke="#fff" strokeOpacity={broken ? 0.2 : 0.85} strokeWidth="1.2" strokeLinecap="round" />
-      {/* Gloss highlight streak */}
-      <path d="M30 33 Q70 18 110 33 Q98 42 70 43 Q42 42 30 33 Z" fill="#fff" fillOpacity={broken ? 0.14 : 0.45} />
-      {/* Touchpad */}
-      <rect x="54" y="20" width="32" height="10" rx="4" fill={`url(#${padId})`} stroke={accent} strokeOpacity={broken ? 0.2 : 0.35} strokeWidth="0.6" />
-      {/* D-pad — left of the left stick */}
-      <g fill={accent} fillOpacity={broken ? 0.4 : 0.9}>
-        <rect x="28" y="41" width="4.4" height="14" rx="1.2" />
-        <rect x="22" y="47" width="16.4" height="4.4" rx="1.2" />
-      </g>
-      {/* Face buttons — right of the right stick, kept as plain dots
-          (no PlayStation glyphs) so this stays a generic pad. */}
-      <g fill={accent} fillOpacity={broken ? 0.4 : 0.85}>
-        <circle cx="108" cy="40.5" r="2.9" />
-        <circle cx="114" cy="46.5" r="2.9" />
-        <circle cx="108" cy="52.5" r="2.9" />
-        <circle cx="102" cy="46.5" r="2.9" />
-      </g>
-      {/* Left stick — black housing, colored cap, ringed grip texture */}
-      <circle cx="50" cy="55" r="12" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
-      <circle cx="50" cy="55" r="12" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.8" />
-      <circle cx="50" cy="55" r="7.6" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
-      <circle cx="50" cy="55" r="7.6" fill="none" stroke="#fff" strokeOpacity={broken ? 0.08 : 0.25} strokeWidth="0.7" />
-      <circle cx="50" cy="55" r="4.6" fill="none" stroke="#000" strokeOpacity={broken ? 0.1 : 0.3} strokeWidth="0.5" />
-      <circle cx="47.2" cy="52.2" r="2.3" fill="#fff" fillOpacity="0.42" />
-      {/* Right stick */}
-      <circle cx="90" cy="55" r="12" fill={accent} fillOpacity={broken ? 0.4 : 0.92} />
-      <circle cx="90" cy="55" r="12" fill="none" stroke="#000" strokeOpacity="0.3" strokeWidth="0.8" />
-      <circle cx="90" cy="55" r="7.6" fill={stickFill} fillOpacity={broken ? 0.5 : 1} />
-      <circle cx="90" cy="55" r="7.6" fill="none" stroke="#fff" strokeOpacity={broken ? 0.08 : 0.25} strokeWidth="0.7" />
-      <circle cx="90" cy="55" r="4.6" fill="none" stroke="#000" strokeOpacity={broken ? 0.1 : 0.3} strokeWidth="0.5" />
-      <circle cx="87.2" cy="52.2" r="2.3" fill="#fff" fillOpacity="0.42" />
-      {/* Small center button below the touchpad */}
-      <circle cx="70" cy="34" r="2.6" fill={accent} fillOpacity={broken ? 0.3 : 0.55} />
-      {broken && (
-        <>
-          <path d="M70 19 L56 54 L73 58 L52 91" stroke="#141414" strokeWidth="2.3" fill="none" strokeLinecap="round" opacity="0.65" />
-          <path d="M51 54 L59 63" stroke="#141414" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.5" />
-        </>
-      )}
-    </g>
-  );
-
+// A flat, neon-outline gamepad glyph — matching a generic controller
+// icon (lucide's Gamepad2 outline shape) rather than a photorealistic
+// 3D-shaded product illustration. This deliberately does NOT replicate
+// any specific manufacturer's controller design or button glyphs; it's
+// the same rounded-body/twin-stick/d-pad/face-buttons silhouette used
+// broadly across game-UI icon sets. A soft blurred color glow sits
+// behind it and a drop-shadow glow sits on the stroke itself, which
+// together produce the "lit neon sign" look on a dark card.
+function ControllerIcon({ color, glow, size = 120 }: { color: string; glow?: string; size?: number }) {
   return (
-    <svg
-      viewBox="0 0 140 100" width={size} height={size * (100 / 140)}
-      style={glow && !broken ? { filter: `drop-shadow(0 6px 16px ${glow})` } : { filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.12))" }}
-    >
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={broken ? 0.7 : 1} />
-          <stop offset="55%" stopColor={color} stopOpacity={broken ? 0.6 : 0.92} />
-          <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.28 : 0.12} />
-        </linearGradient>
-        <linearGradient id={gripGradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={broken ? 0.65 : 0.95} />
-          <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.32 : 0.16} />
-        </linearGradient>
-        <linearGradient id={padId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#000" stopOpacity={broken ? 0.12 : 0.22} />
-          <stop offset="100%" stopColor="#000" stopOpacity={broken ? 0.06 : 0.1} />
-        </linearGradient>
-        <radialGradient id={aoId}>
-          <stop offset="0%" stopColor="#000" stopOpacity={broken ? 0.1 : 0.22} />
-          <stop offset="100%" stopColor="#000" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      {body}
-    </svg>
+    <div style={{ position: "relative", width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {glow && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            width: size * 0.9,
+            height: size * 0.9,
+            borderRadius: "9999px",
+            background: `radial-gradient(circle, ${color}66 0%, transparent 70%)`,
+            filter: "blur(10px)",
+          }}
+        />
+      )}
+      <Gamepad2
+        size={size * 0.82}
+        strokeWidth={1.6}
+        style={{
+          color,
+          position: "relative",
+          filter: glow ? `drop-shadow(0 0 8px ${color}) drop-shadow(0 0 16px ${glow})` : undefined,
+        }}
+      />
+    </div>
   );
 }
+
 
 // Stable reference (never recreated) — passing `[]` inline as a prop
 // creates a brand-new array every render, which alone defeats
@@ -396,8 +324,8 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#c4b5fd" }}>VIP Room</div>
 
             <div className="flex-1 flex items-center justify-center gap-1 my-4">
-              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#a855f7" glow="rgba(168,85,247,0.65)" stickColor="#1a1030" size={92} /></div>
-              <div style={{ transform: "rotate(8deg) translateX(-6px)" }}><ControllerIcon color="#D4AF37" glow="rgba(212,175,55,0.55)" stickColor="#1a1030" size={92} /></div>
+              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#a855f7" glow="rgba(168,85,247,0.65)" size={92} /></div>
+              <div style={{ transform: "rotate(8deg) translateX(-6px)" }}><ControllerIcon color="#D4AF37" glow="rgba(212,175,55,0.55)" size={92} /></div>
             </div>
 
             <div
@@ -467,14 +395,14 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             matching glow, intact in every state (no cracked/broken look). */}
         <div className="flex items-center justify-center py-3 relative" style={{ minHeight: 118 }}>
           {!isActive ? (
-            <ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={104} />
+            <ControllerIcon color={accent} glow={glow} size={104} />
           ) : isMulti ? (
             <div className="flex items-center">
-              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={78} /></div>
-              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={78} /></div>
+              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color={accent} glow={glow} size={78} /></div>
+              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color={accent} glow={glow} size={78} /></div>
             </div>
           ) : (
-            <ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={104} />
+            <ControllerIcon color={accent} glow={glow} size={104} />
           )}
 
           {/* Floating badge under the controller(s) */}
