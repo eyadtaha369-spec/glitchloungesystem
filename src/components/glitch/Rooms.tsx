@@ -115,35 +115,6 @@ function ControllerIcon({ color, glow, stickColor, broken, size = 120 }: { color
   );
 }
 
-// VIP countdown/elapsed readout as individual tiled digits (e.g. "00 55 20"
-// with each character in its own dark rounded box, colons floating free
-// between groups) rather than one continuous stretched box — matches the
-// segmented-LED look of a dedicated timer display.
-function TiledDigits({ value, dim }: { value: string; dim?: boolean }) {
-  return (
-    <div className="flex items-center justify-center gap-1">
-      {value.split("").map((ch, i) =>
-        ch === ":" ? (
-          <span key={i} className="px-0.5 font-mono text-2xl font-black" style={{ color: dim ? "#5a6584" : "#D4AF37" }}>:</span>
-        ) : (
-          <span
-            key={i}
-            className="w-9 h-11 flex items-center justify-center rounded-lg font-mono text-2xl font-black tracking-widest"
-            style={{
-              background: "linear-gradient(180deg, #050d22, #0a1530)",
-              border: "1px solid rgba(212,175,55,0.4)",
-              color: dim ? "#5a6584" : "#F4D77A",
-              textShadow: dim ? "none" : "0 0 14px rgba(244,215,122,0.7)",
-            }}
-          >
-            {ch}
-          </span>
-        ),
-      )}
-    </div>
-  );
-}
-
 // Stable reference (never recreated) — passing `[]` inline as a prop
 // creates a brand-new array every render, which alone defeats
 // React.memo on whatever receives it.
@@ -429,7 +400,17 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
               <div style={{ transform: "rotate(8deg) translateX(-6px)", filter: "drop-shadow(0 0 18px #D4AF37)" }}><ControllerIcon color="#D4AF37" glow="rgba(255,255,255,0.4)" stickColor="#fff" size={92} /></div>
             </div>
 
-            <TiledDigits value={isActive ? elapsedLabel : "00:00:00"} dim={!isActive} />
+            <div
+              className="w-full rounded-xl px-4 py-3 font-mono text-3xl font-black tracking-widest"
+              style={{
+                background: "linear-gradient(180deg, #050d22, #0a1530)",
+                border: "1px solid rgba(212,175,55,0.4)",
+                color: isActive ? "#F4D77A" : "#5a6584",
+                textShadow: isActive ? "0 0 14px rgba(244,215,122,0.7)" : "none",
+              }}
+            >
+              {isActive ? elapsedLabel : "00:00:00"}
+            </div>
             {isActive && (
               <div className="mt-3 flex items-center justify-center gap-3 text-sm font-bold" style={{ color: "#D4AF37" }}>
                 <span title="Room time cost">⏱ {fmtMoney(timeCost)}</span>
