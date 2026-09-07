@@ -1,15 +1,15 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
-import roomIcon1 from "@/assets/room-icons/room-1.jpeg";
-import roomIcon2 from "@/assets/room-icons/room-2.jpeg";
-import roomIcon3 from "@/assets/room-icons/room-3.jpeg";
-import roomIcon4 from "@/assets/room-icons/room-4.jpeg";
-import roomIcon5 from "@/assets/room-icons/room-5.jpeg";
-import roomIcon6 from "@/assets/room-icons/room-6.jpeg";
-import roomIcon7 from "@/assets/room-icons/room-7.jpeg";
-import roomIcon8 from "@/assets/room-icons/room-8.jpeg";
-import roomIconVip from "@/assets/room-icons/room-vip.jpeg";
+import roomIcon1 from "@/assets/room-icons/room-1.webp";
+import roomIcon2 from "@/assets/room-icons/room-2.webp";
+import roomIcon3 from "@/assets/room-icons/room-3.webp";
+import roomIcon4 from "@/assets/room-icons/room-4.webp";
+import roomIcon5 from "@/assets/room-icons/room-5.webp";
+import roomIcon6 from "@/assets/room-icons/room-6.webp";
+import roomIcon7 from "@/assets/room-icons/room-7.webp";
+import roomIcon8 from "@/assets/room-icons/room-8.webp";
+import roomIconVip from "@/assets/room-icons/room-vip.webp";
 import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2 } from "lucide-react";
@@ -162,21 +162,13 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         <h2 className="text-sm uppercase tracking-widest text-muted-foreground font-mono mb-3">
           {scope === "room" ? "Rooms & VIP" : "Lounge Tables"}
         </h2>
-        <div className={vipRooms.length > 0 ? "flex flex-col lg:flex-row gap-5 items-stretch" : undefined}>
-          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 ${vipRooms.length > 0 ? "flex-[3]" : ""}`}>
-            {standardBays.map((r) => (
-              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
-            ))}
-          </div>
-          {vipRooms.length > 0 && (
-            <div className="flex flex-col gap-5 flex-1 lg:min-w-[260px]">
-              {vipRooms.map((r) => (
-                <div key={r.id} className="flex-1">
-                  <RoomCard room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {standardBays.map((r) => (
+            <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
+          ))}
+          {vipRooms.map((r) => (
+            <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
+          ))}
         </div>
       </div>
 
@@ -343,60 +335,6 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
     );
   }
 
-  // ---- VIP: double-height luxury card ----
-  if (room.isVip) {
-    return (
-      <>
-        <button
-          onClick={() => setOpen(true)}
-          className="group relative w-full h-full min-h-[420px] text-start rounded-[20px] overflow-hidden cursor-pointer transition-transform hover:scale-[1.01]"
-          style={{
-            background: "linear-gradient(160deg, #1a1030 0%, #241340 55%, #150c26 100%)",
-            border: "1px solid rgba(168,85,247,0.45)",
-            boxShadow: "0 0 0 1px rgba(168,85,247,0.25), 0 0 44px 6px rgba(168,85,247,0.28), 0 25px 60px -15px rgba(0,0,0,0.7)",
-          }}
-        >
-          <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "radial-gradient(circle at 30% 20%, #fff 0, transparent 45%)" }} />
-          <div className="relative flex flex-col items-center h-full px-6 py-8 text-center">
-            <div className="flex items-center gap-2">
-              <Crown className="w-6 h-6" style={{ color: "#D4AF37" }} />
-              <span className="text-xs font-bold uppercase tracking-[0.3em]" style={{ color: "#D4AF37" }}>VIP</span>
-            </div>
-            <h3 className="mt-1 text-2xl font-black tracking-wide" style={{ color: "#e9d5ff", textShadow: "0 0 20px rgba(168,85,247,0.6)" }}>{room.name}</h3>
-            <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#c4b5fd" }}>VIP Room</div>
-
-            <div className="flex-1 flex items-center justify-center my-4">
-              <RoomNeonIcon src={roomIconVip} size={110} />
-            </div>
-
-            <div
-              className="w-full rounded-xl px-4 py-3 font-mono text-3xl font-black tracking-widest"
-              style={{
-                background: "linear-gradient(180deg, #0d0620, #150c2c)",
-                border: "1px solid rgba(168,85,247,0.4)",
-                color: isActive ? "#e9d5ff" : "#5a5570",
-                textShadow: isActive ? "0 0 14px rgba(168,85,247,0.7)" : "none",
-              }}
-            >
-              {isActive ? elapsedLabel : "00:00:00"}
-            </div>
-            {isActive && (
-              <div className="mt-3 flex items-center justify-center gap-3 text-sm font-bold" style={{ color: "#D4AF37" }}>
-                <span title="Room time cost">⏱ {fmtMoney(timeCost)}</span>
-                <span className="opacity-40">·</span>
-                <span title="Orders cost">🍽 {fmtMoney(ordersCost)}</span>
-              </div>
-            )}
-            {!isActive && (
-              <div className="mt-3 text-[10px] uppercase tracking-widest" style={{ color: "#c4b5fd" }}>Tap to begin</div>
-            )}
-          </div>
-        </button>
-        {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
-      </>
-    );
-  }
-
   // ---- Standard bay: OFF / Single / Multi ----
   // Status color follows a stoplight language (green = available, red =
   // occupied single, amber = occupied multi) rather than the previous
@@ -420,7 +358,10 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
       >
         {/* Top row: name + status pill */}
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-base font-bold tracking-wide truncate text-white">{room.name}</h3>
+          <h3 className="flex items-center gap-1.5 text-base font-bold tracking-wide truncate text-white">
+            {room.isVip && <Crown className="w-4 h-4 shrink-0" style={{ color: "#D4AF37" }} />}
+            {room.name}
+          </h3>
           <span
             className="shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
             style={{
