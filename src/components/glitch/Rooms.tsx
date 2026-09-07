@@ -84,6 +84,33 @@ function RoomNeonIcon({ src, size = 120, dim }: { src: string; size?: number; di
   );
 }
 
+// Lounge tables: a flat gold "table + chairs" glyph — a seated figure
+// appears on the left chair when the table is occupied, an empty
+// table otherwise. Matches the metallic-card/gold-icon reference
+// look without depending on any external image asset.
+function TableIcon({ seated, size = 100 }: { seated: boolean; size?: number }) {
+  const accent = "#c9a24b";
+  return (
+    <svg viewBox="0 0 100 76" width={size} height={size * 0.76}>
+      {seated && (
+        <g fill={accent}>
+          <circle cx="30" cy="30" r="8" />
+          <path d="M18 58 Q18 38 30 38 Q42 38 42 58 Z" />
+        </g>
+      )}
+      <g fill="none" stroke={accent} strokeWidth="2.5">
+        <rect x="10" y="42" width="16" height="22" rx="3" />
+        <rect x="10" y="30" width="16" height="14" rx="3" />
+        <rect x="74" y="42" width="16" height="22" rx="3" />
+        <rect x="74" y="30" width="16" height="14" rx="3" />
+      </g>
+      <path d="M26 46 Q26 66 50 66 Q74 66 74 46 L70 46 Q70 60 50 60 Q30 60 30 46 Z" fill={accent} fillOpacity="0.5" />
+      <ellipse cx="50" cy="46" rx="24" ry="8.5" fill="none" stroke={accent} strokeWidth="2.5" />
+      <rect x="47" y="46" width="6" height="22" fill={accent} fillOpacity="0.6" />
+    </svg>
+  );
+}
+
 
 // Stable reference (never recreated) — passing `[]` inline as a prop
 // creates a brand-new array every render, which alone defeats
@@ -271,69 +298,99 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   const isMulti = isActive && room.rateMode === "multi";
   const elapsedLabel = fmtDuration(computeCurrentSegmentElapsed(room, elapsed));
 
-  // Waste/Marketing and lounge tables keep the plain utility card —
-  // this visual language (OFF/Single/Multi/VIP, controller
-  // illustrations) is specifically the Rooms 1-8 + VIP spec, not a
-  // restyle of every card in the app.
-  if (room.zone === "waste" || room.zone === "lounge") {
+  // Waste/Marketing keeps the plain utility card — that spec wasn't
+  // part of this redesign.
+  if (room.zone === "waste") {
     return (
       <>
         <button
           onClick={() => setOpen(true)}
           className={`w-full text-start glass rounded-2xl p-6 border transition-all cursor-pointer ${
-            room.isVip
-              ? "animate-vip bg-gradient-to-br from-black/8 via-[oklch(0.15_0.03_275/0.6)] to-[oklch(0.65_0.24_305/0.08)] border-black/40"
-              : isActive
-                ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
-                : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]"
+            isActive
+              ? "animate-pulse-glow border-[oklch(0.78_0.2_155/0.4)]"
+              : "border-black/10 hover:border-[oklch(0.7_0.19_260/0.4)] hover:shadow-[0_0_25px_oklch(0.7_0.19_260/0.25)]"
           }`}
         >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2 min-w-0">
-              {room.isOwnerTable ? (
-                <OwnerAvatar name={room.name} avatarUrl={room.avatarUrl} />
-              ) : room.isVip ? (
-                <Crown className="w-6 h-6 text-black shrink-0" />
-              ) : (
-                <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />
-              )}
-              <h3 className={`text-lg font-bold tracking-wide truncate ${room.isVip ? "text-gradient-gold" : ""}`}>{room.name}</h3>
+              <Gamepad2 className="w-6 h-6 text-[oklch(0.7_0.19_260)] shrink-0" />
+              <h3 className="text-lg font-bold tracking-wide truncate">{room.name}</h3>
             </div>
             <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border ${isActive ? "bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border-[oklch(0.78_0.2_155/0.5)]" : "bg-black/5 text-muted-foreground border-black/10"}`}>
               {isActive ? "Running" : "Available"}
             </span>
           </div>
-          {room.isOwnerTable && <div className="mb-3 text-[9px] uppercase tracking-widest font-bold text-black">Owner · 25% Off</div>}
-          {room.zone === "waste" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/70 rounded-xl p-3 border border-black/8">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items</div>
-                <div className="mt-1 font-mono text-xl font-bold text-black">{itemCount}</div>
-              </div>
-              <div className="bg-white/70 rounded-xl p-3 border border-black/8">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
-                <div className="mt-1 font-mono text-xl font-bold text-black">{fmtMoney(total)}</div>
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/70 rounded-xl p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Items</div>
+              <div className="mt-1 font-mono text-xl font-bold text-black">{itemCount}</div>
             </div>
-          ) : isActive ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Elapsed{room.rateMode && (room.rateSegments || []).length > 0 ? " (this " + room.rateMode + ")" : ""}{room.isPaused ? " (Paused)" : ""}</div>
-                <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isPaused ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.7_0.19_260)]"}`}>{elapsedLabel}</div>
-              </div>
-              <div className="bg-white/70 rounded-xl p-4 border border-black/8 min-w-0">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost</div>
-                <div className={`mt-1 font-mono text-xl font-bold overflow-hidden whitespace-nowrap ${room.isVip ? "text-black" : "text-[oklch(0.78_0.2_155)]"}`}>{fmtMoney(total)}</div>
-              </div>
+            <div className="bg-white/70 rounded-xl p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
+              <div className="mt-1 font-mono text-xl font-bold text-black">{fmtMoney(total)}</div>
             </div>
-          ) : (
-            <div className="py-3 text-center text-xs text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
-          )}
+          </div>
         </button>
         {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
       </>
     );
   }
+
+  // Lounge tables — metallic brushed-steel card, gold table+chairs
+  // glyph (a seated figure appears when occupied), green/red status
+  // glow border matching "Open" (occupied, timer running) vs "Closed"
+  // (empty, available) exactly as in the reference, and a pill at the
+  // bottom styled like a button (the whole card is still the single
+  // click target, opening the same detail modal as every other card).
+  if (room.zone === "lounge") {
+    const tableAccent = isActive ? "#22c55e" : "#ef4444";
+    return (
+      <>
+        <button
+          onClick={() => setOpen(true)}
+          className="group relative w-full text-start rounded-[20px] p-6 transition-all cursor-pointer overflow-hidden"
+          style={{
+            background: "linear-gradient(155deg, #3d3d42 0%, #232326 45%, #1a1a1c 100%)",
+            border: `1.5px solid ${tableAccent}99`,
+            boxShadow: `0 18px 40px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px 2px ${tableAccent}40`,
+          }}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-2xl font-black tracking-wide truncate" style={{ color: "#D4AF37", fontFamily: "Georgia, serif" }}>{room.name}</h3>
+            {room.isOwnerTable && (
+              <span className="shrink-0 flex items-center gap-1 text-[10px] font-bold uppercase" style={{ color: "#D4AF37" }}>
+                <Crown className="w-4 h-4" /> VIP
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center justify-center py-4" style={{ minHeight: 100 }}>
+            <TableIcon seated={isActive} size={110} />
+          </div>
+
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: tableAccent, boxShadow: `0 0 8px ${tableAccent}` }} />
+            <span className="text-sm font-bold uppercase tracking-wide" style={{ color: tableAccent }}>{isActive ? "Open" : "Closed"}</span>
+          </div>
+          <div className="text-xs font-mono" style={{ color: "#a8a8ac" }}>
+            {isActive ? `Sitting: ${elapsedLabel}` : "Closed: --"}
+          </div>
+          {isActive && (
+            <div className="mt-1 text-xs font-mono font-bold" style={{ color: tableAccent }}>{fmtMoney(total)}</div>
+          )}
+
+          <div
+            className="mt-3 rounded-full text-center text-[11px] font-bold uppercase tracking-wide py-2"
+            style={{ background: `${tableAccent}22`, border: `1px solid ${tableAccent}80`, color: tableAccent }}
+          >
+            {isActive ? "View Order" : "Open Booking"}
+          </div>
+        </button>
+        {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
+      </>
+    );
+  }
+
 
   // ---- Standard bay: OFF / Single / Multi ----
   // Status color follows a stoplight language (green = available, red =
