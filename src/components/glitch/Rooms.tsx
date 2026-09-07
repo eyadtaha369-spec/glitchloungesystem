@@ -381,32 +381,32 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           onClick={() => setOpen(true)}
           className="group relative w-full h-full min-h-[420px] text-start rounded-[20px] overflow-hidden cursor-pointer transition-transform hover:scale-[1.01]"
           style={{
-            background: "linear-gradient(160deg, #0B1B3D 0%, #0d2050 60%, #0B1B3D 100%)",
-            border: "3px double #C9A24B",
-            boxShadow: "0 0 0 1px #C9A24B, 0 0 40px 6px oklch(0.75 0.18 200 / 0.35), 0 25px 60px -15px rgba(0,0,0,0.6), inset 0 0 60px rgba(201,162,75,0.08)",
+            background: "linear-gradient(160deg, #1a1030 0%, #241340 55%, #150c26 100%)",
+            border: "1px solid rgba(168,85,247,0.45)",
+            boxShadow: "0 0 0 1px rgba(168,85,247,0.25), 0 0 44px 6px rgba(168,85,247,0.28), 0 25px 60px -15px rgba(0,0,0,0.7)",
           }}
         >
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(circle at 30% 20%, #fff 0, transparent 45%)" }} />
+          <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "radial-gradient(circle at 30% 20%, #fff 0, transparent 45%)" }} />
           <div className="relative flex flex-col items-center h-full px-6 py-8 text-center">
             <div className="flex items-center gap-2">
               <Crown className="w-6 h-6" style={{ color: "#D4AF37" }} />
               <span className="text-xs font-bold uppercase tracking-[0.3em]" style={{ color: "#D4AF37" }}>VIP</span>
             </div>
-            <h3 className="mt-1 text-2xl font-black tracking-wide" style={{ color: "#D4AF37", textShadow: "0 0 20px rgba(212,175,55,0.5)" }}>{room.name}</h3>
-            <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#8fa3c9" }}>VIP Room</div>
+            <h3 className="mt-1 text-2xl font-black tracking-wide" style={{ color: "#e9d5ff", textShadow: "0 0 20px rgba(168,85,247,0.6)" }}>{room.name}</h3>
+            <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#c4b5fd" }}>VIP Room</div>
 
             <div className="flex-1 flex items-center justify-center gap-1 my-4">
-              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#EDEDED" glow="rgba(212,175,55,0.55)" stickColor="#D4AF37" size={92} /></div>
-              <div style={{ transform: "rotate(8deg) translateX(-6px)", filter: "drop-shadow(0 0 18px #D4AF37)" }}><ControllerIcon color="#D4AF37" glow="rgba(255,255,255,0.4)" stickColor="#fff" size={92} /></div>
+              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#a855f7" glow="rgba(168,85,247,0.65)" stickColor="#1a1030" size={92} /></div>
+              <div style={{ transform: "rotate(8deg) translateX(-6px)" }}><ControllerIcon color="#D4AF37" glow="rgba(212,175,55,0.55)" stickColor="#1a1030" size={92} /></div>
             </div>
 
             <div
               className="w-full rounded-xl px-4 py-3 font-mono text-3xl font-black tracking-widest"
               style={{
-                background: "linear-gradient(180deg, #050d22, #0a1530)",
-                border: "1px solid rgba(212,175,55,0.4)",
-                color: isActive ? "#F4D77A" : "#5a6584",
-                textShadow: isActive ? "0 0 14px rgba(244,215,122,0.7)" : "none",
+                background: "linear-gradient(180deg, #0d0620, #150c2c)",
+                border: "1px solid rgba(168,85,247,0.4)",
+                color: isActive ? "#e9d5ff" : "#5a5570",
+                textShadow: isActive ? "0 0 14px rgba(168,85,247,0.7)" : "none",
               }}
             >
               {isActive ? elapsedLabel : "00:00:00"}
@@ -419,7 +419,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
               </div>
             )}
             {!isActive && (
-              <div className="mt-3 text-[10px] uppercase tracking-widest" style={{ color: "#8fa3c9" }}>Tap to begin</div>
+              <div className="mt-3 text-[10px] uppercase tracking-widest" style={{ color: "#c4b5fd" }}>Tap to begin</div>
             )}
           </div>
         </button>
@@ -429,8 +429,13 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   }
 
   // ---- Standard bay: OFF / Single / Multi ----
-  const accent = !isActive ? "#8b8b8b" : isMulti ? "#0f766e" : "#16a34a";
-  const glow = !isActive ? undefined : isMulti ? "oklch(0.65 0.14 185 / 0.35)" : "oklch(0.75 0.18 200 / 0.4)";
+  // Status color follows a stoplight language (green = available, red =
+  // occupied single, amber = occupied multi) rather than the previous
+  // neutral-gray-off scheme, and the controller itself is filled with
+  // that status color (not left white with just a tinted glow) — an
+  // intact, brightly-lit pad in every state, no cracked/broken variant.
+  const accent = !isActive ? "#22c55e" : isMulti ? "#f59e0b" : "#ef4444";
+  const glow = !isActive ? "rgba(34,197,94,0.55)" : isMulti ? "rgba(245,158,11,0.55)" : "rgba(239,68,68,0.55)";
 
   return (
     <>
@@ -438,47 +443,45 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         onClick={() => setOpen(true)}
         className="group relative w-full text-start rounded-[20px] p-6 transition-all cursor-pointer overflow-hidden"
         style={{
-          background: !isActive ? "#EBEAE4" : "#FFFFFF",
-          boxShadow: isActive
-            ? `0 18px 40px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.04), 0 0 34px 4px ${glow}`
-            : "0 10px 24px -10px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
+          background: "linear-gradient(160deg, #1a1c22 0%, #101216 100%)",
+          border: `1px solid ${accent}55`,
+          boxShadow: `0 18px 40px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03), 0 0 30px 2px ${accent}30`,
         }}
       >
         {/* Top row: name + status pill */}
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-base font-bold tracking-wide truncate" style={{ color: !isActive ? "#8b8b8b" : "#1c1c1c" }}>{room.name}</h3>
+          <h3 className="text-base font-bold tracking-wide truncate text-white">{room.name}</h3>
           <span
             className="shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
             style={{
-              background: !isActive ? "rgba(0,0,0,0.06)" : isMulti ? "rgba(15,118,110,0.12)" : "rgba(22,163,74,0.12)",
+              background: `${accent}1f`,
               color: accent,
-              border: `1px solid ${!isActive ? "rgba(0,0,0,0.12)" : accent}`,
+              border: `1px solid ${accent}80`,
             }}
           >
             {!isActive ? "OFF" : isMulti ? "MULTI" : "SINGLE"}
           </span>
         </div>
 
-        {/* Controller illustration — white body, colored ambient glow
-            supplies the Single/Multi tint (per spec: "white controller
-            with a soft ambient underglow", not a colored controller). */}
+        {/* Controller illustration — filled in the status color with a
+            matching glow, intact in every state (no cracked/broken look). */}
         <div className="flex items-center justify-center py-3 relative" style={{ minHeight: 118 }}>
           {!isActive ? (
-            <ControllerIcon color="#D8D8D4" broken size={104} />
+            <ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={104} />
           ) : isMulti ? (
             <div className="flex items-center">
-              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color="#F7F7F5" glow={glow} size={78} /></div>
-              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color="#FFFFFF" glow={glow} size={78} /></div>
+              <div style={{ transform: "translateX(14px) rotate(-10deg)", zIndex: 1 }}><ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={78} /></div>
+              <div style={{ transform: "translateX(-14px) rotate(10deg)" }}><ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={78} /></div>
             </div>
           ) : (
-            <ControllerIcon color="#FFFFFF" glow={glow} size={104} />
+            <ControllerIcon color={accent} glow={glow} stickColor="#0e1013" size={104} />
           )}
 
           {/* Floating badge under the controller(s) */}
           {isActive && (
             <span
               className="absolute -bottom-1 text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full text-white shadow-md"
-              style={{ background: isMulti ? "#0f766e" : "#16a34a" }}
+              style={{ background: accent }}
             >
               {isMulti ? "MULTI" : "SINGLE"}
             </span>
@@ -486,16 +489,16 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
         </div>
 
         {/* Digital timer */}
-        <div className="mt-3 rounded-xl px-2 py-2.5 text-center overflow-hidden" style={{ background: !isActive ? "rgba(0,0,0,0.04)" : "#0f1115" }}>
+        <div className="mt-3 rounded-xl px-2 py-2.5 text-center overflow-hidden" style={{ background: "rgba(0,0,0,0.35)", border: `1px solid ${accent}30` }}>
           <div
             className="font-mono text-xl font-black tracking-normal whitespace-nowrap"
-            style={{ color: !isActive ? "#9a9a94" : accent, textShadow: isActive ? `0 0 10px ${accent}55` : "none" }}
+            style={{ color: accent, textShadow: `0 0 10px ${accent}55` }}
           >
             {!isActive ? "00:00:00" : elapsedLabel}
           </div>
         </div>
 
-        {room.isOwnerTable && <div className="mt-2 text-[9px] uppercase tracking-widest font-bold text-black text-center">Owner · 25% Off</div>}
+        {room.isOwnerTable && <div className="mt-2 text-[9px] uppercase tracking-widest font-bold text-white/70 text-center">Owner · 25% Off</div>}
 
         {isActive ? (
           <div className="mt-2 flex items-center justify-center gap-3 text-[11px] font-mono font-bold" style={{ color: accent }}>
@@ -504,7 +507,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             <span title="Orders cost">🍽 {fmtMoney(ordersCost)}</span>
           </div>
         ) : (
-          <div className="mt-2 text-center text-[10px] text-muted-foreground font-mono uppercase tracking-widest">Tap to start a session</div>
+          <div className="mt-2 text-center text-[10px] text-white/40 font-mono uppercase tracking-widest">Tap to start a session</div>
         )}
       </button>
       {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
