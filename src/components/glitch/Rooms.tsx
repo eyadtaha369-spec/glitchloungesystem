@@ -1,6 +1,15 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
+import roomIcon1 from "@/assets/room-icons/room-1.jpeg";
+import roomIcon2 from "@/assets/room-icons/room-2.jpeg";
+import roomIcon3 from "@/assets/room-icons/room-3.jpeg";
+import roomIcon4 from "@/assets/room-icons/room-4.jpeg";
+import roomIcon5 from "@/assets/room-icons/room-5.jpeg";
+import roomIcon6 from "@/assets/room-icons/room-6.jpeg";
+import roomIcon7 from "@/assets/room-icons/room-7.jpeg";
+import roomIcon8 from "@/assets/room-icons/room-8.jpeg";
+import roomIconVip from "@/assets/room-icons/room-vip.jpeg";
 import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2 } from "lucide-react";
@@ -39,6 +48,39 @@ function ControllerIcon({ color, glow, size = 120 }: { color: string; glow?: str
         }}
       />
     </div>
+  );
+}
+
+// Room 1-8 use the custom-uploaded neon "number + controller" glyphs
+// (one static image per room) instead of the generic drawn icon;
+// VIP gets its own dedicated glyph. Falls back to the drawn
+// ControllerIcon for any room whose name doesn't resolve to 1-8, so
+// a renamed/extra room never renders blank.
+const ROOM_NUMBER_ICONS: Record<number, string> = {
+  1: roomIcon1, 2: roomIcon2, 3: roomIcon3, 4: roomIcon4,
+  5: roomIcon5, 6: roomIcon6, 7: roomIcon7, 8: roomIcon8,
+};
+function getRoomIconSrc(room: Room): string | null {
+  if (room.isVip) return roomIconVip;
+  const match = room.name.match(/\d+/);
+  const n = match ? parseInt(match[0], 10) : NaN;
+  return ROOM_NUMBER_ICONS[n] ?? null;
+}
+function RoomNeonIcon({ src, size = 120, dim }: { src: string; size?: number; dim?: boolean }) {
+  return (
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      style={{
+        width: size * 1.9,
+        maxWidth: "100%",
+        height: "auto",
+        objectFit: "contain",
+        opacity: dim ? 0.45 : 1,
+        filter: dim ? "grayscale(0.4)" : undefined,
+      }}
+    />
   );
 }
 
@@ -323,9 +365,8 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             <h3 className="mt-1 text-2xl font-black tracking-wide" style={{ color: "#e9d5ff", textShadow: "0 0 20px rgba(168,85,247,0.6)" }}>{room.name}</h3>
             <div className="text-[9px] uppercase tracking-[0.25em] mt-0.5" style={{ color: "#c4b5fd" }}>VIP Room</div>
 
-            <div className="flex-1 flex items-center justify-center gap-1 my-4">
-              <div style={{ transform: "rotate(-8deg) translateX(6px)" }}><ControllerIcon color="#a855f7" glow="rgba(168,85,247,0.65)" size={92} /></div>
-              <div style={{ transform: "rotate(8deg) translateX(-6px)" }}><ControllerIcon color="#D4AF37" glow="rgba(212,175,55,0.55)" size={92} /></div>
+            <div className="flex-1 flex items-center justify-center my-4">
+              <RoomNeonIcon src={roomIconVip} size={110} />
             </div>
 
             <div
@@ -364,6 +405,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
   // intact, brightly-lit pad in every state, no cracked/broken variant.
   const accent = !isActive ? "#22c55e" : isMulti ? "#f59e0b" : "#ef4444";
   const glow = !isActive ? "rgba(34,197,94,0.55)" : isMulti ? "rgba(245,158,11,0.55)" : "rgba(239,68,68,0.55)";
+  const iconSrc = getRoomIconSrc(room);
 
   return (
     <>
@@ -391,10 +433,13 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           </span>
         </div>
 
-        {/* Controller illustration — filled in the status color with a
-            matching glow, intact in every state (no cracked/broken look). */}
+        {/* Controller illustration — the custom neon "number + controller"
+            glyph for this room number, dimmed/desaturated when off. Falls
+            back to the drawn glow icon if no matching numbered asset. */}
         <div className="flex items-center justify-center py-3 relative" style={{ minHeight: 118 }}>
-          {!isActive ? (
+          {iconSrc ? (
+            <RoomNeonIcon src={iconSrc} size={116} dim={!isActive} />
+          ) : !isActive ? (
             <ControllerIcon color={accent} glow={glow} size={104} />
           ) : isMulti ? (
             <div className="flex items-center">
