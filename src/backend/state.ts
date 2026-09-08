@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot, DailyReconciliation } from "@/lib/types";
+import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot, DailyReconciliation, Room } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -137,7 +137,14 @@ export const addOwnerTableFn = createServerFn({ method: "POST" })
   .validator((d: { name?: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
-    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("addOwnerTable", { ...data, username: user.username });
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState; room?: Room }>("addOwnerTable", { ...data, username: user.username });
+  });
+
+export const deleteOwnerTableFn = createServerFn({ method: "POST" })
+  .validator((d: { roomId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("deleteOwnerTable", { ...data, username: user.username });
   });
 
 export const setRoomAvatarFn = createServerFn({ method: "POST" })

@@ -1,4 +1,4 @@
-const { pushActivity_ } = require("./util");
+const { pushActivity_, newId_ } = require("./util");
 const { materialRemaining_, materialReserved_, consumeFifo_, restoreFifo_ } = require("./state");
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
@@ -13,6 +13,33 @@ function bizRenameRoom_(state, roomId, name) {
   if (!trimmed) return { ok: false, error: "Name cannot be empty", state };
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { name: trimmed }) : r));
   return { ok: true, state };
+}
+
+function bizAddOwnerTable_(state, name) {
+  const trimmed = (name || "").trim();
+  const ownerCount = state.rooms.filter((r) => r.isOwnerTable).length;
+  const finalName = trimmed || ("Owner Table " + (ownerCount + 1));
+  const newRoom = {
+    id: newId_("owner"), name: finalName, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0,
+    rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge",
+    splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false,
+    pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+  };
+  state.rooms = state.rooms.concat([newRoom]);
+  return { ok: true, state, room: newRoom };
+}
+
+// Deletes an owner table entirely — refuses if it has an active,
+// unbilled session (an admin needs to check the customer out or
+// force-void it first) so a table can never vanish out from under a
+// live check, silently discarding whatever was on it.
+function bizDeleteOwnerTable_(state, roomId) {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return { ok: false, error: "Table not found.", state };
+  if (!room.isOwnerTable) return { ok: false, error: "This isn't an owner table.", state };
+  if (room.status === "active") return { ok: false, error: "This table has an active, unbilled session — check it out or clear it first.", state };
+  state.rooms = state.rooms.filter((r) => r.id !== roomId);
+  return { ok: true, state, room };
 }
 
 function effectiveDurationSec_(room, atTime) {
@@ -583,7 +610,7 @@ function bizTransferOrderItem_(state, sourceRoomId, targetRoomId, menuItemId, qt
 }
 
 module.exports = {
-  PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
+  PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
   bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_,
   bizTransferOrderItem_,
   WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,

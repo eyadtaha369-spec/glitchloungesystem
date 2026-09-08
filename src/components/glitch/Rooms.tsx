@@ -12,7 +12,7 @@ import roomIcon8 from "@/assets/room-icons/room-8.webp";
 import roomIconVip from "@/assets/room-icons/room-vip.webp";
 import { printSmart } from "@/lib/print";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
-import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2 } from "lucide-react";
+import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2, Trash2 } from "lucide-react";
 
 // A flat, neon-outline gamepad glyph — matching a generic controller
 // icon (lucide's Gamepad2 outline shape) rather than a photorealistic
@@ -298,6 +298,41 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
 // or wherever this app's build serves static assets from) and it
 // renders automatically; until then, or for any name with no entry
 // here, OwnerAvatar below falls back to a styled initials avatar.
+// Resizes and center-crops to a small square thumbnail before ever
+// reading it as base64 — keeps the resulting data URI small (a
+// typical phone photo can be several MB; this brings it down to
+// roughly 15-40KB regardless of the original size) and square,
+// matching how it's actually displayed (a circle crops from a
+// square, not an arbitrary aspect ratio). Stored directly on the room
+// object as a data: URI rather than uploaded anywhere — this
+// sidesteps Google Drive's sharing-link format entirely, which turned
+// out to be unreliable for direct <img> embedding regardless of which
+// URL format was used to construct it. A data: URI always renders
+// correctly in an <img> tag, with no external hosting or permissions
+// involved at all. Shared between RoomDetailModal's "change photo"
+// flow and AddOwnerTableModal's "assign a photo at creation" flow.
+function resizeToSquareDataUrl(file: File, targetSize = 200): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = targetSize;
+      canvas.height = targetSize;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("Could not process this image.")); return; }
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, targetSize, targetSize);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Could not read the selected file.")); };
+    img.src = objectUrl;
+  });
+}
+
 const OWNER_TABLE_AVATARS: Record<string, string> = {
   "abdelrazek": "/assets/avatars/abdelrazek.jpg",
   "3omda": "/assets/avatars/3omda.jpg",
@@ -344,7 +379,10 @@ function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 56 }: { name: string
 }
 
 const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
+  const { state, deleteOwnerTable } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const [open, setOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const isActive = room.status === "active";
   const timeCost = computeTimeCost(room, elapsed);
   const ordersCost = round2(room.orders.reduce((a, o) => a + o.qty * o.price, 0));
@@ -402,51 +440,78 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
     const tableAccent = isActive ? "#22c55e" : "#ef4444";
     return (
       <>
-        <button
-          onClick={() => setOpen(true)}
-          className="group relative w-full text-start rounded-[24px] p-5 transition-all cursor-pointer overflow-hidden"
-          style={{
-            background: "linear-gradient(155deg, #4c4c50 0%, #2b2b2e 45%, #19191b 100%)",
-            border: `2px solid ${tableAccent}cc`,
-            boxShadow: `0 18px 40px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), 0 0 26px 3px ${tableAccent}55`,
-          }}
-        >
-          <div className="absolute top-4 left-4 right-4 h-14 rounded-2xl bg-white/[0.03] pointer-events-none" />
-          <div className="relative flex items-center justify-between mb-2">
-            <h3 className="text-3xl font-black tracking-wide truncate" style={{ color: "#e9d18f" }}>{room.name}</h3>
-            {room.isOwnerTable && (
-              <span className="shrink-0 flex flex-col items-center gap-0.5" style={{ color: "#D4AF37" }}>
-                <Crown className="w-5 h-5" />
-                <span className="text-[9px] font-bold uppercase">VIP</span>
-              </span>
+        <div className="relative">
+          <button
+            onClick={() => setOpen(true)}
+            className="group relative w-full text-start rounded-[24px] p-5 transition-all cursor-pointer overflow-hidden"
+            style={{
+              background: "linear-gradient(155deg, #4c4c50 0%, #2b2b2e 45%, #19191b 100%)",
+              border: `2px solid ${tableAccent}cc`,
+              boxShadow: `0 18px 40px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), 0 0 26px 3px ${tableAccent}55`,
+            }}
+          >
+            <div className="absolute top-4 left-4 right-4 h-14 rounded-2xl bg-white/[0.03] pointer-events-none" />
+            <div className="relative flex items-center justify-between mb-2">
+              <h3 className="text-3xl font-black tracking-wide truncate" style={{ color: "#e9d18f" }}>{room.name}</h3>
+              {room.isOwnerTable && (
+                <span className="shrink-0 flex flex-col items-center gap-0.5" style={{ color: "#D4AF37" }}>
+                  <Crown className="w-5 h-5" />
+                  <span className="text-[9px] font-bold uppercase">VIP</span>
+                </span>
+              )}
+            </div>
+
+            <div className="relative flex items-center justify-center py-3" style={{ minHeight: 90 }}>
+              <TableIcon seated={isActive} size={130} />
+            </div>
+
+            <div
+              className="relative flex items-center gap-2 rounded-full px-4 py-1.5 w-fit"
+              style={{ background: tableAccent, boxShadow: `0 0 14px ${tableAccent}88` }}
+            >
+              <span className="text-[13px] font-bold uppercase tracking-wide text-black/80">{isActive ? "Open" : "Closed"}</span>
+            </div>
+            <div className="mt-2 text-[13px] font-mono" style={{ color: "#b8b8bc" }}>
+              {isActive ? `Sitting: ${elapsedLabel}` : "Closed: --"}
+            </div>
+            {isActive && (
+              <div className="mt-0.5 text-[13px] font-mono font-bold" style={{ color: tableAccent }}>{fmtMoney(total)}</div>
             )}
-          </div>
 
-          <div className="relative flex items-center justify-center py-3" style={{ minHeight: 90 }}>
-            <TableIcon seated={isActive} size={130} />
-          </div>
+            <div
+              className="mt-3 rounded-full text-center text-[12px] font-bold uppercase tracking-wide py-2.5"
+              style={{ background: `${tableAccent}26`, border: `1.5px solid ${tableAccent}90`, color: tableAccent }}
+            >
+              {isActive ? "View Order" : "Open Booking"}
+            </div>
+          </button>
 
-          <div
-            className="relative flex items-center gap-2 rounded-full px-4 py-1.5 w-fit"
-            style={{ background: tableAccent, boxShadow: `0 0 14px ${tableAccent}88` }}
-          >
-            <span className="text-[13px] font-bold uppercase tracking-wide text-black/80">{isActive ? "Open" : "Closed"}</span>
-          </div>
-          <div className="mt-2 text-[13px] font-mono" style={{ color: "#b8b8bc" }}>
-            {isActive ? `Sitting: ${elapsedLabel}` : "Closed: --"}
-          </div>
-          {isActive && (
-            <div className="mt-0.5 text-[13px] font-mono font-bold" style={{ color: tableAccent }}>{fmtMoney(total)}</div>
+          {/* Subtle delete affordance — owner tables only, admin only.
+              Sibling to the card's own <button>, not nested inside it
+              (HTML disallows nested buttons), positioned as a small
+              overlay in the corner so it stays out of the way of the
+              card's main tap target. */}
+          {room.isOwnerTable && isAdmin && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setDeleteConfirmOpen(true); }}
+              title="Remove this owner table"
+              className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full bg-black/40 hover:bg-[oklch(0.62_0.24_25/0.8)] text-white/70 hover:text-white transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           )}
-
-          <div
-            className="mt-3 rounded-full text-center text-[12px] font-bold uppercase tracking-wide py-2.5"
-            style={{ background: `${tableAccent}26`, border: `1.5px solid ${tableAccent}90`, color: tableAccent }}
-          >
-            {isActive ? "View Order" : "Open Booking"}
-          </div>
-        </button>
+        </div>
         {open && <RoomDetailModal room={room} elapsed={elapsed} onCheckout={onCheckout} transferTargets={transferTargets} onClose={() => setOpen(false)} />}
+        {deleteConfirmOpen && (
+          <DeleteOwnerTableModal
+            room={room}
+            onConfirm={async () => {
+              const res = await deleteOwnerTable(room.id);
+              return res;
+            }}
+            onClose={() => setDeleteConfirmOpen(false)}
+          />
+        )}
       </>
     );
   }
@@ -587,40 +652,6 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Resizes and center-crops to a small square thumbnail before ever
-  // reading it as base64 — keeps the resulting data URI small (a
-  // typical phone photo can be several MB; this brings it down to
-  // roughly 15-40KB regardless of the original size) and square,
-  // matching how it's actually displayed (a circle crops from a
-  // square, not an arbitrary aspect ratio). Stored directly on the
-  // room object as a data: URI rather than uploaded anywhere — this
-  // sidesteps Google Drive's sharing-link format entirely, which
-  // turned out to be unreliable for direct <img> embedding regardless
-  // of which URL format was used to construct it. A data: URI always
-  // renders correctly in an <img> tag, with no external hosting or
-  // permissions involved at all.
-  const resizeToSquareDataUrl = (file: File, targetSize = 200): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        const side = Math.min(img.width, img.height);
-        const sx = (img.width - side) / 2;
-        const sy = (img.height - side) / 2;
-        const canvas = document.createElement("canvas");
-        canvas.width = targetSize;
-        canvas.height = targetSize;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Could not process this image.")); return; }
-        ctx.drawImage(img, sx, sy, side, side, 0, 0, targetSize, targetSize);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
-      };
-      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Could not read the selected file.")); };
-      img.src = objectUrl;
-    });
-  };
 
   const handleAvatarFileSelected = async (file: File) => {
     setAvatarError(null);
@@ -2316,10 +2347,23 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
 // Generic Admin Authorization modal — a manager-key-style override. Any
 // cashier-initiated critical action that needs an admin to approve it on
 // the spot (rather than through an async approval queue) can reuse this.
-function AddOwnerTableModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name?: string) => Promise<{ ok: boolean; error?: string }> }) {
+function AddOwnerTableModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name?: string) => Promise<{ ok: boolean; error?: string; room?: Room }> }) {
+  const { setRoomAvatar } = useStore();
   const [name, setName] = useState("");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarPick = (file: File) => {
+    setAvatarError(null);
+    if (!file.type.startsWith("image/")) { setAvatarError("Please choose an image file."); return; }
+    if (file.size > 8 * 1024 * 1024) { setAvatarError("Photo is too large — please choose one under 8MB."); return; }
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  };
 
   const submit = async () => {
     setErr(null);
@@ -2327,14 +2371,25 @@ function AddOwnerTableModal({ onClose, onAdd }: { onClose: () => void; onAdd: (n
     try {
       const res = await onAdd(name.trim() || undefined);
       if (!res.ok) { setErr(res.error || "Could not add the owner table."); return; }
+      // Avatar upload is best-effort, after the table itself exists —
+      // the table was still created successfully even if the photo
+      // upload happens to fail, so that failure surfaces as its own
+      // message rather than blocking table creation entirely.
+      if (avatarFile && res.room) {
+        const dataUrl = await resizeToSquareDataUrl(avatarFile);
+        const avatarRes = await setRoomAvatar(res.room.id, dataUrl);
+        if (!avatarRes.ok) { setErr("Table was created, but the photo couldn't be saved: " + (avatarRes.error || "unknown error")); return; }
+      }
       onClose();
+    } catch (avatarErr) {
+      setErr(avatarErr instanceof Error ? avatarErr.message : "Table was created, but the photo couldn't be saved.");
     } finally {
       setSaving(false);
     }
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !saving && onClose()}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-black/50" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-black">
@@ -2344,6 +2399,30 @@ function AddOwnerTableModal({ onClose, onAdd }: { onClose: () => void; onAdd: (n
         </div>
         <div className="p-4 space-y-3">
           <p className="text-sm text-muted-foreground">New owner tables get the automatic 25% discount, same as the others.</p>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => avatarFileInputRef.current?.click()}
+              className="relative w-14 h-14 rounded-full border-2 border-dashed border-black/25 flex items-center justify-center shrink-0 overflow-hidden hover:border-black/40 transition-colors"
+              title="Assign a profile photo (optional)"
+            >
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <Plus className="w-5 h-5 text-black/30" />
+              )}
+            </button>
+            <div className="text-xs text-muted-foreground">
+              <div className="font-semibold text-black">Profile Photo (optional)</div>
+              <div>Click the circle to assign a face photo — or skip it and use initials for now.</div>
+            </div>
+            <input
+              ref={avatarFileInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const file = e.target.files?.[0]; if (file) handleAvatarPick(file); e.target.value = ""; }}
+            />
+          </div>
+          {avatarError && <div className="text-xs text-[oklch(0.62_0.24_25)]">{avatarError}</div>}
+
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Table Name (optional)</label>
             <input
@@ -2356,13 +2435,64 @@ function AddOwnerTableModal({ onClose, onAdd }: { onClose: () => void; onAdd: (n
           {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
         <div className="p-4 border-t border-black/10 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button onClick={onClose} disabled={saving} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
           <button
-            onClick={submit}
+            onClick={() => void submit()}
             disabled={saving}
             className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-semibold disabled:opacity-60"
           >
             {saving ? "Adding..." : "Add Table"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function DeleteOwnerTableModal({ room, onConfirm, onClose }: {
+  room: Room;
+  onConfirm: () => Promise<{ ok: boolean; error?: string }>;
+  onClose: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    setSubmitting(true);
+    try {
+      const res = await onConfirm();
+      if (!res.ok) { setErr(res.error || "Could not remove this table."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.62_0.24_25)]">
+            <Trash2 className="w-4 h-4" /> Remove Owner Table
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-sm">
+            Are you sure you want to remove <strong>{room.name}</strong>? This can't be undone.
+          </p>
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-60"
+          >
+            {submitting ? "Removing..." : "Remove Table"}
           </button>
         </div>
       </div>

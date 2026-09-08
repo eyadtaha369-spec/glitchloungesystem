@@ -373,6 +373,7 @@ const ACTION_RISK = {
   EVENT_BOOKING_CREATED: "green", EVENT_BOOKING_UPDATED: "green", EVENT_BOOKING_DELETED: "yellow",
   FIXED_MONTHLY_COST_LOGGED: "green", FIXED_MONTHLY_COST_UPDATED: "yellow", FIXED_MONTHLY_COST_DELETED: "yellow",
   ROOM_AVATAR_UPDATED: "green",
+  ROOM_ADDED: "green", ROOM_DELETED: "yellow",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -468,6 +469,19 @@ function bizAddOwnerTable_(state, name) {
   };
   state.rooms = state.rooms.concat([newRoom]);
   return { ok: true, state: state, room: newRoom };
+}
+
+// Deletes an owner table entirely — refuses if it has an active,
+// unbilled session (an admin needs to check the customer out or
+// force-void it first) so a table can never vanish out from under a
+// live check, silently discarding whatever was on it.
+function bizDeleteOwnerTable_(state, roomId) {
+  const room = state.rooms.find(function (r) { return r.id === roomId; });
+  if (!room) return { ok: false, error: "Table not found.", state: state };
+  if (!room.isOwnerTable) return { ok: false, error: "This isn't an owner table.", state: state };
+  if (room.status === "active") return { ok: false, error: "This table has an active, unbilled session — check it out or clear it first.", state: state };
+  state.rooms = state.rooms.filter(function (r) { return r.id !== roomId; });
+  return { ok: true, state: state, room: room };
 }
 
 function bizStartRoom_(state, roomId, rateMode) {
@@ -2305,6 +2319,22 @@ function doPost(e) {
           after: { id: result.room.id, name: result.room.name },
         });
         return json_({ ok: true, state: withStockView_(result.state), room: result.room });
+      }
+
+      case "deleteOwnerTable": {
+        requireRole_(body.username, ["admin"]);
+        const deleteState0 = getState_();
+        const deleteResult = bizDeleteOwnerTable_(deleteState0, body.roomId);
+        if (!deleteResult.ok) return json_({ ok: false, error: deleteResult.error, state: withStockView_(deleteState0) });
+        setState_(deleteResult.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "ROOM_DELETED",
+          location: deleteResult.room.name,
+          description: body.username + " removed owner table: " + deleteResult.room.name,
+          before: { id: deleteResult.room.id, name: deleteResult.room.name },
+          after: null,
+        });
+        return json_({ ok: true, state: withStockView_(deleteResult.state) });
       }
 
       case "setRoomAvatar": {

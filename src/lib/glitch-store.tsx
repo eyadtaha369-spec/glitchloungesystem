@@ -55,6 +55,7 @@ import {
   setRoomRateFn,
   renameRoomFn,
   addOwnerTableFn,
+  deleteOwnerTableFn,
   setRoomAvatarFn,
   addMenuItemFn,
   updateMenuItemFn,
@@ -157,7 +158,8 @@ interface StoreContextValue {
   deleteAccount: (username: string) => Promise<void>;
   setRoomRate: (roomId: string, singleRate: number, multiRate: number) => Promise<void>;
   renameRoom: (roomId: string, name: string) => Promise<{ ok: boolean; error?: string }>;
-  addOwnerTable: (name?: string) => Promise<{ ok: boolean; error?: string }>;
+  addOwnerTable: (name?: string) => Promise<{ ok: boolean; error?: string; room?: Room }>;
+  deleteOwnerTable: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   setRoomAvatar: (roomId: string, avatarDataUrl: string) => Promise<{ ok: boolean; error?: string }>;
   startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number, discount?: { timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number; ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number }, timeSplitOverride?: { singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number }) => Promise<{ session: Session | null; error?: string }>;
@@ -569,9 +571,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const res = await addOwnerTableFn({ data: { name } });
         if (res.ok) setAppState(res.state);
-        return { ok: res.ok, error: res.error };
+        return { ok: res.ok, error: res.error, room: res.room };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Adding the owner table failed unexpectedly." };
+      }
+    });
+  };
+  const deleteOwnerTable: StoreContextValue["deleteOwnerTable"] = async (roomId) => {
+    return withPending(`deleteOwnerTable:${roomId}`, async () => {
+      try {
+        const res = await deleteOwnerTableFn({ data: { roomId } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Removing the owner table failed unexpectedly." };
       }
     });
   };
@@ -1526,7 +1539,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, addOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
+    setRoomRate, renameRoom, addOwnerTable, deleteOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,

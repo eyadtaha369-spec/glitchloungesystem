@@ -24,7 +24,7 @@ const {
   consumeFifo_, writeBatchesBack_,
 } = require("./lib/state");
 const {
-  bizSetRoomRate_, bizRenameRoom_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
+  bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
 const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ } = require("./lib/shifts");
@@ -499,6 +499,32 @@ Object.assign(handlers, {
       location: room.name, description: body.username + " updated the profile photo for " + room.name,
     });
     return { ok: true, state: withStockView_(state0) };
+  },
+
+  addOwnerTable(body) {
+    requireRole_(body.username, ["admin"]);
+    const state0 = getState_();
+    const result = bizAddOwnerTable_(state0, body.name);
+    setState_(result.state);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "ROOM_ADDED",
+      location: result.room.name, description: body.username + " added a new owner table: " + result.room.name,
+      before: null, after: { id: result.room.id, name: result.room.name },
+    });
+    return { ok: true, state: withStockView_(result.state), room: result.room };
+  },
+  deleteOwnerTable(body) {
+    requireRole_(body.username, ["admin"]);
+    const state0 = getState_();
+    const result = bizDeleteOwnerTable_(state0, body.roomId);
+    if (!result.ok) return { ok: false, error: result.error, state: withStockView_(state0) };
+    setState_(result.state);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "ROOM_DELETED",
+      location: result.room.name, description: body.username + " removed owner table: " + result.room.name,
+      before: { id: result.room.id, name: result.room.name }, after: null,
+    });
+    return { ok: true, state: withStockView_(result.state) };
   },
 
   logWasteMarketing(body) {
