@@ -133,6 +133,13 @@ export const renameRoomFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("renameRoom", { ...data, username: user.username });
   });
 
+export const addOwnerTableFn = createServerFn({ method: "POST" })
+  .validator((d: { name?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("addOwnerTable", { ...data, username: user.username });
+  });
+
 export const setRoomAvatarFn = createServerFn({ method: "POST" })
   .validator((d: { roomId: string; avatarDataUrl: string }) => d)
   .handler(async ({ data }) => {

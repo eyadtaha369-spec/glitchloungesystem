@@ -177,12 +177,13 @@ export function LoungePage() {
 }
 
 function ZonePage({ scope }: { scope: "room" | "lounge" }) {
-  const { state, computeElapsed, activeShift } = useStore();
+  const { state, computeElapsed, activeShift, addOwnerTable } = useStore();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
   const [receipt, setReceipt] = useState<Session | null>(null);
   const [reopenTarget, setReopenTarget] = useState<Session | null>(null);
+  const [showAddOwnerTable, setShowAddOwnerTable] = useState(false);
   const isAdmin = state.currentUser?.role === "admin";
 
   // Memoized on state.rooms specifically (not the 1-second tick) — these
@@ -232,15 +233,36 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         </div>
       </div>
 
-      {scope === "lounge" && ownerTables.length > 0 && (
+      {scope === "lounge" && (ownerTables.length > 0 || isAdmin) && (
         <div>
-          <h2 className="text-sm uppercase tracking-widest text-black font-mono mb-3">Owner Tables — Automatic 25% Discount</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {ownerTables.map((r) => (
-              <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm uppercase tracking-widest text-black font-mono">Owner Tables — Automatic 25% Discount</h2>
+            {isAdmin && (
+              <button
+                onClick={() => setShowAddOwnerTable(true)}
+                className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border border-black/20 text-black hover:bg-black/5 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Owner Table
+              </button>
+            )}
           </div>
+          {ownerTables.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {ownerTables.map((r) => (
+                <RoomCard key={r.id} room={r} elapsed={computeElapsed(r)} onCheckout={setReceipt} transferTargets={transferTargets} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground font-mono">No owner tables yet.</div>
+          )}
         </div>
+      )}
+
+      {showAddOwnerTable && (
+        <AddOwnerTableModal
+          onClose={() => setShowAddOwnerTable(false)}
+          onAdd={async (name) => addOwnerTable(name)}
+        />
       )}
 
       {scope === "lounge" && wasteTable && (
@@ -2294,6 +2316,61 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
 // Generic Admin Authorization modal — a manager-key-style override. Any
 // cashier-initiated critical action that needs an admin to approve it on
 // the spot (rather than through an async approval queue) can reuse this.
+function AddOwnerTableModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name?: string) => Promise<{ ok: boolean; error?: string }> }) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      const res = await onAdd(name.trim() || undefined);
+      if (!res.ok) { setErr(res.error || "Could not add the owner table."); return; }
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-black/50" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-black">
+            <Plus className="w-4 h-4" /> Add Owner Table
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">New owner tables get the automatic 25% discount, same as the others.</p>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Table Name (optional)</label>
+            <input
+              autoFocus value={name} onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              placeholder="Owner Table 7"
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-semibold disabled:opacity-60"
+          >
+            {saving ? "Adding..." : "Add Table"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function AdminAuthModal({ description, onClose, onAuthorized }: {
   description: string;
   onClose: () => void;

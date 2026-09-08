@@ -456,6 +456,20 @@ function bizRenameRoom_(state, roomId, name) {
   return { ok: true, state: state };
 }
 
+function bizAddOwnerTable_(state, name) {
+  const trimmed = (name || "").trim();
+  const ownerCount = state.rooms.filter(function (r) { return r.isOwnerTable; }).length;
+  const finalName = trimmed || ("Owner Table " + (ownerCount + 1));
+  const newRoom = {
+    id: newId_("owner"), name: finalName, isVip: false, hourlyRate: 0, singleRate: 0, multiRate: 0,
+    rateMode: null, status: "available", startedAt: null, orders: [], zone: "lounge",
+    splitInvoiceNumber: null, transferredFrom: null, isOwnerTable: true, isPaused: false,
+    pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
+  };
+  state.rooms = state.rooms.concat([newRoom]);
+  return { ok: true, state: state, room: newRoom };
+}
+
 function bizStartRoom_(state, roomId, rateMode) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before starting a room.", state: state };
   const room = state.rooms.find((r) => r.id === roomId);
@@ -2276,6 +2290,21 @@ function doPost(e) {
           after: { name: body.name },
         });
         return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      case "addOwnerTable": {
+        requireRole_(body.username, ["admin"]);
+        const state0b = getState_();
+        const result = bizAddOwnerTable_(state0b, body.name);
+        setState_(result.state);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "ROOM_ADDED",
+          location: result.room.name,
+          description: body.username + " added a new owner table: " + result.room.name,
+          before: null,
+          after: { id: result.room.id, name: result.room.name },
+        });
+        return json_({ ok: true, state: withStockView_(result.state), room: result.room });
       }
 
       case "setRoomAvatar": {
