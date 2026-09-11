@@ -1690,6 +1690,37 @@ export function computeMenuItemCost(item: MenuItem, stock: StockItem[]): number 
   }, 0);
 }
 
+// The exact threshold Dashboard's Stock Alerts card has always used —
+// extracted here as a shared function so both the Dashboard and the
+// POS out-of-stock indicator check the literal same condition,
+// instead of two independently-maintained copies of this formula
+// that could silently drift apart from each other over time.
+export function isLowStock(s: StockItem): boolean {
+  const remaining = s.initialStock - s.used;
+  return remaining < s.minStock || remaining < s.initialStock * 0.2;
+}
+
+// Checks every ingredient a menu item's recipe calls for, in order,
+// and returns the first one that's out or below its safety threshold
+// — not just whether the item can be made at all, but specifically
+// WHICH ingredient is the reason, since that's what the POS badge and
+// the Dashboard sync both need to actually show the cashier/admin
+// (e.g. "Out of Stock — Missing Sugar"), not just a generic
+// yes/no. Returns null when every ingredient is fine.
+export function getOutOfStockReason(item: MenuItem, stock: StockItem[]): { outOfStock: boolean; missingIngredient: string | null } {
+  for (const ing of item.ingredients) {
+    const material = stock.find((s) => s.id === ing.stockId);
+    // A recipe pointing at a material that no longer exists is treated
+    // as out of stock too — silently ignoring it would let an item
+    // appear orderable when its recipe is actually broken.
+    if (!material) return { outOfStock: true, missingIngredient: "Unknown ingredient" };
+    if (isLowStock(material)) {
+      return { outOfStock: true, missingIngredient: material.name };
+    }
+  }
+  return { outOfStock: false, missingIngredient: null };
+}
+
 export interface StaffCartLine {
   menuItemId: string;
   name: string;

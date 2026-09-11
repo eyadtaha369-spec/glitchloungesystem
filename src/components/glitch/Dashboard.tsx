@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts } from "@/lib/glitch-store";
+import { useEffect, useMemo, useState } from "react";
+import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts, isLowStock, getOutOfStockReason } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
@@ -17,10 +17,19 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
   const activeRooms = roomsOnly.filter((r) => r.status === "active");
   const available = roomsOnly.length - activeRooms.length;
 
-  const stockAlerts = state.stock.filter((s) => {
-    const remaining = s.initialStock - s.used;
-    return remaining < s.minStock || remaining < s.initialStock * 0.2;
-  });
+  const stockAlerts = state.stock.filter(isLowStock);
+  // Cross-reference: for each low-stock ingredient, which menu items
+  // does it break — the exact "which specific inventory ingredient
+  // caused the item outage" sync this card needs to show.
+  const affectedMenuItemsByStockId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    stockAlerts.forEach((s) => {
+      const affected = state.menu.filter((m) => m.ingredients.some((ing) => ing.stockId === s.id) && getOutOfStockReason(m, state.stock).outOfStock);
+      map.set(s.id, affected.map((m) => m.name));
+    });
+    return map;
+  }, [stockAlerts, state.menu, state.stock]);
+  const [stockPanelOpen, setStockPanelOpen] = useState(false);
   const bookingAlerts = upcomingBookingAlerts(state.eventBookings);
   const [bookingPanelOpen, setBookingPanelOpen] = useState(false);
   const [markingComplete, setMarkingComplete] = useState<string | null>(null);
@@ -75,6 +84,7 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
           icon={AlertTriangle}
           accent={stockAlerts.length > 0 ? "red" : "blue"}
           pulse={stockAlerts.length > 0}
+          onClick={stockAlerts.length > 0 ? () => setStockPanelOpen((v) => !v) : undefined}
         />
         <MetricCard
           label="Birthday Booking Alert · تنبيهات أعياد الميلاد"
@@ -130,6 +140,40 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
                       {markingComplete === b.id ? "..." : "Mark Complete"}
                     </button>
                   </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {stockPanelOpen && stockAlerts.length > 0 && (
+        <div className="glass rounded-2xl p-6 border-2 border-[oklch(0.62_0.24_25/0.4)] bg-gradient-to-br from-[oklch(0.62_0.24_25/0.08)] to-transparent">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+              <h2 className="text-lg font-semibold">Stock Alerts — Ingredients Running Low</h2>
+            </div>
+            <button onClick={() => setStockPanelOpen(false)} className="text-xs text-muted-foreground hover:text-[#2b2416] underline">Close</button>
+          </div>
+          <div className="space-y-3">
+            {stockAlerts.map((s) => {
+              const remaining = s.initialStock - s.used;
+              const affected = affectedMenuItemsByStockId.get(s.id) ?? [];
+              return (
+                <div key={s.id} className="bg-white/70 rounded-xl p-4 border border-black/10">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-bold">{s.name}</span>
+                    <span className="text-xs font-mono text-[oklch(0.62_0.24_25)] font-bold">
+                      {remaining <= 0 ? "Out of stock" : `${remaining.toFixed(2)} ${s.unit} remaining (min ${s.minStock})`}
+                    </span>
+                  </div>
+                  {affected.length > 0 && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      <span className="font-semibold text-black">Menu items now Out of Stock because of this:</span>{" "}
+                      {affected.join(", ")}
+                    </div>
+                  )}
                 </div>
               );
             })}
