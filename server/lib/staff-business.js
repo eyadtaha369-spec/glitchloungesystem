@@ -2,13 +2,6 @@ const { pushActivity_, newId_ } = require("./util");
 const { materialRemaining_, materialReserved_, consumeFifo_ } = require("./state");
 const { readObjects_, appendObject_, updateObjectById_ } = require("../db");
 
-// Exact-name match, case-insensitive — matches this app's standard
-// default menu items (see menuResetItems_ / Code.gs). If a café has
-// renamed or removed these items, the allowance simply never
-// triggers — a safe, silent no-op rather than a crash.
-const TEA_ALLOWANCE_NAME = "classic tea";
-const COFFEE_ALLOWANCE_NAME = "turkish coffee";
-
 function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
   const trimmedName = (staffName || "").trim();
   if (!trimmedName) return { ok: false, error: "Staff member name is required", state };
@@ -41,11 +34,10 @@ function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
     // Inventory below is driven by req.qty as a whole (both lines
     // together, when split), NOT by whichever price applies — the free
     // allowance never changes what's actually deducted from stock.
-    const nameKey = (menuItem.name || "").trim().toLowerCase();
     let freeQty = 0;
     if (staffId && state.activeShiftId) {
-      if (nameKey === TEA_ALLOWANCE_NAME && !teaClaimed) { freeQty = 1; teaClaimed = true; usageChanges.teaClaimed = true; }
-      else if (nameKey === COFFEE_ALLOWANCE_NAME && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; usageChanges.coffeeClaimed = true; }
+      if (menuItem.staffAllowanceRole === "tea" && !teaClaimed) { freeQty = 1; teaClaimed = true; usageChanges.teaClaimed = true; }
+      else if (menuItem.staffAllowanceRole === "coffee" && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; usageChanges.coffeeClaimed = true; }
     }
     freeQty = Math.min(freeQty, req.qty);
     const paidQty = req.qty - freeQty;

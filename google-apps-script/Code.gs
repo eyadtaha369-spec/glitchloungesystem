@@ -1883,12 +1883,6 @@ function bizRecalculateClosedShift_(sessions, ledger, shift) {
 // Standard menu prices are used (for costing/inventory consistency), but
 // the amount is routed to a Staff Consumption EXPENSE, never counted as
 // retail sales revenue — this never touches state.rooms or Sessions.
-// Exact-name match, case-insensitive — matches this app's standard
-// default menu items. See the local server's identical constants for
-// the full reasoning.
-const TEA_ALLOWANCE_NAME = "classic tea";
-const COFFEE_ALLOWANCE_NAME = "turkish coffee";
-
 function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
   const trimmedName = (staffName || "").trim();
   if (!trimmedName) return { ok: false, error: "Staff member name is required", state: state };
@@ -1915,11 +1909,10 @@ function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
     });
     if (insufficientIng) return { ok: false, error: "Insufficient stock for " + menuItem.name, state: state };
 
-    const nameKey = (menuItem.name || "").trim().toLowerCase();
     let freeQty = 0;
     if (staffId && state.activeShiftId) {
-      if (nameKey === TEA_ALLOWANCE_NAME && !teaClaimed) { freeQty = 1; teaClaimed = true; usageChanges.teaClaimed = true; }
-      else if (nameKey === COFFEE_ALLOWANCE_NAME && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; usageChanges.coffeeClaimed = true; }
+      if (menuItem.staffAllowanceRole === "tea" && !teaClaimed) { freeQty = 1; teaClaimed = true; usageChanges.teaClaimed = true; }
+      else if (menuItem.staffAllowanceRole === "coffee" && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; usageChanges.coffeeClaimed = true; }
     }
     freeQty = Math.min(freeQty, req.qty);
     const paidQty = req.qty - freeQty;
@@ -4687,7 +4680,7 @@ function resetMenuAndRecipes_(username) {
       if (!id) { unresolved.push(name + " -> " + matName); return; }
       ingredients.push({ stockId: id, qty: qty });
     });
-    newMenu.push({ id: newId_("item"), name: name, price: def.price, category: def.category, ingredients: ingredients });
+    newMenu.push({ id: newId_("item"), name: name, price: def.price, category: def.category, ingredients: ingredients, staffAllowanceRole: name === "Classic Tea" ? "tea" : name === "Turkish Coffee" ? "coffee" : null });
   });
   state.menu = newMenu;
   setState_(state);

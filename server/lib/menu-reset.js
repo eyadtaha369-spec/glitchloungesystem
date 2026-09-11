@@ -226,7 +226,7 @@ function resetMenuAndRecipes_(readObjects_, appendObject_, updateObjectById_, ne
       if (!id) { unresolved.push(name + " -> " + matName); return; }
       ingredients.push({ stockId: id, qty });
     });
-    newMenu.push({ id: newId_("item"), name, price: def.price, category: def.category, ingredients });
+    newMenu.push({ id: newId_("item"), name, price: def.price, category: def.category, ingredients, staffAllowanceRole: name === "Classic Tea" ? "tea" : name === "Turkish Coffee" ? "coffee" : null });
   });
   state.menu = newMenu;
   setState_(state);

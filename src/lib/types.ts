@@ -57,6 +57,13 @@ export interface MenuItem {
   price: number;
   category: MenuCategory;
   ingredients: RecipeIngredient[];
+  // Designates this item as the one free Tea or Coffee a staff member
+  // can claim once per shift — admin-configurable per café (Setup
+  // page), rather than hardcoded to a specific item name. A café can
+  // name their menu items however they want; this is what actually
+  // determines which one gets the free-allowance treatment, not the
+  // item's name/text at all.
+  staffAllowanceRole?: "tea" | "coffee" | null;
 }
 
 export interface OrderLine {

@@ -1172,13 +1172,24 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [price, setPrice] = useState(0);
   const [category, setCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [ings, setIngs] = useState<{ stockId: string; qty: number }[]>([]);
+  const [staffAllowanceRole, setStaffAllowanceRole] = useState<"" | "tea" | "coffee">("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editPrice, setEditPrice] = useState(0);
   const [editCategory, setEditCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [editIngs, setEditIngs] = useState<{ stockId: string; qty: number }[]>([]);
+  const [editStaffAllowanceRole, setEditStaffAllowanceRole] = useState<"" | "tea" | "coffee">("");
   const [editErr, setEditErr] = useState<string | null>(null);
+
+  // Only one menu item at a time can hold each role — assigning it
+  // here means clearing it from whichever OTHER item currently has it
+  // (if any), so "the free tea item" is never ambiguous across two
+  // different rows. Same rule for both add and edit below.
+  const clearRoleFromOtherItems = (role: "tea" | "coffee", exceptId?: string) => {
+    const current = state.menu.find((m) => m.staffAllowanceRole === role && m.id !== exceptId);
+    if (current) onUpdate(current.id, { staffAllowanceRole: null });
+  };
 
   const save = () => {
     if (!id || !name) return;
@@ -1188,8 +1199,9 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
       return;
     }
     setEditErr(null);
-    onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0) });
-    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setShowForm(false);
+    if (staffAllowanceRole) clearRoleFromOtherItems(staffAllowanceRole);
+    onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: staffAllowanceRole || null });
+    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setStaffAllowanceRole(""); setShowForm(false);
   };
 
   const beginEdit = (m: MenuItem) => {
@@ -1198,6 +1210,7 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     setEditPrice(m.price);
     setEditCategory(m.category ?? MENU_CATEGORIES[0]);
     setEditIngs(m.ingredients.map((i) => ({ ...i })));
+    setEditStaffAllowanceRole(m.staffAllowanceRole ?? "");
     setEditErr(null);
   };
   const saveEdit = () => {
@@ -1213,7 +1226,8 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
       return;
     }
     setEditErr(null);
-    onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0) });
+    if (editStaffAllowanceRole) clearRoleFromOtherItems(editStaffAllowanceRole, editingId);
+    onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: editStaffAllowanceRole || null });
     setEditingId(null);
   };
 
@@ -1234,6 +1248,15 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
             <input type="number" step="0.5" placeholder="Price" value={price} onChange={(e) => setPrice(+e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
             <select value={category} onChange={(e) => setCategory(e.target.value as MenuCategory)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10">
               {MENU_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select
+              value={staffAllowanceRole} onChange={(e) => setStaffAllowanceRole(e.target.value as "" | "tea" | "coffee")}
+              className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10"
+              title="Designates this as the one free item a staff member can claim per shift"
+            >
+              <option value="">Staff Allowance: None</option>
+              <option value="tea">Staff Allowance: Free Tea Item</option>
+              <option value="coffee">Staff Allowance: Free Coffee Item</option>
             </select>
           </div>
           <div className="space-y-2">
@@ -1269,6 +1292,15 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                 <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as MenuCategory)} className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10">
                   {MENU_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
+                <select
+                  value={editStaffAllowanceRole} onChange={(e) => setEditStaffAllowanceRole(e.target.value as "" | "tea" | "coffee")}
+                  className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10"
+                  title="Designates this as the one free item a staff member can claim per shift"
+                >
+                  <option value="">Staff Allowance: None</option>
+                  <option value="tea">Staff Allowance: Free Tea Item</option>
+                  <option value="coffee">Staff Allowance: Free Coffee Item</option>
+                </select>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>
                   {editIngs.map((ing, idx) => {
@@ -1302,6 +1334,11 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="font-mono text-xs text-[oklch(0.7_0.19_260)]">{fmtMoney(m.price)}</span>
                     <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-black/5 text-muted-foreground">{m.category ?? "Extras"}</span>
+                    {m.staffAllowanceRole && (
+                      <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] border border-[oklch(0.78_0.2_155/0.4)]">
+                        Free {m.staffAllowanceRole === "tea" ? "Tea" : "Coffee"} Item
+                      </span>
+                    )}
                   </div>
                   {(() => {
                     const cost = computeMenuItemCost(m, state.stock);

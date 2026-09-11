@@ -1690,13 +1690,6 @@ export function computeMenuItemCost(item: MenuItem, stock: StockItem[]): number 
   }, 0);
 }
 
-// Exact-name match, case-insensitive — must stay byte-for-byte
-// identical to TEA_ALLOWANCE_NAME/COFFEE_ALLOWANCE_NAME in
-// server/lib/staff-business.js (and its Code.gs port), since this is
-// a client-side PREVIEW of a decision the backend makes authoritatively.
-const TEA_ALLOWANCE_NAME = "classic tea";
-const COFFEE_ALLOWANCE_NAME = "turkish coffee";
-
 export interface StaffCartLine {
   menuItemId: string;
   name: string;
@@ -1714,7 +1707,7 @@ export interface StaffCartLine {
 // actually submitted, without ever being able to disagree with what
 // gets charged once it is.
 export function computeStaffCartPreview(
-  items: { menuItemId: string; name: string; qty: number; price: number }[],
+  items: { menuItemId: string; name: string; qty: number; price: number; staffAllowanceRole?: "tea" | "coffee" | null }[],
   alreadyTeaClaimed: boolean,
   alreadyCoffeeClaimed: boolean,
 ): { lines: StaffCartLine[]; total: number } {
@@ -1722,10 +1715,9 @@ export function computeStaffCartPreview(
   let coffeeClaimed = alreadyCoffeeClaimed;
   let total = 0;
   const lines: StaffCartLine[] = items.map((item) => {
-    const nameKey = (item.name || "").trim().toLowerCase();
     let freeQty = 0;
-    if (nameKey === TEA_ALLOWANCE_NAME && !teaClaimed) { freeQty = 1; teaClaimed = true; }
-    else if (nameKey === COFFEE_ALLOWANCE_NAME && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; }
+    if (item.staffAllowanceRole === "tea" && !teaClaimed) { freeQty = 1; teaClaimed = true; }
+    else if (item.staffAllowanceRole === "coffee" && !coffeeClaimed) { freeQty = 1; coffeeClaimed = true; }
     freeQty = Math.min(freeQty, item.qty);
     total += (item.qty - freeQty) * item.price;
     return { ...item, freeQty };

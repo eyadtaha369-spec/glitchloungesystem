@@ -38,7 +38,7 @@ export function StaffOrdersPage() {
 
   const cartPreview = useMemo(
     () => computeStaffCartPreview(
-      cartItems.map((c) => ({ menuItemId: c.menuItemId, name: c.item!.name, qty: c.qty, price: c.item!.price })),
+      cartItems.map((c) => ({ menuItemId: c.menuItemId, name: c.item!.name, qty: c.qty, price: c.item!.price, staffAllowanceRole: c.item!.staffAllowanceRole })),
       alreadyTeaClaimed,
       alreadyCoffeeClaimed,
     ),
