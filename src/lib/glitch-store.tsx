@@ -1707,14 +1707,30 @@ export function isLowStock(s: StockItem): boolean {
 // the Dashboard sync both need to actually show the cashier/admin
 // (e.g. "Out of Stock — Missing Sugar"), not just a generic
 // yes/no. Returns null when every ingredient is fine.
-export function getOutOfStockReason(item: MenuItem, stock: StockItem[]): { outOfStock: boolean; missingIngredient: string | null } {
+// Deliberately does NOT reuse isLowStock here. isLowStock's 20%-of-
+// lifetime-ever-purchased threshold is a reasonable "time to reorder"
+// heuristic for the Dashboard, but it's the wrong question for "can
+// this item actually be made right now" — that threshold is 20% of
+// EVERY UNIT EVER BOUGHT across the material's whole history, so it
+// keeps growing in absolute terms as a café operates longer, even
+// though the café's normal day-to-day stock level never changes.
+// A well-run café with 500g of coffee beans on hand (plenty for
+// dozens more drinks) can still fall below 20% of its own multi-month
+// purchase total — which is exactly what caused every item to
+// wrongly show Out of Stock after enough real usage accumulated.
+// This checks only what actually matters for placing THIS order:
+// is there enough of this ingredient left for one more unit.
+export function getOutOfStockReason(item: MenuItem, stock: StockItem[], qty = 1): { outOfStock: boolean; missingIngredient: string | null } {
   for (const ing of item.ingredients) {
     const material = stock.find((s) => s.id === ing.stockId);
-    // A recipe pointing at a material that no longer exists is treated
-    // as out of stock too — silently ignoring it would let an item
-    // appear orderable when its recipe is actually broken.
-    if (!material) return { outOfStock: true, missingIngredient: "Unknown ingredient" };
-    if (isLowStock(material)) {
+    // An ingredient reference that doesn't resolve to a real inventory
+    // row (e.g. the material was since deleted or recreated with a new
+    // id) is skipped, not treated as out of stock — a stale/unlinked
+    // recipe link should never itself block ordering an otherwise
+    // available item.
+    if (!material) continue;
+    const remaining = material.initialStock - material.used;
+    if (remaining <= 1e-9 || remaining < ing.qty * qty) {
       return { outOfStock: true, missingIngredient: material.name };
     }
   }
