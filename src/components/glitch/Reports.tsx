@@ -1251,10 +1251,37 @@ function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
 }
 
 function ShiftHistoryPanel() {
-  const { state } = useStore();
+  const { state, attachOrphanedToShift } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
   const [range, setRange] = useState<RangeKey>("today");
   const [customFrom, setCustomFrom] = useState(() => new Date(startOfDay(Date.now())).toISOString().slice(0, 10));
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
+
+  // Any session/expense with no shift attached at all — can only
+  // happen from a checkout/expense submitted while no shift was open
+  // (an admin bypassing the cashier Gatekeeper). This is the manual
+  // safety net for whenever the post-open-shift prompt was dismissed,
+  // or for orders that were already orphaned before that prompt
+  // existed.
+  const orphanedCount = useMemo(
+    () => state.sessions.filter((s) => !s.shiftId).length + state.ledger.filter((l) => !l.shiftId && l.direction === "outflow" && l.paidFromDrawer && l.status === "approved").length,
+    [state.sessions, state.ledger],
+  );
+
+  const handleReconcile = async () => {
+    setReconcileMsg(null);
+    if (!state.activeShiftId) { setReconcileMsg("Open a shift first — unassigned orders attach to whichever shift is currently active."); return; }
+    setReconciling(true);
+    try {
+      const res = await attachOrphanedToShift();
+      if (!res.ok) { setReconcileMsg(res.error ?? "Could not reconcile."); return; }
+      setReconcileMsg(res.count ? `Attached ${res.count} record(s) totaling ${fmtMoney(res.total ?? 0)} to the current shift.` : "Nothing unassigned to attach.");
+    } finally {
+      setReconciling(false);
+    }
+  };
 
   const { from, to } = useMemo(() => {
     const now = Date.now();
@@ -1278,6 +1305,16 @@ function ShiftHistoryPanel() {
           <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
           <h2 className="text-lg font-semibold">Shift History</h2>
         </div>
+        {isAdmin && orphanedCount > 0 && (
+          <button
+            onClick={() => void handleReconcile()}
+            disabled={reconciling}
+            title="Scans for checks/expenses recorded while no shift was active and attaches them to the current shift"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide bg-[oklch(0.85_0.18_85/0.25)] border border-[oklch(0.85_0.18_85/0.6)] text-[#5a4a10] disabled:opacity-60"
+          >
+            {reconciling ? "Reconciling..." : `Reconcile Unassigned Orders (${orphanedCount})`}
+          </button>
+        )}
         <div className="flex items-center gap-1 bg-white/60 rounded-lg p-1 border border-black/8">
           {(["today", "week", "month", "custom"] as const).map((r) => (
             <button
@@ -1292,6 +1329,10 @@ function ShiftHistoryPanel() {
           ))}
         </div>
       </div>
+
+      {reconcileMsg && (
+        <div className="mb-3 text-sm text-muted-foreground bg-white/60 border border-black/10 rounded-lg px-3 py-2">{reconcileMsg}</div>
+      )}
 
       {range === "custom" && (
         <div className="flex items-center flex-wrap gap-2 mb-4 text-sm">

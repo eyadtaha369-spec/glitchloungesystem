@@ -62,6 +62,7 @@ import {
   deleteMenuItemFn,
   setActualCashFn,
   openShiftFn,
+  attachOrphanedToShiftFn,
   endShiftFn,
   forceEndShiftFn,
   closeBusinessDayFn,
@@ -187,7 +188,8 @@ interface StoreContextValue {
   computeElapsed: (room: Room, asOf?: number) => number;
   isPending: (key: string) => boolean;
   activeShift: Shift | null;
-  openShift: (openingBalance: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string }>;
+  openShift: (openingBalance: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; orphaned?: { count: number; sessionsCount: number; expensesCount: number; total: number } | null }>;
+  attachOrphanedToShift: () => Promise<{ ok: boolean; error?: string; count?: number; total?: number }>;
   endShift: (actualCash: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; closedShift?: Shift }>;
   forceEndShift: (actualCash?: number) => Promise<void>;
   closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
@@ -1420,7 +1422,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return withPending("openShift", async () => {
       const res = await openShiftFn({ data: { openingBalance, lat: coords?.lat, lng: coords?.lng } });
       setAppState(res.state);
-      return { ok: res.ok, error: res.error };
+      return { ok: res.ok, error: res.error, orphaned: res.orphaned };
+    });
+  };
+  const attachOrphanedToShift: StoreContextValue["attachOrphanedToShift"] = async () => {
+    return withPending("attachOrphanedToShift", async () => {
+      const res = await attachOrphanedToShiftFn();
+      if (res.ok) setAppState(res.state);
+      return { ok: res.ok, error: res.error, count: res.count, total: res.total };
     });
   };
   const endShift: StoreContextValue["endShift"] = async (actualCash, coords) => {
@@ -1541,7 +1550,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, addOwnerTable, deleteOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
-    computeElapsed, isPending, activeShift, openShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
+    computeElapsed, isPending, activeShift, openShift, attachOrphanedToShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,

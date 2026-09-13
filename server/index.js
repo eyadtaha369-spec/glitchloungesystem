@@ -27,7 +27,7 @@ const {
   bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
-const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ } = require("./lib/shifts");
+const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
@@ -345,6 +345,7 @@ const handlers = {
     // the public internet; on a local network you already control, it
     // doesn't add anything. Leave geofenceEnabled off in local state.
     const result = bizOpenShift_(state0, body.username, body.openingBalance, body.lat, body.lng);
+    let orphaned = null;
     if (result.ok) {
       setState_(result.state);
       logActivity_({
@@ -352,8 +353,44 @@ const handlers = {
         description: body.username + " started a shift (opening " + (body.openingBalance || 0).toFixed(2) + " EGP)",
         after: { openingBalance: body.openingBalance },
       });
+      // Detect (never auto-attach) any sessions/expenses left with no
+      // shift at all — can only happen if a checkout or expense was
+      // submitted while no shift was open (an admin bypassing the
+      // cashier Gatekeeper). The frontend prompts for explicit
+      // confirmation before this money actually gets reassigned to
+      // the new shift.
+      const found = bizFindOrphanedSessions_(readSessions_(), readObjects_("Ledger"));
+      if (found.count > 0) {
+        orphaned = { count: found.count, sessionsCount: found.orphanedSessions.length, expensesCount: found.orphanedExpenses.length, total: found.sessionsTotal + found.expensesTotal };
+      }
     }
-    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state), orphaned });
+  },
+
+  // Admin-only: reassigning revenue/expenses between shifts affects
+  // cash-drawer reconciliation, so this is deliberately never
+  // triggered without an explicit, confirmed action — never
+  // automatic, regardless of how it was surfaced (the post-open
+  // prompt or the manual Reconcile button, both funnel through here).
+  // Admin+cashier, not admin-only: the Gatekeeper (the mandatory,
+  // cashier-only shift-open screen) surfaces this exact same prompt,
+  // and a cashier needs to be able to confirm it there. This only
+  // ever attaches pre-existing, already-completed transactions to the
+  // confirming user's own just-opened shift — it can't be used to
+  // move money anywhere else or affect anyone else's numbers.
+  attachOrphanedToShift(body) {
+    const role = requireRole_(body.username, ["admin", "cashier"]);
+    const state0 = getState_();
+    if (!state0.activeShiftId) return json_({ ok: false, error: "No active shift to attach these to." });
+    const found = bizAttachOrphanedToShift_(readSessions_(), readObjects_("Ledger"), state0.activeShiftId);
+    if (found.count > 0) {
+      logActivity_({
+        actorUsername: body.username, actorRole: role, actionType: "ORPHANED_ORDERS_RECONCILED", shiftId: state0.activeShiftId,
+        description: body.username + " attached " + found.orphanedSessions.length + " unassigned check(s) and " + found.orphanedExpenses.length + " unassigned expense(s) (" + (found.sessionsTotal + found.expensesTotal).toFixed(2) + " EGP) to the current shift",
+        after: { sessionIds: found.orphanedSessions.map((s) => s.id), expenseIds: found.orphanedExpenses.map((l) => l.id), total: found.sessionsTotal + found.expensesTotal },
+      });
+    }
+    return json_({ ok: true, count: found.count, total: found.sessionsTotal + found.expensesTotal, state: withStockView_(getState_()) });
   },
 
   endShift(body) {

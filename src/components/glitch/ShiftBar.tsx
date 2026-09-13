@@ -12,6 +12,7 @@ export function ShiftBar() {
   const [actualCash, setActualCash] = useState("0");
   const [locating, setLocating] = useState(false);
   const [closedSummary, setClosedSummary] = useState<{ expected: number; actual: number; discrepancy: number } | null>(null);
+  const [orphanedPrompt, setOrphanedPrompt] = useState<{ count: number; sessionsCount: number; expensesCount: number; total: number } | null>(null);
 
   const shiftSessions = activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id) : [];
   const cashSalesOnly = shiftSessions.reduce((a, s) => a + s.cashAmount, 0);
@@ -27,7 +28,12 @@ export function ShiftBar() {
       return;
     }
     const res = await openShift(parseFloat(openingBalance) || 0, geo.ok ? { lat: geo.lat, lng: geo.lng } : null);
-    if (!res.ok) setErr(res.error ?? "Could not open shift");
+    if (!res.ok) { setErr(res.error ?? "Could not open shift"); return; }
+    // Can only happen if a checkout/expense was submitted while no
+    // shift was open (an admin bypassing the cashier Gatekeeper) --
+    // never auto-attached, always requires this explicit confirmation
+    // before that revenue moves onto the new shift's books.
+    if (res.orphaned && res.orphaned.count > 0) setOrphanedPrompt(res.orphaned);
   };
 
   const handleEnd = async () => {
@@ -51,6 +57,7 @@ export function ShiftBar() {
 
   if (!activeShift) {
     return (
+      <>
       <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.4)]">
         <div className="flex items-center gap-2 mb-3">
           <Lock className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
@@ -88,6 +95,8 @@ export function ShiftBar() {
         </div>
         {err && <div className="mt-2 text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
       </div>
+      {orphanedPrompt && <OrphanedSessionsPrompt info={orphanedPrompt} onClose={() => setOrphanedPrompt(null)} />}
+      </>
     );
   }
 
@@ -159,5 +168,60 @@ export function ShiftBar() {
         document.body,
       )}
     </div>
+  );
+}
+
+// Shared between ShiftBar (admin's own shift controls) and Gatekeeper
+// (the cashier's mandatory shift-open screen) -- both trigger this
+// same explicit confirmation the moment a shift opens with something
+// orphaned waiting, rather than silently reassigning money to a new
+// shift with no one ever seeing it happen.
+export function OrphanedSessionsPrompt({ info, onClose }: {
+  info: { count: number; sessionsCount: number; expensesCount: number; total: number };
+  onClose: () => void;
+}) {
+  const { attachOrphanedToShift } = useStore();
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const attach = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await attachOrphanedToShift();
+      if (!res.ok) { setErr(res.error ?? "Could not attach these."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const parts: string[] = [];
+  if (info.sessionsCount > 0) parts.push(`${info.sessionsCount} closed check${info.sessionsCount === 1 ? "" : "s"}`);
+  if (info.expensesCount > 0) parts.push(`${info.expensesCount} expense${info.expensesCount === 1 ? "" : "s"}`);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.85_0.18_85/0.6)] p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Unassigned sales found</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Found {parts.join(" and ")} (Total: {fmtMoney(info.total)}) recorded while no shift was active — likely
+          from a checkout that happened before this shift was opened. Attach them to this new shift so they count
+          toward its revenue?
+        </p>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-black/5 border border-black/10">Not now</button>
+          <button
+            onClick={() => void attach()}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-60"
+          >
+            {submitting ? "Attaching..." : "Yes, Attach to Shift"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

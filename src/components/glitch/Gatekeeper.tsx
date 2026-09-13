@@ -3,6 +3,7 @@ import { useStore, captureGeolocation, type GeoResult } from "@/lib/glitch-store
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { MapPin, ShieldOff, Unlock, RotateCcw, Clock, Languages } from "lucide-react";
 import logo from "@/assets/glitch-logo.jpg";
+import { OrphanedSessionsPrompt } from "./ShiftBar";
 
 // Blocks the ENTIRE app (no Sidebar, no Rooms, nothing) for a cashier until
 // they successfully start a shift from right here. Location is only
@@ -18,6 +19,7 @@ export function Gatekeeper() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [orphanedPrompt, setOrphanedPrompt] = useState<{ count: number; sessionsCount: number; expensesCount: number; total: number } | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -49,7 +51,8 @@ export function Gatekeeper() {
     setSubmitting(true);
     try {
       const res = await openShift(parseFloat(openingBalance) || 0, geo?.ok ? { lat: geo.lat, lng: geo.lng } : null);
-      if (!res.ok) setErr(res.error ?? "Could not start shift");
+      if (!res.ok) { setErr(res.error ?? "Could not start shift"); return; }
+      if (res.orphaned && res.orphaned.count > 0) setOrphanedPrompt(res.orphaned);
     } finally {
       setSubmitting(false);
     }
@@ -135,6 +138,7 @@ export function Gatekeeper() {
           </div>
         )}
       </div>
+      {orphanedPrompt && <OrphanedSessionsPrompt info={orphanedPrompt} onClose={() => setOrphanedPrompt(null)} />}
     </div>
   );
 }

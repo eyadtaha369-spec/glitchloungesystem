@@ -15,6 +15,7 @@ const ACTION_RISK = {
   FIXED_MONTHLY_COST_LOGGED: "green", FIXED_MONTHLY_COST_UPDATED: "yellow", FIXED_MONTHLY_COST_DELETED: "yellow",
   ROOM_AVATAR_UPDATED: "green",
   ROOM_ADDED: "green", ROOM_DELETED: "yellow",
+  ORPHANED_ORDERS_RECONCILED: "yellow",
 };
 
 // Direct port of Code.gs's logActivity_ — appends one permanent,

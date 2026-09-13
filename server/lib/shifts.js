@@ -6,6 +6,35 @@ function formatDateLabel_(ts) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
+// Finds every completed session and every drawer expense that was
+// recorded with no shift attached at all (shiftId null/undefined) --
+// this can only happen when a checkout or expense was submitted while
+// no shift was open. Cashiers can never reach any POS screen without
+// an active shift (the Gatekeeper blocks them), but an admin is
+// exempt from that check, so this is a real, if narrow, gap: an admin
+// checking out a room with no shift open leaves that revenue
+// permanently excluded from every shift-scoped total forever, since
+// nothing else ever revisits it. Read-only — never mutates anything,
+// so this is safe to call just to check whether anything needs
+// attention (e.g. right after a new shift opens).
+function bizFindOrphanedSessions_(sessions, ledger) {
+  const orphanedSessions = sessions.filter((s) => !s.shiftId);
+  const orphanedExpenses = ledger.filter((l) => !l.shiftId && l.direction === "outflow" && l.paidFromDrawer && l.status === "approved");
+  const sessionsTotal = orphanedSessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
+  const expensesTotal = orphanedExpenses.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  return { orphanedSessions, orphanedExpenses, sessionsTotal, expensesTotal, count: orphanedSessions.length + orphanedExpenses.length };
+}
+
+// Actually reassigns every orphaned session/expense found above to the
+// given shift. Idempotent — running it again with nothing orphaned
+// left just does nothing rather than erroring.
+function bizAttachOrphanedToShift_(sessions, ledger, targetShiftId) {
+  const found = bizFindOrphanedSessions_(sessions, ledger);
+  found.orphanedSessions.forEach((s) => updateObjectById_("Sessions", s.id, { shiftId: targetShiftId }));
+  found.orphanedExpenses.forEach((l) => updateObjectById_("Ledger", l.id, { shiftId: targetShiftId }));
+  return found;
+}
+
 function bizOpenShift_(state, username, openingBalance, lat, lng) {
   if (state.activeShiftId) return { ok: false, error: "A shift is already open", state };
   const now = Date.now();
@@ -85,4 +114,4 @@ function bizRecalculateClosedShift_(sessions, ledger, shift) {
   };
 }
 
-module.exports = { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_ };
+module.exports = { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ };

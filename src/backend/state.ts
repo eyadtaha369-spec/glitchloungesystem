@@ -236,11 +236,16 @@ export const openShiftFn = createServerFn({ method: "POST" })
   .validator((d: { openingBalance: number; lat?: number; lng?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("openShift", {
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState; orphaned: { count: number; sessionsCount: number; expensesCount: number; total: number } | null }>("openShift", {
       ...data,
       username: user.username,
     });
   });
+
+export const attachOrphanedToShiftFn = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireUser();
+  return callAppsScript<{ ok: boolean; error?: string; count?: number; total?: number; state: AppState }>("attachOrphanedToShift", { username: user.username });
+});
 
 export const endShiftFn = createServerFn({ method: "POST" })
   .validator((d: { actualCash: number; lat?: number; lng?: number }) => d)

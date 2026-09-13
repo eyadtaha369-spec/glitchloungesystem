@@ -374,6 +374,7 @@ const ACTION_RISK = {
   FIXED_MONTHLY_COST_LOGGED: "green", FIXED_MONTHLY_COST_UPDATED: "yellow", FIXED_MONTHLY_COST_DELETED: "yellow",
   ROOM_AVATAR_UPDATED: "green",
   ROOM_ADDED: "green", ROOM_DELETED: "yellow",
+  ORPHANED_ORDERS_RECONCILED: "yellow",
   CHECKOUT: "green", CHECKOUT_SPLIT_BILL: "yellow",
   VOID_REQUESTED: "red", VOID_APPROVED: "red", VOID_DENIED: "yellow", UNDO_ACTION: "red",
   UNAPPROVED_VOID_ROUTED: "red", UNAPPROVED_VOID_RECONCILED: "yellow", UNAPPROVED_VOID_FLAGGED: "red",
@@ -1513,6 +1514,33 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
   state.actualCashInput = 0;
   pushActivity_(state, username + " opened a shift (opening balance " + (openingBalance || 0).toFixed(2) + " EGP)");
   return { ok: true, state: state };
+}
+
+// Finds every completed session and every drawer expense that was
+// recorded with no shift attached at all (shiftId null/undefined) --
+// this can only happen when a checkout or expense was submitted while
+// no shift was open. Cashiers can never reach any POS screen without
+// an active shift (the Gatekeeper blocks them), but an admin is
+// exempt from that check, so this is a real, if narrow, gap: an admin
+// checking out a room with no shift open leaves that revenue
+// permanently excluded from every shift-scoped total forever, since
+// nothing else ever revisits it. Read-only — never mutates anything.
+function bizFindOrphanedSessions_(sessions, ledger) {
+  const orphanedSessions = sessions.filter(function (s) { return !s.shiftId; });
+  const orphanedExpenses = ledger.filter(function (l) { return !l.shiftId && l.direction === "outflow" && l.paidFromDrawer && l.status === "approved"; });
+  const sessionsTotal = orphanedSessions.reduce(function (a, s) { return a + (Number(s.total) || 0); }, 0);
+  const expensesTotal = orphanedExpenses.reduce(function (a, l) { return a + (Number(l.amount) || 0); }, 0);
+  return { orphanedSessions: orphanedSessions, orphanedExpenses: orphanedExpenses, sessionsTotal: sessionsTotal, expensesTotal: expensesTotal, count: orphanedSessions.length + orphanedExpenses.length };
+}
+
+// Actually reassigns every orphaned session/expense found above to the
+// given shift. Idempotent — running it again with nothing orphaned
+// left just does nothing rather than erroring.
+function bizAttachOrphanedToShift_(sessions, ledger, targetShiftId) {
+  const found = bizFindOrphanedSessions_(sessions, ledger);
+  found.orphanedSessions.forEach(function (s) { updateObjectById_("Sessions", s.id, { shiftId: targetShiftId }); });
+  found.orphanedExpenses.forEach(function (l) { updateObjectById_("Ledger", l.id, { shiftId: targetShiftId }); });
+  return found;
 }
 
 function formatDateLabel_(ts) {
@@ -2756,6 +2784,7 @@ function doPost(e) {
           return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
         }
         const result = bizOpenShift_(state0, body.username, body.openingBalance, body.lat, body.lng);
+        let orphaned = null;
         if (result.ok) {
           setState_(result.state);
           logActivity_({
@@ -2764,8 +2793,30 @@ function doPost(e) {
             description: body.username + " started a shift (opening " + (body.openingBalance || 0).toFixed(2) + " EGP)",
             after: { openingBalance: body.openingBalance, lat: body.lat, lng: body.lng },
           });
+          const found = bizFindOrphanedSessions_(readSessions_(), readObjects_("Ledger"));
+          if (found.count > 0) {
+            orphaned = { count: found.count, sessionsCount: found.orphanedSessions.length, expensesCount: found.orphanedExpenses.length, total: found.sessionsTotal + found.expensesTotal };
+          }
         }
-        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state), orphaned: orphaned });
+      }
+
+      case "attachOrphanedToShift": {
+        // Admin+cashier, not admin-only: the Gatekeeper (the mandatory,
+        // cashier-only shift-open screen) surfaces this exact same
+        // prompt, and a cashier needs to be able to confirm it there.
+        const attachRole = requireRole_(body.username, ["admin", "cashier"]);
+        const attachState0 = getState_();
+        if (!attachState0.activeShiftId) return json_({ ok: false, error: "No active shift to attach these to." });
+        const attachFound = bizAttachOrphanedToShift_(readSessions_(), readObjects_("Ledger"), attachState0.activeShiftId);
+        if (attachFound.count > 0) {
+          logActivity_({
+            actorUsername: body.username, actorRole: attachRole, actionType: "ORPHANED_ORDERS_RECONCILED", shiftId: attachState0.activeShiftId,
+            description: body.username + " attached " + attachFound.orphanedSessions.length + " unassigned check(s) and " + attachFound.orphanedExpenses.length + " unassigned expense(s) (" + (attachFound.sessionsTotal + attachFound.expensesTotal).toFixed(2) + " EGP) to the current shift",
+            after: { sessionIds: attachFound.orphanedSessions.map(function (s) { return s.id; }), expenseIds: attachFound.orphanedExpenses.map(function (l) { return l.id; }), total: attachFound.sessionsTotal + attachFound.expensesTotal },
+          });
+        }
+        return json_({ ok: true, count: attachFound.count, total: attachFound.sessionsTotal + attachFound.expensesTotal, state: withStockView_(getState_()) });
       }
       case "endShift": {
         // Admin-only, no exceptions — confirmed explicitly.
