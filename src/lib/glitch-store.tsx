@@ -103,7 +103,8 @@ export type {
   MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, EventBooking, EventBookingStatus, EventDepositPaymentMethod, StaffAllowanceUsage, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
   WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
 } from "./types";
-export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES, EVENT_BOOKING_STATUSES } from "./types";
+export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES, EVENT_BOOKING_STATUSES, STOCK_AUDIT_VARIANCE_REASON_LABELS } from "./types";
+export type { StockAuditVarianceReason } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -209,7 +210,7 @@ interface StoreContextValue {
   adjustStock: (materialId: string, deltaQty: number, reason: "waste" | "correction" | "opening_balance", note?: string) => Promise<{ ok: boolean; error?: string }>;
   setAbsoluteStock: (materialId: string, targetQty: number, note?: string) => Promise<{ ok: boolean; error?: string; before?: number; after?: number; delta?: number }>;
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
-  setActualStock: (materialId: string, actualStock: number) => Promise<{ ok: boolean; error?: string; variance?: number }>;
+  setActualStock: (materialId: string, actualStock: number, reason?: string) => Promise<{ ok: boolean; error?: string; variance?: number }>;
   refreshRestockLog: () => Promise<void>;
   submitWasteInvoice: (materialId: string, wastedQty: number, reason: WasteInvoiceReason, note?: string) => Promise<{ ok: boolean; error?: string; invoice?: WasteInvoice }>;
   wasteInvoices: WasteInvoice[];
@@ -926,10 +927,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const setActualStock: StoreContextValue["setActualStock"] = async (materialId, actualStock) => {
+  const setActualStock: StoreContextValue["setActualStock"] = async (materialId, actualStock, reason) => {
     return withPending(`setActualStock:${materialId}`, async () => {
       try {
-        const res = await setActualStockFn({ data: { materialId, actualStock } });
+        const res = await setActualStockFn({ data: { materialId, actualStock, reason } });
         if (res.ok) setAppState(res.state);
         return { ok: res.ok, error: res.error, variance: res.variance };
       } catch (err) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot } from "@/lib/glitch-store";
+import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, STOCK_AUDIT_VARIANCE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot, type StockAuditVarianceReason } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
 
@@ -633,6 +633,13 @@ function StockTable() {
         </div>
       )}
 
+      {state.rooms.filter((r) => r.status === "active").length > 0 && (
+        <div className="mb-4 flex items-center gap-2 text-xs bg-[oklch(0.85_0.18_85/0.15)] border border-[oklch(0.85_0.18_85/0.5)] text-[#5a4a10] rounded-lg px-3 py-2">
+          <AlertOctagon className="w-4 h-4 shrink-0" />
+          Warning: There are {state.rooms.filter((r) => r.status === "active").length} open unbilled check{state.rooms.filter((r) => r.status === "active").length === 1 ? "" : "s"}. Closing them first ensures accurate inventory deduction before running a stock audit.
+        </div>
+      )}
+
       <div className="relative mb-4">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
@@ -909,7 +916,9 @@ function ActualStockModal({ target, setActualStock, onClose }: {
   setActualStock: ReturnType<typeof useStore>["setActualStock"];
   onClose: () => void;
 }) {
+  const { state } = useStore();
   const [value, setValue] = useState(target.input);
+  const [reason, setReason] = useState<StockAuditVarianceReason | "">("");
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -917,12 +926,20 @@ function ActualStockModal({ target, setActualStock, onClose }: {
   const num = parseFloat(value);
   const valid = !isNaN(num) && num >= 0;
   const variance = valid ? Math.round((num - target.systemRemaining) * 100) / 100 : 0;
+  const hasVariance = Math.abs(variance) > 1e-9;
+  const canContinue = valid && (!hasVariance || !!reason);
+
+  // Open/active checks are still accumulating orders and consuming
+  // ingredients in real time — a count taken while they're running
+  // compares against a system figure that's still moving, so it's
+  // not a reliable audit yet.
+  const openChecksCount = state.rooms.filter((r) => r.status === "active").length;
 
   const confirmAndSave = async () => {
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await setActualStock(target.id, num);
+      const res = await setActualStock(target.id, num, hasVariance ? reason : undefined);
       if (!res.ok) { setErr(res.error ?? "Could not save"); return; }
       onClose();
     } finally {
@@ -943,6 +960,11 @@ function ActualStockModal({ target, setActualStock, onClose }: {
         {!confirming ? (
           <>
             <div className="p-4 space-y-3">
+              {openChecksCount > 0 && (
+                <div className="text-xs bg-[oklch(0.85_0.18_85/0.15)] border border-[oklch(0.85_0.18_85/0.5)] text-[#5a4a10] rounded-lg px-3 py-2">
+                  Warning: There are {openChecksCount} open unbilled check{openChecksCount === 1 ? "" : "s"}. Closing them first ensures accurate inventory deduction.
+                </div>
+              )}
               <div className="text-xs text-muted-foreground">System-calculated remaining: <span className="font-mono font-bold">{target.systemRemaining} {target.unit}</span></div>
               <div>
                 <label className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -954,10 +976,24 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                   className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-lg font-mono text-center"
                 />
               </div>
-              {valid && variance !== 0 && (
-                <div className={`text-sm font-bold text-center ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                  {variance < 0 ? `${Math.abs(variance)} ${target.unit} Deficit (عجز)` : `+${variance} ${target.unit} Surplus`}
-                </div>
+              {valid && hasVariance && (
+                <>
+                  <div className={`text-sm font-bold text-center ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                    {variance < 0 ? `${Math.abs(variance)} ${target.unit} Deficit (عجز)` : `+${variance} ${target.unit} Surplus`}
+                  </div>
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason for Variance (required)</label>
+                    <select
+                      value={reason} onChange={(e) => setReason(e.target.value as StockAuditVarianceReason)}
+                      className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                    >
+                      <option value="">Select a reason...</option>
+                      {(Object.entries(STOCK_AUDIT_VARIANCE_REASON_LABELS) as [StockAuditVarianceReason, string][]).map(([key, label]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
               )}
               {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
             </div>
@@ -965,7 +1001,7 @@ function ActualStockModal({ target, setActualStock, onClose }: {
               <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
               <button
                 onClick={() => setConfirming(true)}
-                disabled={!valid}
+                disabled={!canContinue}
                 className="px-4 py-2 rounded-lg text-sm bg-black/25 border border-black/60 font-semibold disabled:opacity-50"
               >
                 Continue
@@ -979,10 +1015,14 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                 Are you sure you want to set Actual Stock for <strong>{target.name}</strong> to{" "}
                 <strong>{num} {target.unit}</strong>?
               </p>
-              {variance !== 0 ? (
-                <p className={`text-sm font-bold ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                  This will record a {variance < 0 ? "deficit" : "surplus"} of {Math.abs(variance)} {target.unit}.
-                </p>
+              {hasVariance ? (
+                <>
+                  <p className={`text-sm font-bold ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                    This will record a {variance < 0 ? "deficit" : "surplus"} of {Math.abs(variance)} {target.unit}
+                    {variance < 0 ? " and adjust stock down to match (logged as a write-off expense)." : " and adjust stock up to match."}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Reason: {STOCK_AUDIT_VARIANCE_REASON_LABELS[reason as StockAuditVarianceReason]}</p>
+                </>
               ) : (
                 <p className="text-sm text-[oklch(0.78_0.2_155)]">This matches the system figure exactly — no variance.</p>
               )}

@@ -80,7 +80,7 @@ export const getWasteInvoicesFn = createServerFn({ method: "GET" }).handler(asyn
 // Manually counted physical stock — for discrepancy/variance tracking
 // against the system-calculated remaining figure.
 export const setActualStockFn = createServerFn({ method: "POST" })
-  .validator((d: { materialId: string; actualStock: number }) => d)
+  .validator((d: { materialId: string; actualStock: number; reason?: string }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; variance?: number; state: AppState }>("setActualStock", { ...data, username: user.username });

@@ -21,7 +21,7 @@ const { login_, roleForUsername_, requireRole_, getAccounts_, addAccount_, updat
 const {
   getState_, setState_, withStockView_,
   readSessions_, appendSessionRow_, readShifts_, readBusinessDays_,
-  consumeFifo_, writeBatchesBack_,
+  consumeFifo_, restoreFifo_, writeBatchesBack_,
 } = require("./lib/state");
 const {
   bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
@@ -1011,6 +1011,11 @@ Object.assign(handlers, {
     const months = Array.from(new Set(readObjects_("InventorySnapshots").map((s) => s.month))).sort().reverse();
     return { months };
   },
+  // Reason codes a variance can be attributed to — required whenever
+  // the count doesn't match the system figure, so every stock
+  // adjustment has an accountable explanation on record, not just a
+  // number that silently changed. (Validated below via reasonLabels'
+  // own keys, not a separate list.)
   setActualStock(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const material = readObjects_("RawMaterials").find((m) => m.id === body.materialId);
@@ -1020,11 +1025,61 @@ Object.assign(handlers, {
     const batches = readObjects_("Batches");
     const remaining = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
     const variance = Math.round((actual - remaining) * 100) / 100;
+    const reasonLabels = {
+      unrecordedWastage: "Unrecorded Wastage", unbilledConsumption: "Unbilled Consumption",
+      entryError: "Entry Error", shiftDiscrepancy: "Shift Discrepancy", other: "Other",
+    };
+    if (Math.abs(variance) > 1e-9 && !reasonLabels[body.reason]) {
+      return { ok: false, error: "Select a reason for this variance before saving." };
+    }
+
+    // Actually reconciles the system's tracked stock to match the
+    // physical count — a deficit write-off consumes existing batches
+    // (oldest first, same as a sale would), a surplus adds one new
+    // batch for the difference. Without this, actualStock was only
+    // ever a separate comparison figure that never fed back into
+    // materialRemaining_ — the discrepancy would have been recorded,
+    // but the system's own stock figure would keep silently drifting
+    // from reality exactly as before.
+    let cost = 0;
+    const touchedBatchIds = [];
+    let newBatch = null;
+    if (variance < -1e-9) {
+      const res = consumeFifo_(batches, body.materialId, Math.abs(variance));
+      cost = res.cost;
+      touchedBatchIds.push(...res.touched);
+    } else if (variance > 1e-9) {
+      const res = restoreFifo_(batches, body.materialId, variance, Number(material.unitCost) || 0, Date.now(), "auditAdjustment");
+      newBatch = res.newBatch;
+    }
+    touchedBatchIds.forEach((id) => {
+      const b = batches.find((x) => x.id === id);
+      if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+    });
+    if (newBatch) appendObject_("Batches", newBatch);
+
     updateObjectById_("RawMaterials", body.materialId, { actualStock: actual, actualStockUpdatedAt: Date.now(), actualStockUpdatedBy: body.username });
+
+    // A deficit is a genuine financial loss (ingredient cost with no
+    // corresponding sale) — logged as an expense exactly like the
+    // void system already does for spilled/rejected/comped items, so
+    // shrinkage found during an audit shows up in the books the same
+    // way shrinkage found any other way does.
+    if (variance < -1e-9 && cost > 0) {
+      appendObject_("Ledger", {
+        id: newId_("ledg"), ts: Date.now(), amount: cost, direction: "outflow", type: "manualAdjustment",
+        category: "Inventory Audit Write-off (" + reasonLabels[body.reason] + ")",
+        description: Math.abs(variance) + " " + material.unit + " of " + material.name + " written off — " + reasonLabels[body.reason],
+        supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+        paidFromDrawer: false, shiftId: null, materialId: body.materialId, qty: Math.abs(variance), unitCost: material.unitCost, paymentSource: null,
+      });
+    }
+
     logActivity_({
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ACTUAL_STOCK_SET",
-      description: material.name + ": Actual Stock set to " + actual + " " + material.unit + " (variance " + variance + ")",
-      before: { systemRemaining: remaining }, after: { actualStock: actual, variance },
+      description: material.name + ": Actual Stock set to " + actual + " " + material.unit
+        + (Math.abs(variance) > 1e-9 ? " (variance " + variance + ", reason: " + reasonLabels[body.reason] + ")" : " (no variance)"),
+      before: { systemRemaining: remaining }, after: { actualStock: actual, variance, reason: body.reason || null },
     });
     return { ok: true, variance, state: withStockView_(getState_()) };
   },

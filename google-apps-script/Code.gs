@@ -3123,18 +3123,57 @@ function doPost(e) {
         const remaining = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
         const variance = Math.round((actual - remaining) * 100) / 100;
         const now = Date.now();
+        const reasonLabels = {
+          unrecordedWastage: "Unrecorded Wastage", unbilledConsumption: "Unbilled Consumption",
+          entryError: "Entry Error", shiftDiscrepancy: "Shift Discrepancy", other: "Other",
+        };
+        if (Math.abs(variance) > 1e-9 && !reasonLabels[body.reason]) {
+          return json_({ ok: false, error: "Select a reason for this variance before saving." });
+        }
+
+        // Actually reconciles the system's tracked stock to match the
+        // physical count, exactly like the local server — a deficit
+        // write-off consumes existing batches, a surplus adds one new
+        // batch for the difference.
+        let cost = 0;
+        const touchedBatchIds = [];
+        let newBatch = null;
+        if (variance < -1e-9) {
+          const res = consumeFifo_(batches, body.materialId, Math.abs(variance));
+          cost = res.cost;
+          touchedBatchIds.push.apply(touchedBatchIds, res.touched);
+        } else if (variance > 1e-9) {
+          const res = restoreFifo_(batches, body.materialId, variance, Number(material.unitCost) || 0, now, "auditAdjustment");
+          newBatch = res.newBatch;
+        }
+        touchedBatchIds.forEach(function (id) {
+          const b = batches.find(function (x) { return x.id === id; });
+          if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+        });
+        if (newBatch) appendObject_("Batches", newBatch);
 
         updateObjectById_("RawMaterials", body.materialId, {
           actualStock: actual, actualStockUpdatedAt: now, actualStockUpdatedBy: body.username,
         });
 
+        if (variance < -1e-9 && cost > 0) {
+          appendObject_("Ledger", {
+            id: newId_("ledg"), ts: now, amount: cost, direction: "outflow", type: "manualAdjustment",
+            category: "Inventory Audit Write-off (" + reasonLabels[body.reason] + ")",
+            description: Math.abs(variance) + " " + material.unit + " of " + material.name + " written off — " + reasonLabels[body.reason],
+            supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+            paidFromDrawer: false, shiftId: null, materialId: body.materialId, qty: Math.abs(variance), unitCost: material.unitCost, paymentSource: null,
+          });
+        }
+
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ACTUAL_STOCK_SET",
           description: material.name + ": Actual Stock set to " + actual + " " + material.unit +
             " (system showed " + remaining + " " + material.unit + ") — " +
-            (variance < 0 ? "DEFICIT of " + Math.abs(variance) : variance > 0 ? "SURPLUS of " + variance : "no variance") + " " + material.unit,
+            (variance < 0 ? "DEFICIT of " + Math.abs(variance) : variance > 0 ? "SURPLUS of " + variance : "no variance") + " " + material.unit +
+            (Math.abs(variance) > 1e-9 ? " [" + reasonLabels[body.reason] + "]" : ""),
           before: { systemRemaining: remaining },
-          after: { actualStock: actual, variance: variance },
+          after: { actualStock: actual, variance: variance, reason: body.reason || null },
         });
         return json_({ ok: true, variance: variance, state: withStockView_(getState_()) });
       }

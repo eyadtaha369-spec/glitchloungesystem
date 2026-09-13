@@ -510,6 +510,15 @@ export const VOID_REASON_LABELS: Record<VoidReason, string> = {
   complimentary: "Complimentary / VIP Gift (Free)",
 };
 
+export type StockAuditVarianceReason = "unrecordedWastage" | "unbilledConsumption" | "entryError" | "shiftDiscrepancy" | "other";
+export const STOCK_AUDIT_VARIANCE_REASON_LABELS: Record<StockAuditVarianceReason, string> = {
+  unrecordedWastage: "Unrecorded Wastage",
+  unbilledConsumption: "Unbilled Consumption",
+  entryError: "Entry Error",
+  shiftDiscrepancy: "Shift Discrepancy",
+  other: "Other",
+};
+
 export type WasteMarketingReason = "remakeWrongOrder" | "remakeComplaint" | "complimentary" | "spilledDamaged" | "marketingPromo" | "other";
 export const WASTE_MARKETING_REASON_LABELS: Record<WasteMarketingReason, string> = {
   remakeWrongOrder: "Remake — Wrong Order",
