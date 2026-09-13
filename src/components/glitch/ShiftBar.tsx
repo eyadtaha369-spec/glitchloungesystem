@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
+import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
 import { Lock, Unlock, DollarSign } from "lucide-react";
 
 export function ShiftBar() {
@@ -50,6 +51,16 @@ export function ShiftBar() {
     if (!res.ok) { setErr(res.error ?? "Could not end shift"); return; }
     if (res.closedShift && res.closedShift.expectedCash !== null && res.closedShift.discrepancy !== null) {
       setClosedSummary({ expected: res.closedShift.expectedCash, actual: cash, discrepancy: res.closedShift.discrepancy });
+    }
+    // No thermal printer involved — this is purely a browser download,
+    // generated fresh from this shift's own sessions/ledger rather than
+    // needing anything uploaded or stored ahead of time.
+    if (res.closedShift) {
+      const closed = res.closedShift;
+      const shiftSessions = state.sessions.filter((s) => s.shiftId === closed.id);
+      const shiftLedger = state.ledger.filter((l) => l.shiftId === closed.id);
+      const { blob, filename } = generateShiftReportPdf({ shift: closed, sessions: shiftSessions, ledger: shiftLedger });
+      downloadBlob(blob, filename);
     }
     setEndOpen(false);
     setActualCash("0");

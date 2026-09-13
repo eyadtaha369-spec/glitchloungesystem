@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
+import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
 import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
@@ -1470,12 +1471,27 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
           <History className="w-3 h-3" /> Recalculate
         </button>
       )}
-      <button
-        onClick={() => setShowChecks((v) => !v)}
-        className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-[oklch(0.7_0.19_260)] flex items-center gap-1"
-      >
-        <History className="w-3 h-3" /> {showChecks ? "Hide" : "View"} Checks ({sessions.length})
-      </button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => setShowChecks((v) => !v)}
+          className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-[oklch(0.7_0.19_260)] flex items-center gap-1"
+        >
+          <History className="w-3 h-3" /> {showChecks ? "Hide" : "View"} Checks ({sessions.length})
+        </button>
+        {!isOpen && (
+          <button
+            onClick={() => {
+              const shiftLedger = state.ledger.filter((l) => l.shiftId === shift.id);
+              const { blob, filename } = generateShiftReportPdf({ shift, sessions, ledger: shiftLedger });
+              downloadBlob(blob, filename);
+            }}
+            className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-[oklch(0.7_0.19_260)] flex items-center gap-1"
+            title="Regenerate and download this shift's PDF report"
+          >
+            <FileDown className="w-3 h-3" /> Download PDF
+          </button>
+        )}
+      </div>
       {showChecks && (
         sessions.length === 0 ? (
           <div className="mt-2 text-xs text-muted-foreground text-center py-3">No checks in this shift.</div>
