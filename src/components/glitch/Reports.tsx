@@ -1366,6 +1366,8 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
   const isOpen = !shift.closedAt;
   const pendingVoids = state.voidRequests.filter((v) => v.shiftId === shift.id && v.status === "pending").length;
   const [showRecalc, setShowRecalc] = useState(false);
+  const [showChecks, setShowChecks] = useState(false);
+  const [viewingCheck, setViewingCheck] = useState<Session | null>(null);
 
   // Full reconciliation breakdown — every figure derived straight from
   // this shift's own sessions/ledger, the same source data
@@ -1468,6 +1470,31 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
           <History className="w-3 h-3" /> Recalculate
         </button>
       )}
+      <button
+        onClick={() => setShowChecks((v) => !v)}
+        className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-[oklch(0.7_0.19_260)] flex items-center gap-1"
+      >
+        <History className="w-3 h-3" /> {showChecks ? "Hide" : "View"} Checks ({sessions.length})
+      </button>
+      {showChecks && (
+        sessions.length === 0 ? (
+          <div className="mt-2 text-xs text-muted-foreground text-center py-3">No checks in this shift.</div>
+        ) : (
+          <div className="mt-2 max-h-48 overflow-y-auto border border-black/8 rounded-lg divide-y divide-black/5">
+            {sessions.slice().sort((a, b) => b.endedAt - a.endedAt).map((s) => (
+              <button
+                key={s.id} onClick={() => setViewingCheck(s)}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[oklch(0.7_0.19_260/0.06)] text-left"
+                title="Click to view full check details"
+              >
+                <span className="truncate">{s.roomName} · {new Date(s.endedAt).toLocaleTimeString()}</span>
+                <span className="font-mono font-bold shrink-0 ml-2">{fmtMoney(s.total)}</span>
+              </button>
+            ))}
+          </div>
+        )
+      )}
+      {viewingCheck && <ReceiptModal session={viewingCheck} onClose={() => setViewingCheck(null)} />}
       {showRecalc && <RecalculateShiftModal shift={shift} onClose={() => setShowRecalc(false)} />}
     </div>
   );
