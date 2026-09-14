@@ -671,6 +671,8 @@ function StockTable() {
                 <th className="text-left py-2 px-2">Item<br /><span dir="rtl" className="normal-case font-normal opacity-70">الصنف</span></th>
                 <th className="text-left py-2 px-2">Unit<br /><span dir="rtl" className="normal-case font-normal opacity-70">الوحدة</span></th>
                 <th className="text-right py-2 px-2">Opening Balance<br /><span dir="rtl" className="normal-case font-normal opacity-70">رصيد بداية الفترة</span></th>
+                <th className="text-right py-2 px-2">Period Purchases<br /><span dir="rtl" className="normal-case font-normal opacity-70">الطلبيات خلال الشهر</span></th>
+                <th className="text-right py-2 px-2">Period Consumption<br /><span dir="rtl" className="normal-case font-normal opacity-70">الاستهلاك خلال الشهر</span></th>
                 <th className="text-right py-2 px-2">Remaining<br /><span dir="rtl" className="normal-case font-normal opacity-70">المتبقي الدفتري</span></th>
                 <th className="text-right py-2 px-2">Actual Stock<br /><span dir="rtl" className="normal-case font-normal opacity-70">الجرد الفعلي</span></th>
                 <th className="text-right py-2 px-2">Variance Qty<br /><span dir="rtl" className="normal-case font-normal opacity-70">عجز/زيادة كمية</span></th>
@@ -702,6 +704,8 @@ function StockTable() {
                       <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/25 border border-black/50 text-[#2b2416]">{s.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{s.purchasesIn}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.62_0.24_25)]">-{s.salesWasteOut}</td>
                     <td className="py-2 px-2 text-right font-mono font-bold">{s.systemBalance}</td>
                     <td className="py-2 px-2 text-right">
                       <button
