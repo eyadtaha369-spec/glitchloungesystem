@@ -478,10 +478,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (pendingRef.current.size > 0) return;
       setConnectionStatus((prev) => (prev === "offline" ? "syncing" : prev));
       try {
-        const [state, bookings] = await Promise.all([getStateFn(), getEventBookingsFn()]);
+        const [state, bookings, staffMems] = await Promise.all([getStateFn(), getEventBookingsFn(), getStaffMembersFn()]);
         if (pendingRef.current.size > 0) return;
         setAppState(state);
         setEventBookings(bookings);
+        setStaffMembers(staffMems);
         setConnectionStatus("synced");
         setLastSyncedAt(Date.now());
       } catch (e) {
