@@ -547,7 +547,15 @@ function bizCanFulfill_(state, batches, menuItemId, addQty) {
   });
 }
 
-function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
+// Two lines for the same menu item only merge into one when their
+// modifier selections are identical (order-independent) -- otherwise
+// a "مضبوط" coffee and a "سادة" coffee for the same room would
+// silently collapse into a single line.
+function modifiersKey_(modifiers) {
+  return (modifiers || []).slice().sort().join("\u0001");
+}
+
+function bizAddOrder_(state, batches, roomId, menuItemId, qty, modifiers) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state: state, touchedBatchIds: [], newBatches: [] };
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return { ok: false, error: "Item not found", state: state, touchedBatchIds: [], newBatches: [] };
@@ -565,12 +573,13 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     touchedBatchIds.push.apply(touchedBatchIds, res.touched);
   });
   const room = state.rooms.find((r) => r.id === roomId);
+  const newKey = modifiersKey_(modifiers);
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
-    const existing = r.orders.find((o) => o.menuItemId === menuItemId);
+    const existing = r.orders.find((o) => o.menuItemId === menuItemId && modifiersKey_(o.modifiers) === newKey);
     const newOrders = existing
-      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
-      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price, printedQuantity: 0 }]);
+      ? r.orders.map((o) => (o === existing ? Object.assign({}, o, { qty: o.qty + qty }) : o))
+      : r.orders.concat([{ menuItemId: menuItemId, name: item.name, qty: qty, price: item.price, modifiers: (modifiers && modifiers.length) ? modifiers : undefined, printedQuantity: 0 }]);
     return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);
@@ -2610,8 +2619,9 @@ function doPost(e) {
         const batches = readObjects_("Batches");
         const stateBefore = getState_();
         const roomBefore = stateBefore.rooms.find((r) => r.id === body.roomId);
-        const qtyBefore = roomBefore ? (roomBefore.orders.find((o) => o.menuItemId === body.menuItemId) || {}).qty || 0 : 0;
-        const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
+        const modKey = (body.modifiers || []).slice().sort().join("\u0001");
+        const qtyBefore = roomBefore ? (roomBefore.orders.find((o) => o.menuItemId === body.menuItemId && (o.modifiers || []).slice().sort().join("\u0001") === modKey) || {}).qty || 0 : 0;
+        const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty, body.modifiers);
         if (result.ok) {
           setState_(result.state);
           result.touchedBatchIds.forEach(function (id) {
@@ -2620,11 +2630,11 @@ function doPost(e) {
           });
           (result.newBatches || []).forEach(function (nb) { appendObject_("Batches", nb); });
           const roomAfter = result.state.rooms.find((r) => r.id === body.roomId);
-          const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId) : null;
+          const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId && (o.modifiers || []).slice().sort().join("\u0001") === modKey) : null;
           logActivity_({
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_ADDED",
             location: roomAfter ? roomAfter.name : body.roomId, shiftId: result.state.activeShiftId,
-            description: "Added " + body.qty + "x " + (lineAfter ? lineAfter.name : body.menuItemId) + " to " + (roomAfter ? roomAfter.name : body.roomId),
+            description: "Added " + body.qty + "x " + (lineAfter ? lineAfter.name : body.menuItemId) + ((body.modifiers && body.modifiers.length) ? " (" + body.modifiers.join(", ") + ")" : "") + " to " + (roomAfter ? roomAfter.name : body.roomId),
             before: { qty: qtyBefore }, after: { qty: lineAfter ? lineAfter.qty : null },
           });
         }
@@ -4770,7 +4780,12 @@ function resetMenuAndRecipes_(username) {
       if (!id) { unresolved.push(name + " -> " + matName); return; }
       ingredients.push({ stockId: id, qty: qty });
     });
-    newMenu.push({ id: newId_("item"), name: name, price: def.price, category: def.category, ingredients: ingredients, staffAllowanceRole: name === "Classic Tea" ? "tea" : name === "Turkish Coffee" ? "coffee" : null });
+    const modifierGroupId =
+      (name === "French Coffee" || name === "Turkish Coffee" || name === "Turkish Coffee Double") ? "coffeeType" :
+      (def.category === "Mojito" || name === "Redbull") ? "flavorSyrup" :
+      (def.category === "Desserts") ? "dessertTopping" :
+      null;
+    newMenu.push({ id: newId_("item"), name: name, price: def.price, category: def.category, ingredients: ingredients, staffAllowanceRole: name === "Classic Tea" ? "tea" : name === "Turkish Coffee" ? "coffee" : null, modifierGroupId: modifierGroupId });
   });
   state.menu = newMenu;
   setState_(state);

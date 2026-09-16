@@ -117,7 +117,16 @@ function bizCanFulfill_(state, batches, menuItemId, addQty) {
   });
 }
 
-function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
+// Two lines for the same menu item only merge into one when their
+// modifier selections are identical (order-independent) -- otherwise
+// a "مضبوط" coffee and a "سادة" coffee for the same room would
+// silently collapse into a single line, losing the distinction
+// between what was actually ordered.
+function modifiersKey_(modifiers) {
+  return (modifiers || []).slice().sort().join("\u0001");
+}
+
+function bizAddOrder_(state, batches, roomId, menuItemId, qty, modifiers) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before taking orders.", state, touchedBatchIds: [], newBatches: [] };
   const item = state.menu.find((m) => m.id === menuItemId);
   if (!item) return { ok: false, error: "Item not found", state, touchedBatchIds: [], newBatches: [] };
@@ -136,15 +145,16 @@ function bizAddOrder_(state, batches, roomId, menuItemId, qty) {
     touchedBatchIds.push(...res.touched);
   });
   const room = state.rooms.find((r) => r.id === roomId);
+  const newKey = modifiersKey_(modifiers);
   state.rooms = state.rooms.map((r) => {
     if (r.id !== roomId) return r;
-    const existing = r.orders.find((o) => o.menuItemId === menuItemId);
+    const existing = r.orders.find((o) => o.menuItemId === menuItemId && modifiersKey_(o.modifiers) === newKey);
     const newOrders = existing
       // printedQuantity is deliberately left untouched here — the newly
       // added qty automatically becomes the printable delta (qty minus
       // printedQuantity), without needing to reset anything.
-      ? r.orders.map((o) => (o.menuItemId === menuItemId ? Object.assign({}, o, { qty: o.qty + qty }) : o))
-      : r.orders.concat([{ menuItemId, name: item.name, qty, price: item.price, printedQuantity: 0 }]);
+      ? r.orders.map((o) => (o === existing ? Object.assign({}, o, { qty: o.qty + qty }) : o))
+      : r.orders.concat([{ menuItemId, name: item.name, qty, price: item.price, modifiers: modifiers && modifiers.length ? modifiers : undefined, printedQuantity: 0 }]);
     return Object.assign({}, r, { orders: newOrders, cogsAccrued: (r.cogsAccrued || 0) + cogsDelta });
   });
   pushActivity_(state, (room ? room.name : "Room") + " added " + qty + "x " + item.name);

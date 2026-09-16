@@ -282,18 +282,19 @@ const handlers = {
     const batches = readObjects_("Batches");
     const stateBefore = getState_();
     const roomBefore = stateBefore.rooms.find((r) => r.id === body.roomId);
-    const qtyBefore = roomBefore ? (roomBefore.orders.find((o) => o.menuItemId === body.menuItemId) || {}).qty || 0 : 0;
-    const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty);
+    const modKey = (body.modifiers || []).slice().sort().join("\u0001");
+    const qtyBefore = roomBefore ? (roomBefore.orders.find((o) => o.menuItemId === body.menuItemId && (o.modifiers || []).slice().sort().join("\u0001") === modKey) || {}).qty || 0 : 0;
+    const result = bizAddOrder_(stateBefore, batches, body.roomId, body.menuItemId, body.qty, body.modifiers);
     if (result.ok) {
       setState_(result.state);
       writeBatchesBack_(batches, result.touchedBatchIds);
       (result.newBatches || []).forEach((b) => appendObject_("Batches", b));
       const roomAfter = result.state.rooms.find((r) => r.id === body.roomId);
-      const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId) : null;
+      const lineAfter = roomAfter ? roomAfter.orders.find((o) => o.menuItemId === body.menuItemId && (o.modifiers || []).slice().sort().join("\u0001") === modKey) : null;
       logActivity_({
         actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_ADDED",
         location: roomAfter ? roomAfter.name : body.roomId, shiftId: result.state.activeShiftId,
-        description: "Added " + body.qty + "x " + (lineAfter ? lineAfter.name : body.menuItemId) + " to " + (roomAfter ? roomAfter.name : body.roomId),
+        description: "Added " + body.qty + "x " + (lineAfter ? lineAfter.name : body.menuItemId) + (body.modifiers && body.modifiers.length ? " (" + body.modifiers.join(", ") + ")" : "") + " to " + (roomAfter ? roomAfter.name : body.roomId),
         before: { qty: qtyBefore }, after: { qty: lineAfter ? lineAfter.qty : null },
       });
     }

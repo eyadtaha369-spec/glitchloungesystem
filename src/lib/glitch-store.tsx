@@ -103,8 +103,8 @@ export type {
   MenuCategory, StockAdjustmentReason, StaffOrder, StaffMember, EventBooking, EventBookingStatus, EventDepositPaymentMethod, StaffAllowanceUsage, RestockLogEntry, BusinessDay, PaymentSource, WasteMarketingReason,
   WasteInvoice, WasteInvoiceReason, InventorySnapshot, SupplierLedgerEntry,
 } from "./types";
-export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES, EVENT_BOOKING_STATUSES, STOCK_AUDIT_VARIANCE_REASON_LABELS } from "./types";
-export type { StockAuditVarianceReason } from "./types";
+export { VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, WASTE_INVOICE_REASON_LABELS, MENU_CATEGORIES, EVENT_BOOKING_STATUSES, STOCK_AUDIT_VARIANCE_REASON_LABELS, MODIFIER_GROUPS } from "./types";
+export type { StockAuditVarianceReason, ModifierGroup } from "./types";
 export type CurrentUser = { username: string; role: Role };
 
 interface State extends AppState {
@@ -176,7 +176,7 @@ interface StoreContextValue {
   saveDailyReconciliation: (actualCash: number, instapayTotal: number, visaTotal: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
   getDailyReconciliationHistory: () => Promise<DailyReconciliation[]>;
   resumeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
-  addOrder: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
+  addOrder: (roomId: string, menuItemId: string, qty: number, modifiers?: string[]) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineQty: (roomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   setOrderLineNote: (roomId: string, menuItemId: string, notes: string) => Promise<{ ok: boolean; error?: string }>;
   markOrdersPrintedToKitchen: (roomId: string, menuItemIds: string[]) => Promise<{ ok: boolean; error?: string }>;
@@ -769,9 +769,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const addOrder: StoreContextValue["addOrder"] = async (roomId, menuItemId, qty) => {
+  const addOrder: StoreContextValue["addOrder"] = async (roomId, menuItemId, qty, modifiers) => {
     return withPending(`addOrder:${roomId}`, async () => {
       const item = appState.menu.find((m) => m.id === menuItemId);
+      const modKey = (modifiers || []).slice().sort().join("\u0001");
       if (item && canFulfill(menuItemId, qty)) {
         setAppState((prev) => {
           const newStock = prev.stock.map((stk) => {
@@ -780,16 +781,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           const rooms = prev.rooms.map((r) => {
             if (r.id !== roomId) return r;
-            const existing = r.orders.find((o) => o.menuItemId === menuItemId);
+            const existing = r.orders.find((o) => o.menuItemId === menuItemId && (o.modifiers || []).slice().sort().join("\u0001") === modKey);
             const newOrders = existing
-              ? r.orders.map((o) => (o.menuItemId === menuItemId ? { ...o, qty: o.qty + qty } : o))
-              : [...r.orders, { menuItemId, name: item.name, qty, price: item.price }];
+              ? r.orders.map((o) => (o === existing ? { ...o, qty: o.qty + qty } : o))
+              : [...r.orders, { menuItemId, name: item.name, qty, price: item.price, modifiers: modifiers && modifiers.length ? modifiers : undefined }];
             return { ...r, orders: newOrders };
           });
           return { ...prev, rooms, stock: newStock };
         });
       }
-      const res = await addOrderFn({ data: { roomId, menuItemId, qty } });
+      const res = await addOrderFn({ data: { roomId, menuItemId, qty, modifiers } });
       setAppState(res.state);
       return { ok: res.ok, error: res.error };
     });
@@ -1746,6 +1747,16 @@ export function getOutOfStockReason(item: MenuItem, stock: StockItem[], qty = 1)
     }
   }
   return { outOfStock: false, missingIngredient: null };
+}
+
+// Appends selected modifiers to an order line's display name, exactly
+// matching the requested format (e.g. "قهوة تركي دبل - مضبوط"). Used
+// everywhere an order line's name is shown to a person — the order
+// ticket, the kitchen print, and the receipt — so a modifier
+// selection is never silently invisible on any of them.
+export function formatOrderLineName(o: { name: string; modifiers?: string[] }): string {
+  if (!o.modifiers || o.modifiers.length === 0) return o.name;
+  return `${o.name} - ${o.modifiers.join("، ")}`;
 }
 
 export interface StaffCartLine {

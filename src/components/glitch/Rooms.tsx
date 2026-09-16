@@ -11,7 +11,7 @@ import roomIcon7 from "@/assets/room-icons/room-7.webp";
 import roomIcon8 from "@/assets/room-icons/room-8.webp";
 import roomIconVip from "@/assets/room-icons/room-vip.webp";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, getOutOfStockReason, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, getOutOfStockReason, formatOrderLineName, MODIFIER_GROUPS, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2, Trash2 } from "lucide-react";
 
 // A flat, neon-outline gamepad glyph — matching a generic controller
@@ -705,8 +705,8 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
     if (!r.ok) flashWarn(r.error ?? "Could not start room");
   };
 
-  const handleOrder = async (menuItemId: string) => {
-    const r = await addOrder(room.id, menuItemId, 1);
+  const handleOrder = async (menuItemId: string, modifiers?: string[]) => {
+    const r = await addOrder(room.id, menuItemId, 1, modifiers);
     if (!r.ok) flashWarn(r.error ?? "Order failed");
     // Deliberately stays open — picking one item shouldn't force closing
     // and reopening the picker for every additional item on the order.
@@ -1072,7 +1072,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
             <div key={o.menuItemId} className="text-muted-foreground">
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate flex items-center gap-1.5">
-                  {o.name}
+                  {formatOrderLineName(o)}
                   {deltaQty <= 0 && printedQty > 0 ? (
                     <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded bg-[oklch(0.78_0.2_155/0.15)] text-[oklch(0.78_0.2_155)] shrink-0" title="Sent to kitchen">
                       <Check className="w-2.5 h-2.5" /> Printed
@@ -1098,7 +1098,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                     </button>
                   ) : (
                     <button
-                      onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty })}
+                      onClick={() => setVoidTarget({ menuItemId: o.menuItemId, name: formatOrderLineName(o), maxQty: o.qty })}
                       className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.2)] hover:text-[oklch(0.62_0.24_25)]"
                       title="Void this item"
                     >
@@ -1122,7 +1122,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                     <MessageSquare className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => setMoveItemTarget({ menuItemId: o.menuItemId, name: o.name, maxQty: o.qty, price: o.price })}
+                    onClick={() => setMoveItemTarget({ menuItemId: o.menuItemId, name: formatOrderLineName(o), maxQty: o.qty, price: o.price })}
                     className="w-5 h-5 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.7_0.19_260/0.2)] hover:text-[oklch(0.7_0.19_260)]"
                     title="Move to another room/table — fixes an item added to the wrong one by mistake"
                   >
@@ -1373,7 +1373,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 )}
                 {room.orders.map((o) => (
                   <div key={o.menuItemId} className="flex justify-between receipt-line">
-                    <span>{o.qty}× {o.name}</span>
+                    <span>{o.qty}× {formatOrderLineName(o)}</span>
                     <span className="font-mono">{fmtMoney(o.qty * o.price)}</span>
                   </div>
                 ))}
@@ -1705,15 +1705,26 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
 function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
   room: Room;
   onClose: () => void;
-  onOrder: (menuItemId: string) => void;
+  onOrder: (menuItemId: string, modifiers?: string[]) => void;
   canFulfill: (menuItemId: string, qty: number) => boolean;
   state: ReturnType<typeof useStore>["state"];
 }) {
   const categoriesWithItems = MENU_CATEGORIES.filter((c) => state.menu.some((m) => m.category === c));
   const [activeCategory, setActiveCategory] = useState<MenuCategory | null>(categoriesWithItems[0] ?? null);
   const itemsInCategory = state.menu.filter((m) => m.category === activeCategory);
+  const [modifierTarget, setModifierTarget] = useState<MenuItem | null>(null);
 
-  return createPortal(
+  const handleItemClick = (item: MenuItem) => {
+    if (item.modifierGroupId && MODIFIER_GROUPS[item.modifierGroupId]) {
+      setModifierTarget(item);
+    } else {
+      onOrder(item.id);
+    }
+  };
+
+  return (
+    <>
+    {createPortal(
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md no-print" onClick={onClose}>
       <div
         className="w-full max-w-4xl h-[85vh] glass-strong rounded-3xl border-2 border-[oklch(0.7_0.19_260/0.5)] shadow-[0_0_60px_oklch(0.7_0.19_260/0.4)] flex flex-col overflow-hidden"
@@ -1758,7 +1769,7 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
                 <button
                   key={m.id}
                   disabled={!ok}
-                  onClick={() => onOrder(m.id)}
+                  onClick={() => handleItemClick(m)}
                   className={`relative flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition overflow-hidden ${
                     ok
                       ? "bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
@@ -1795,6 +1806,79 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
               </div>
             )}
           </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+    )}
+    {modifierTarget && (
+      <ModifierSelectionModal
+        item={modifierTarget}
+        onClose={() => setModifierTarget(null)}
+        onConfirm={(modifiers) => { onOrder(modifierTarget.id, modifiers); setModifierTarget(null); }}
+      />
+    )}
+    </>
+  );
+}
+
+function ModifierSelectionModal({ item, onClose, onConfirm }: {
+  item: MenuItem;
+  onClose: () => void;
+  onConfirm: (modifiers: string[]) => void;
+}) {
+  const group = item.modifierGroupId ? MODIFIER_GROUPS[item.modifierGroupId] : null;
+  const [selected, setSelected] = useState<string[]>([]);
+  if (!group) return null;
+
+  const toggle = (opt: string) => {
+    if (group.multiSelect) {
+      setSelected((prev) => (prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt]));
+    } else {
+      setSelected([opt]);
+    }
+  };
+
+  const canConfirm = !group.required || selected.length > 0;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.5)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div dir="rtl" className="font-bold text-base">{item.name} — {group.name}</div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4">
+          {group.required && (
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Required — choose one</div>
+          )}
+          <div className="grid grid-cols-2 gap-2 max-h-80 overflow-y-auto" dir="rtl">
+            {group.options.map((opt) => {
+              const isSelected = selected.includes(opt);
+              return (
+                <button
+                  key={opt} onClick={() => toggle(opt)}
+                  className={`px-3 py-3 rounded-xl text-sm font-bold border-2 transition ${
+                    isSelected
+                      ? "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] border-transparent"
+                      : "bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.5)]"
+                  }`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={() => onConfirm(selected)}
+            disabled={!canConfirm}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-40"
+          >
+            Add to Order
+          </button>
         </div>
       </div>
     </div>,
@@ -1883,7 +1967,7 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
               {session.orders.length === 0 && <div className="opacity-60">— none —</div>}
               {session.orders.map((o) => (
                 <div key={o.menuItemId} className="flex justify-between receipt-line">
-                  <span>{o.qty}× {o.name}</span>
+                  <span>{o.qty}× {formatOrderLineName(o)}</span>
                   <span>{fmtMoney(o.qty * o.price)}</span>
                 </div>
               ))}
@@ -1896,7 +1980,7 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
               <RateSegmentBreakdown session={session} />
               {session.orders.map((o) => (
                 <div key={o.menuItemId} className="flex justify-between receipt-line">
-                  <span>{o.qty}× {o.name}</span>
+                  <span>{o.qty}× {formatOrderLineName(o)}</span>
                   <span>{fmtMoney(o.qty * o.price)}</span>
                 </div>
               ))}
@@ -2080,7 +2164,7 @@ function BaristaTicketModal({ room, kotNumber: kotNumberProp, onClose }: { room:
             {deltaOrders.length === 0 && <div className="opacity-60 text-center">— no new items —</div>}
             {deltaOrders.map((o) => (
               <div key={o.menuItemId} className="receipt-line">
-                <div className="font-bold">{o.deltaQty}× {o.name}</div>
+                <div className="font-bold">{o.deltaQty}× {formatOrderLineName(o)}</div>
                 {o.notes && (
                   <div className="pl-3 text-black italic">
                     → *{o.notes}*
@@ -3054,7 +3138,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             <div className="mt-2 space-y-1">
               {splitReceipt.orders.map((o) => (
                 <div key={o.menuItemId} className="flex justify-between receipt-line">
-                  <span>{o.qty}× {o.name}</span>
+                  <span>{o.qty}× {formatOrderLineName(o)}</span>
                   <span>{fmtMoney(o.qty * o.price)}</span>
                 </div>
               ))}
@@ -3129,7 +3213,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                   if (remaining <= 0) return null;
                   return (
                     <div key={o.menuItemId} className="flex items-center justify-between bg-white/60 rounded-lg p-2.5 border border-black/8 text-sm">
-                      <span>{remaining}x {o.name}</span>
+                      <span>{remaining}x {formatOrderLineName(o)}</span>
                       <button onClick={() => move(o.menuItemId, o.qty, 1)} className="w-6 h-6 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8" title="Move to sub-bill">
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -3145,7 +3229,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 {items.length === 0 && <div className="text-xs text-muted-foreground italic p-2.5">Nothing selected yet</div>}
                 {room.orders.filter((o) => selected[o.menuItemId]).map((o) => (
                   <div key={o.menuItemId} className="flex items-center justify-between bg-[oklch(0.7_0.19_260/0.1)] rounded-lg p-2.5 border border-[oklch(0.7_0.19_260/0.4)] text-sm">
-                    <span>{selected[o.menuItemId]}x {o.name}</span>
+                    <span>{selected[o.menuItemId]}x {formatOrderLineName(o)}</span>
                     <button onClick={() => move(o.menuItemId, o.qty, -1)} className="w-6 h-6 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/8" title="Move back">
                       <Minus className="w-3.5 h-3.5" />
                     </button>

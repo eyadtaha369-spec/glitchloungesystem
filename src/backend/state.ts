@@ -75,7 +75,7 @@ export const resumeRoomFn = createServerFn({ method: "POST" })
   });
 
 export const addOrderFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; menuItemId: string; qty: number }) => d)
+  .validator((d: { roomId: string; menuItemId: string; qty: number; modifiers?: string[] }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("addOrder", {

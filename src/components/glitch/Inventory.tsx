@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, STOCK_AUDIT_VARIANCE_REASON_LABELS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot, type StockAuditVarianceReason } from "@/lib/glitch-store";
+import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, STOCK_AUDIT_VARIANCE_REASON_LABELS, MODIFIER_GROUPS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot, type StockAuditVarianceReason } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
 
@@ -1217,6 +1217,7 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [category, setCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [ings, setIngs] = useState<{ stockId: string; qty: number }[]>([]);
   const [staffAllowanceRole, setStaffAllowanceRole] = useState<"" | "tea" | "coffee">("");
+  const [modifierGroupId, setModifierGroupId] = useState<string>("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -1224,6 +1225,7 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [editCategory, setEditCategory] = useState<MenuCategory>(MENU_CATEGORIES[0]);
   const [editIngs, setEditIngs] = useState<{ stockId: string; qty: number }[]>([]);
   const [editStaffAllowanceRole, setEditStaffAllowanceRole] = useState<"" | "tea" | "coffee">("");
+  const [editModifierGroupId, setEditModifierGroupId] = useState<string>("");
   const [editErr, setEditErr] = useState<string | null>(null);
 
   // Only one menu item at a time can hold each role — assigning it
@@ -1244,8 +1246,8 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     }
     setEditErr(null);
     if (staffAllowanceRole) clearRoleFromOtherItems(staffAllowanceRole);
-    onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: staffAllowanceRole || null });
-    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setStaffAllowanceRole(""); setShowForm(false);
+    onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: staffAllowanceRole || null, modifierGroupId: modifierGroupId || null });
+    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setStaffAllowanceRole(""); setModifierGroupId(""); setShowForm(false);
   };
 
   const beginEdit = (m: MenuItem) => {
@@ -1255,6 +1257,7 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     setEditCategory(m.category ?? MENU_CATEGORIES[0]);
     setEditIngs(m.ingredients.map((i) => ({ ...i })));
     setEditStaffAllowanceRole(m.staffAllowanceRole ?? "");
+    setEditModifierGroupId(m.modifierGroupId ?? "");
     setEditErr(null);
   };
   const saveEdit = () => {
@@ -1271,7 +1274,7 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     }
     setEditErr(null);
     if (editStaffAllowanceRole) clearRoleFromOtherItems(editStaffAllowanceRole, editingId);
-    onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: editStaffAllowanceRole || null });
+    onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: editStaffAllowanceRole || null, modifierGroupId: editModifierGroupId || null });
     setEditingId(null);
   };
 
@@ -1301,6 +1304,14 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
               <option value="">Staff Allowance: None</option>
               <option value="tea">Staff Allowance: Free Tea Item</option>
               <option value="coffee">Staff Allowance: Free Coffee Item</option>
+            </select>
+            <select
+              value={modifierGroupId} onChange={(e) => setModifierGroupId(e.target.value)}
+              className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10"
+              title="Prompts the cashier for a selection from this group whenever this item is added to an order"
+            >
+              <option value="">POS Modifier Prompt: None</option>
+              {Object.values(MODIFIER_GROUPS).map((g) => <option key={g.id} value={g.id}>POS Modifier Prompt: {g.name}</option>)}
             </select>
           </div>
           <div className="space-y-2">
@@ -1344,6 +1355,14 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                   <option value="">Staff Allowance: None</option>
                   <option value="tea">Staff Allowance: Free Tea Item</option>
                   <option value="coffee">Staff Allowance: Free Coffee Item</option>
+                </select>
+                <select
+                  value={editModifierGroupId} onChange={(e) => setEditModifierGroupId(e.target.value)}
+                  className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10"
+                  title="Prompts the cashier for a selection from this group whenever this item is added to an order"
+                >
+                  <option value="">POS Modifier Prompt: None</option>
+                  {Object.values(MODIFIER_GROUPS).map((g) => <option key={g.id} value={g.id}>POS Modifier Prompt: {g.name}</option>)}
                 </select>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>

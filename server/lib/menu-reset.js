@@ -226,7 +226,12 @@ function resetMenuAndRecipes_(readObjects_, appendObject_, updateObjectById_, ne
       if (!id) { unresolved.push(name + " -> " + matName); return; }
       ingredients.push({ stockId: id, qty });
     });
-    newMenu.push({ id: newId_("item"), name, price: def.price, category: def.category, ingredients, staffAllowanceRole: name === "Classic Tea" ? "tea" : name === "Turkish Coffee" ? "coffee" : null });
+    const modifierGroupId =
+      (name === "French Coffee" || name === "Turkish Coffee" || name === "Turkish Coffee Double") ? "coffeeType" :
+      (def.category === "Mojito" || name === "Redbull") ? "flavorSyrup" :
+      (def.category === "Desserts") ? "dessertTopping" :
+      null;
+    newMenu.push({ id: newId_("item"), name, price: def.price, category: def.category, ingredients, staffAllowanceRole: name === "Classic Tea" ? "tea" : name === "Turkish Coffee" ? "coffee" : null, modifierGroupId });
   });
   state.menu = newMenu;
   setState_(state);

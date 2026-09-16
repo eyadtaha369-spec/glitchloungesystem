@@ -64,7 +64,50 @@ export interface MenuItem {
   // determines which one gets the free-allowance treatment, not the
   // item's name/text at all.
   staffAllowanceRole?: "tea" | "coffee" | null;
+  // Which modifier group (if any) the POS should prompt for when this
+  // item is added to an order — admin-configurable per item (Inventory
+  // page), same reasoning as staffAllowanceRole above: a café can name
+  // or reorganize its menu however it wants, so this is what actually
+  // decides which prompt shows, not the item's name.
+  modifierGroupId?: string | null;
 }
+
+// Fixed, built-in modifier groups (content exactly as specified) —
+// referenced by id from MenuItem.modifierGroupId. "required": true
+// means the POS blocks adding the item until one option is chosen
+// (single-select); false means any number of optional add-ons can be
+// picked, including none.
+export interface ModifierGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  multiSelect: boolean;
+  options: string[];
+}
+export const MODIFIER_GROUPS: Record<string, ModifierGroup> = {
+  coffeeType: {
+    id: "coffeeType", name: "Sugar Level / Type", required: true, multiSelect: false,
+    options: ["سادة", "عالريحة", "مانو", "مضبوط", "زيادة", "زيادة كراميل", "سرياقوسي"],
+  },
+  flavorSyrup: {
+    id: "flavorSyrup", name: "سيرب وتوبينج", required: false, multiSelect: true,
+    options: [
+      "سيرب موهيتو", "سيرب سويت اند ساور", "سيرب شيري", "سيرب بلو كاراساو", "سيرب كراميل", "سيرب بندق",
+      "توبينج خوخ", "توبينج باشون فروت", "توبينج بلوبيري", "توبينج ميكس بيري", "توبينج مانجو", "توبينج جوز هند",
+    ],
+  },
+  extraSauce: {
+    id: "extraSauce", name: "إضافات الصوصات", required: false, multiSelect: true,
+    options: ["نوتيلا", "وايت شوكلت", "بيستاشيو", "لوتس", "كيندر", "صوص شوكليت", "صوص كراميل"],
+  },
+  dessertTopping: {
+    id: "dessertTopping", name: "الحلويات — إضافات", required: false, multiSelect: true,
+    options: [
+      "نوتيلا", "وايت شوكلت", "بيستاشيو", "لوتس", "كيندر", "صوص شوكليت", "صوص كراميل",
+      "توبينج مانجو", "توبينج جوز هند", "توبينج خوخ", "توبينج بلوبيري", "توبينج ميكس بيري", "توبينج فراولة", "توبينج باشون فروت",
+    ],
+  },
+};
 
 export interface OrderLine {
   menuItemId: string;
@@ -72,6 +115,11 @@ export interface OrderLine {
   qty: number;
   price: number;
   notes?: string;
+  // Selected modifier option(s) for this specific line (e.g.
+  // ["مضبوط"] for a coffee, or several toppings for a dessert) —
+  // displayed under the item name on the order ticket and receipt,
+  // and printed to the kitchen exactly the same way.
+  modifiers?: string[];
   // How much of this line's current qty has already been sent to the
   // kitchen — NOT a boolean, since that would force re-sending the
   // FULL qty again the moment even one more unit is added. The
