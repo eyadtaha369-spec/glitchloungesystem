@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore, fmtMoney, EVENT_BOOKING_STATUSES } from "@/lib/glitch-store";
 import type { EventBooking, EventBookingStatus, EventDepositPaymentMethod } from "@/lib/glitch-store";
-import { PartyPopper, Plus, Phone, X, Edit2, CheckCircle2, XCircle, DoorOpen, Trash2 } from "lucide-react";
+import { printSmart } from "@/lib/print";
+import logo from "@/assets/glitch-logo-mark.png";
+import { PartyPopper, Plus, Phone, X, Edit2, CheckCircle2, XCircle, DoorOpen, Trash2, Printer } from "lucide-react";
 
 type Tab = "upcoming" | "past" | "all";
 
@@ -19,6 +22,7 @@ export function BookingsPage({ onNavigateToRooms }: { onNavigateToRooms?: () => 
   const [formOpen, setFormOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<EventBooking | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EventBooking | null>(null);
+  const [receiptTarget, setReceiptTarget] = useState<EventBooking | null>(null);
 
   // Loaded lazily when this page is actually visited, not on every
   // login — this data isn't needed anywhere else in the app.
@@ -153,6 +157,9 @@ export function BookingsPage({ onNavigateToRooms }: { onNavigateToRooms?: () => 
                             <DoorOpen className="w-3.5 h-3.5" />
                           </button>
                         )}
+                        <button onClick={() => setReceiptTarget(b)} title="طباعة أيصال الحجز — Print Booking Check" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={() => { setEditingBooking(b); setFormOpen(true); }} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
@@ -173,6 +180,13 @@ export function BookingsPage({ onNavigateToRooms }: { onNavigateToRooms?: () => 
         <BookingFormModal
           booking={editingBooking}
           onClose={() => setFormOpen(false)}
+        />
+      )}
+
+      {receiptTarget && (
+        <BookingReceiptModal
+          booking={receiptTarget}
+          onClose={() => setReceiptTarget(null)}
         />
       )}
 
@@ -209,12 +223,21 @@ function BookingFormModal({ booking, onClose }: { booking: EventBooking | null; 
   const [eventTime, setEventTime] = useState(() =>
     initialDate ? `${String(initialDate.getHours()).padStart(2, "0")}:${String(initialDate.getMinutes()).padStart(2, "0")}` : "18:00"
   );
+  const initialEndDate = booking?.eventEndAt ? new Date(booking.eventEndAt) : null;
+  const [eventEndTime, setEventEndTime] = useState(() =>
+    initialEndDate ? `${String(initialEndDate.getHours()).padStart(2, "0")}:${String(initialEndDate.getMinutes()).padStart(2, "0")}` : ""
+  );
+  const [packageType, setPackageType] = useState(booking?.packageType ?? "");
+  const [guestCount, setGuestCount] = useState(booking?.guestCount ? String(booking.guestCount) : "");
+  const [totalPackagePrice, setTotalPackagePrice] = useState(booking?.totalPackagePrice ? String(booking.totalPackagePrice) : "");
   const [depositAmount, setDepositAmount] = useState(booking ? String(booking.depositAmount) : "");
   const [depositPaymentMethod, setDepositPaymentMethod] = useState<EventDepositPaymentMethod>(booking?.depositPaymentMethod ?? "cash");
   const [description, setDescription] = useState(booking?.description ?? "");
   const [status, setStatus] = useState<EventBookingStatus>(booking?.status ?? "confirmed");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [receiptTarget, setReceiptTarget] = useState<EventBooking | null>(null);
+  const [closeFormAfterReceipt, setCloseFormAfterReceipt] = useState(false);
 
   // Rooms and Lounge tables both — any bookable space, per the explicit
   // "Rooms/Lounges" requirement.
@@ -226,28 +249,38 @@ function BookingFormModal({ booking, onClose }: { booking: EventBooking | null; 
     if (!eventDate || !eventTime) { setErr("Event date and time are required."); return; }
     const eventAt = new Date(`${eventDate}T${eventTime}`).getTime();
     if (Number.isNaN(eventAt)) { setErr("Invalid date/time."); return; }
+    const eventEndAt = eventEndTime ? new Date(`${eventDate}T${eventEndTime}`).getTime() : null;
     const room = state.rooms.find((r) => r.id === roomId);
+    const commonFields = {
+      customerName: customerName.trim(), phoneNumber: phoneNumber.trim(),
+      eventAt, eventEndAt, packageType: packageType.trim() || null,
+      guestCount: guestCount ? parseInt(guestCount, 10) : null,
+      totalPackagePrice: totalPackagePrice ? parseFloat(totalPackagePrice) : null,
+      depositAmount: parseFloat(depositAmount) || 0, depositPaymentMethod,
+      description, status,
+    };
 
     setSubmitting(true);
     try {
       if (isEdit && booking) {
         const res = await updateEventBooking(booking.id, {
-          customerName: customerName.trim(), phoneNumber: phoneNumber.trim(),
-          roomId: room?.id ?? null, roomName: room?.name ?? null,
-          eventAt, depositAmount: parseFloat(depositAmount) || 0, depositPaymentMethod,
-          description, status,
+          ...commonFields, roomId: room?.id ?? null, roomName: room?.name ?? null,
         });
         if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
+        // Printing the freshly-saved booking needs its own current
+        // values (the receipt reads eventEndAt/packageType/etc.
+        // directly from the record) rather than the stale `booking`
+        // prop, which still holds whatever was passed in before this
+        // edit.
+        setCloseFormAfterReceipt(true);
+        setReceiptTarget({ ...booking, ...commonFields, roomId: room?.id ?? null, roomName: room?.name ?? null });
       } else {
-        const res = await addEventBooking({
-          customerName: customerName.trim(), phoneNumber: phoneNumber.trim(),
-          roomId: room?.id, roomName: room?.name,
-          eventAt, depositAmount: parseFloat(depositAmount) || 0, depositPaymentMethod,
-          description, status,
-        });
+        const res = await addEventBooking({ ...commonFields, roomId: room?.id, roomName: room?.name });
         if (!res.ok) { setErr(res.error ?? "Could not create the booking."); return; }
+        setCloseFormAfterReceipt(true);
+        if (res.item) setReceiptTarget(res.item);
+        else onClose();
       }
-      onClose();
     } finally {
       setSubmitting(false);
     }
@@ -302,12 +335,48 @@ function BookingFormModal({ booking, onClose }: { booking: EventBooking | null; 
               />
             </div>
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted-foreground">Event Time</label>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Start Time</label>
               <input
                 type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)}
                 className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">End Time (optional)</label>
+              <input
+                type="time" value={eventEndTime} onChange={(e) => setEventEndTime(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Guest Count</label>
+              <input
+                type="number" min="0" value={guestCount} onChange={(e) => setGuestCount(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+                placeholder="e.g. 15"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Party / Package Type</label>
+            <input
+              value={packageType} onChange={(e) => setPackageType(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+              placeholder="e.g. Gold Birthday Package"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Total Event Package Price</label>
+            <input
+              type="number" min="0" step="0.01" value={totalPackagePrice} onChange={(e) => setTotalPackagePrice(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+              placeholder="0.00"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -357,6 +426,16 @@ function BookingFormModal({ booking, onClose }: { booking: EventBooking | null; 
         </div>
 
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/8 shrink-0">
+          {isEdit && booking && (
+            <button
+              onClick={() => { setCloseFormAfterReceipt(false); setReceiptTarget(booking); }}
+              disabled={submitting}
+              title="طباعة أيصال الحجز"
+              className="mr-auto px-4 py-2.5 rounded-lg text-sm font-bold bg-black/5 border border-black/10 flex items-center gap-1.5"
+            >
+              <Printer className="w-4 h-4" /> Print Booking Check
+            </button>
+          )}
           <button onClick={onClose} disabled={submitting} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/10">Cancel</button>
           <button
             onClick={() => void submit()}
@@ -367,6 +446,112 @@ function BookingFormModal({ booking, onClose }: { booking: EventBooking | null; 
           </button>
         </div>
       </div>
+      {receiptTarget && (
+        <BookingReceiptModal
+          booking={receiptTarget}
+          onClose={() => { setReceiptTarget(null); if (closeFormAfterReceipt) onClose(); }}
+        />
+      )}
     </div>
+  );
+}
+
+function fmtBookingTime(d: Date): string {
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+function fmtBookingDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+}
+
+function BookingReceiptModal({ booking, onClose }: { booking: EventBooking; onClose: () => void }) {
+  const eventDateObj = new Date(booking.eventAt);
+  const createdObj = new Date(booking.createdAt);
+  const total = booking.totalPackagePrice ?? null;
+  const deposit = booking.depositAmount || 0;
+  const remaining = total !== null ? Math.max(0, total - deposit) : null;
+
+  return createPortal(
+    <div className="print-root fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-lg glass-strong rounded-2xl border border-black/10 shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-black/10 no-print">
+          <div className="font-mono uppercase tracking-widest text-sm text-[oklch(0.65_0.24_305)]">Booking Check — أيصال الحجز</div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="print-area p-6 font-mono text-sm bg-white/50">
+          <div className="text-center mb-4 receipt-block">
+            <img src={logo} alt="GLITCH" className="w-40 h-auto mx-auto receipt-logo" />
+            <div className="text-xl font-bold tracking-widest mt-1">GLITCH</div>
+            <div className="text-sm font-bold uppercase tracking-[0.15em] mt-1">PlayStation &amp; Lounge</div>
+            <div className="text-xs font-bold uppercase tracking-widest mt-2">Birthday / Event Booking Check</div>
+          </div>
+
+          <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+            <div className="flex justify-between"><span>Booking ID</span><span className="font-bold">{booking.id}</span></div>
+            <div className="flex justify-between"><span>Created</span><span>{fmtBookingDate(createdObj)} {fmtBookingTime(createdObj)}</span></div>
+            <div className="flex justify-between"><span>Status</span><span className="uppercase font-bold">{booking.status}</span></div>
+          </div>
+
+          <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+            <div className="text-[10px] uppercase tracking-widest opacity-70 mb-1">Customer</div>
+            <div className="flex justify-between"><span>Name</span><span className="font-bold">{booking.customerName}</span></div>
+            {booking.phoneNumber && <div className="flex justify-between"><span>Phone</span><span className="font-bold">{booking.phoneNumber}</span></div>}
+          </div>
+
+          <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+            <div className="text-[10px] uppercase tracking-widest opacity-70 mb-1">Event</div>
+            <div className="flex justify-between"><span>Date</span><span className="font-bold">{fmtBookingDate(eventDateObj)}</span></div>
+            <div className="flex justify-between">
+              <span>Time</span>
+              <span className="font-bold">
+                {fmtBookingTime(eventDateObj)}{booking.eventEndAt ? ` – ${fmtBookingTime(new Date(booking.eventEndAt))}` : ""}
+              </span>
+            </div>
+            {booking.roomName && <div className="flex justify-between"><span>Room / Space</span><span>{booking.roomName}</span></div>}
+            {booking.packageType && <div className="flex justify-between"><span>Package</span><span>{booking.packageType}</span></div>}
+            {booking.guestCount != null && <div className="flex justify-between"><span>Guests</span><span>{booking.guestCount}</span></div>}
+          </div>
+
+          <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+            <div className="text-[10px] uppercase tracking-widest opacity-70 mb-1">Financial Summary</div>
+            {total !== null && <div className="flex justify-between"><span>Total Package Price</span><span>{fmtMoney(total)}</span></div>}
+            <div className="flex justify-between"><span>Deposit Paid (العربون)</span><span>{fmtMoney(deposit)}</span></div>
+            <div className="flex justify-between text-[10px] opacity-80"><span>&nbsp;&nbsp;Via</span><span className="uppercase">{booking.depositPaymentMethod}</span></div>
+            {remaining !== null && (
+              <div className="flex justify-between font-bold text-sm mt-1 pt-1 border-t border-black/20">
+                <span>Remaining Due at Event</span><span>{fmtMoney(remaining)}</span>
+              </div>
+            )}
+            {total === null && (
+              <div className="text-[10px] opacity-60 mt-1">Total package price not set — remaining balance unavailable.</div>
+            )}
+          </div>
+
+          {booking.description && (
+            <div className="border-b border-dashed border-black/40 py-2 my-2 text-xs receipt-block">
+              <div className="text-[10px] uppercase tracking-widest opacity-70 mb-1">Notes / Special Requirements</div>
+              <div className="whitespace-pre-wrap">{booking.description}</div>
+            </div>
+          )}
+
+          <div className="text-center text-[10px] mt-4 opacity-70 receipt-block">
+            Please present this receipt upon arrival for your event.
+            <br />
+            يرجى إحضار هذا الإيصال عند الحضور ليوم الحفلة.
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Close</button>
+          <button
+            onClick={() => void printSmart()}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-[oklch(0.65_0.24_305)] to-[oklch(0.7_0.19_260)] text-white font-semibold flex items-center gap-1.5"
+          >
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

@@ -309,7 +309,8 @@ interface StoreContextValue {
   refreshEventBookings: () => Promise<void>;
   addEventBooking: (params: {
     customerName: string; phoneNumber: string; roomId?: string; roomName?: string;
-    eventAt: number; depositAmount: number; depositPaymentMethod: EventDepositPaymentMethod;
+    eventAt: number; eventEndAt?: number | null; packageType?: string | null; guestCount?: number | null; totalPackagePrice?: number | null;
+    depositAmount: number; depositPaymentMethod: EventDepositPaymentMethod;
     description: string; status?: EventBookingStatus;
   }) => Promise<{ ok: boolean; error?: string; item?: EventBooking }>;
   updateEventBooking: (id: string, patch: Partial<Omit<EventBooking, "id" | "createdAt" | "createdBy">>) => Promise<{ ok: boolean; error?: string }>;

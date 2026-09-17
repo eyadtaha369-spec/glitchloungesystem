@@ -133,7 +133,8 @@ CREATE TABLE IF NOT EXISTS StaffAllowanceUsage (
 CREATE TABLE IF NOT EXISTS EventBookings (
   id TEXT PRIMARY KEY,
   customerName TEXT, phoneNumber TEXT, roomId TEXT, roomName TEXT,
-  eventAt INTEGER, depositAmount REAL, depositPaymentMethod TEXT,
+  eventAt INTEGER, eventEndAt INTEGER, packageType TEXT, guestCount INTEGER, totalPackagePrice REAL,
+  depositAmount REAL, depositPaymentMethod TEXT,
   description TEXT, status TEXT, createdAt INTEGER, createdBy TEXT
 );
 

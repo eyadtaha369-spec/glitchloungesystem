@@ -54,6 +54,10 @@ addColumnIfMissing_("Batches", "ledgerId", "TEXT");
 addColumnIfMissing_("Sessions", "rateSegments", "TEXT");
 addColumnIfMissing_("DailyReconciliations", "shiftId", "TEXT");
 addColumnIfMissing_("SupplierPayments", "ledgerEntryId", "TEXT");
+addColumnIfMissing_("EventBookings", "eventEndAt", "INTEGER");
+addColumnIfMissing_("EventBookings", "packageType", "TEXT");
+addColumnIfMissing_("EventBookings", "guestCount", "INTEGER");
+addColumnIfMissing_("EventBookings", "totalPackagePrice", "REAL");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",

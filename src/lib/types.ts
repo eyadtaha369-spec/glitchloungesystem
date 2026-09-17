@@ -618,6 +618,17 @@ export interface EventBooking {
   roomId: string | null;
   roomName: string | null;
   eventAt: number;
+  // End time is optional — older bookings and quick entries may not
+  // set one, and the receipt/list both handle its absence gracefully
+  // rather than requiring it.
+  eventEndAt?: number | null;
+  packageType?: string | null;
+  guestCount?: number | null;
+  // The full agreed price for the event package — separate from
+  // depositAmount, so the receipt can show the remaining balance due
+  // on the day (totalPackagePrice - depositAmount) rather than just
+  // the deposit alone.
+  totalPackagePrice?: number | null;
   depositAmount: number;
   depositPaymentMethod: EventDepositPaymentMethod;
   description: string;

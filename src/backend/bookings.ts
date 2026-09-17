@@ -12,7 +12,8 @@ export const getEventBookingsFn = createServerFn({ method: "GET" }).handler(asyn
 export const addEventBookingFn = createServerFn({ method: "POST" })
   .validator((d: {
     customerName: string; phoneNumber: string; roomId?: string; roomName?: string;
-    eventAt: number; depositAmount: number; depositPaymentMethod: EventDepositPaymentMethod;
+    eventAt: number; eventEndAt?: number | null; packageType?: string | null; guestCount?: number | null; totalPackagePrice?: number | null;
+    depositAmount: number; depositPaymentMethod: EventDepositPaymentMethod;
     description: string; status?: EventBookingStatus;
   }) => d)
   .handler(async ({ data }) => {
