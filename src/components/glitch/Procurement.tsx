@@ -907,10 +907,10 @@ function DeleteInvoiceButton({ invoiceId, onDeleted }: { invoiceId: string; onDe
   return (
     <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setConfirming(false)}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-bold mb-2">Delete this invoice?</h3>
+        <h3 className="text-base font-bold mb-2">Delete Invoice #{invoiceId}?</h3>
         <p className="text-sm text-muted-foreground mb-3">
-          This will reverse the stock it added and remove it from the supplier's balance. If any item on it has
-          already been used in a sale, this will be blocked automatically.
+          Are you sure? This will revert inventory stock levels and remove it from the supplier's balance. If any
+          item on it has already been used in a sale, this will be blocked automatically.
         </p>
         {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
         {blocked && (
@@ -1046,10 +1046,12 @@ function EditInvoiceButton({ entry, onSaved }: { entry: SupplierLedgerEntry; onS
 }
 
 function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEntry; onClose: () => void; onSaved: () => void }) {
-  const { updateSupplierInvoice } = useStore();
+  const { state, updateSupplierInvoice } = useStore();
   const [items, setItems] = useState(() => (entry.items ?? []).map((it) => ({ ...it })));
   const [invoiceDateInput, setInvoiceDateInput] = useState(() => new Date(entry.invoiceDate ?? entry.ts).toISOString().slice(0, 10));
   const [paymentType, setPaymentType] = useState<"cash" | "deferred">(entry.paymentType ?? "deferred");
+  const [supplierId, setSupplierId] = useState(entry.supplierId ?? "");
+  const [referenceNumber, setReferenceNumber] = useState(entry.referenceNumber ?? "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1059,11 +1061,15 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
     setSaving(true);
     setErr(null);
     try {
+      const chosenSupplier = state.suppliers.find((s) => s.id === supplierId);
       const res = await updateSupplierInvoice({
         invoiceId: entry.id,
         items: items.map((it) => ({ id: it.id, qty: it.qty, unitPrice: it.unitPrice })),
         invoiceDate: new Date(invoiceDateInput + "T00:00:00").getTime(),
         paymentType,
+        supplierId: supplierId || undefined,
+        supplierName: chosenSupplier?.name,
+        referenceNumber: referenceNumber.trim() || undefined,
       });
       if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
       onSaved();
@@ -1084,6 +1090,21 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
           <input
             type="date" value={invoiceDateInput} onChange={(e) => setInvoiceDateInput(e.target.value)}
             className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4"
+          />
+
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier</label>
+          <select
+            value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
+            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4"
+          >
+            {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Invoice Reference Number (optional)</label>
+          <input
+            value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)}
+            placeholder="e.g. INV-2026-0431"
+            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4 font-mono"
           />
 
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Type</label>

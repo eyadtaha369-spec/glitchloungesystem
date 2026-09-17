@@ -176,7 +176,7 @@ function sheetObjectHeaders_(name) {
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source", "invoiceId", "ledgerId"],
     Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus"],
-    PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource"],
+    PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource", "referenceNumber"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
     SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
@@ -4445,6 +4445,8 @@ function getSupplierLedger_(supplierId) {
       credit: 0, paymentType: inv.paymentType, id: inv.id,
       invoiceDate: Number(inv.invoiceDate) || Number(inv.createdAt),
       paymentSource: inv.paymentSource || null,
+      referenceNumber: inv.referenceNumber || null,
+      supplierId: inv.supplierId || null,
       items: items.map(function (it) { return { id: it.id, materialId: it.materialId, materialName: it.materialName, qty: Number(it.qty), unitPrice: Number(it.unitPrice) }; }),
     });
   });
@@ -4635,13 +4637,19 @@ function updatePurchase_(body) {
   const costChanging = body.unitCost !== undefined && Number(body.unitCost) !== Number(entry.unitCost);
   const batch = findLinkedBatch_(body.ledgerId);
 
-  if ((qtyChanging || costChanging) && batch && !batchIsUntouched_(batch)) {
-    const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
-    return { ok: false, error: "Can't change quantity or cost — " + used + " of the " + batch.qtyPurchased + " purchased has already been used. You can still edit the description, category, or supplier." };
-  }
-
   const newQty = qtyChanging ? Number(body.qty) : Number(entry.qty);
   const newCost = costChanging ? Number(body.unitCost) : Number(entry.unitCost);
+
+  // Delta-based, not blanket — see the identical comment on the local
+  // server's version of this function for the full reasoning.
+  let usedFromBatch = 0;
+  if (qtyChanging && batch) {
+    usedFromBatch = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
+    if (newQty < usedFromBatch - 1e-9) {
+      return { ok: false, error: "Can't reduce quantity below " + usedFromBatch + " — that much has already been used. Enter at least " + usedFromBatch + ", or delete this entry instead." };
+    }
+  }
+
   const ledgerPatch = {};
   if (body.description !== undefined) ledgerPatch.description = body.description;
   if (body.category !== undefined) ledgerPatch.category = body.category;
@@ -4652,7 +4660,8 @@ function updatePurchase_(body) {
 
   updateObjectById_("Ledger", body.ledgerId, ledgerPatch);
   if (batch && (qtyChanging || costChanging)) {
-    updateObjectById_("Batches", batch.id, { qtyPurchased: newQty, qtyRemaining: newQty, unitCost: newCost });
+    const newRemaining = qtyChanging ? (newQty - usedFromBatch) : Number(batch.qtyRemaining);
+    updateObjectById_("Batches", batch.id, { qtyPurchased: newQty, qtyRemaining: newRemaining, unitCost: newCost });
   }
   return { ok: true };
 }
@@ -4710,16 +4719,19 @@ function updateSupplierInvoice_(body) {
   const batches = readObjects_("Batches").filter(function (b) { return b.invoiceId === body.invoiceId; });
   const items = Array.isArray(body.items) ? body.items : [];
 
+  // Delta-based, not blanket — see the identical comment on the local
+  // server's version of this function for the full reasoning.
+  const usedByItemId = {};
   for (const it of items) {
     const existing = existingItems.find(function (e) { return e.id === it.id; });
     if (!existing) return { ok: false, error: "One of the items on this invoice couldn't be found." };
     const qtyChanging = Number(it.qty) !== Number(existing.qty);
-    const priceChanging = Number(it.unitPrice) !== Number(existing.unitPrice);
-    if (qtyChanging || priceChanging) {
+    if (qtyChanging) {
       const batch = batches.find(function (b) { return b.materialId === existing.materialId; });
-      if (batch && !batchIsUntouched_(batch)) {
-        const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
-        return { ok: false, error: "Can't change quantity or cost for " + existing.materialName + " — " + used + " of the " + batch.qtyPurchased + " purchased has already been used." };
+      const used = batch ? Number(batch.qtyPurchased) - Number(batch.qtyRemaining) : 0;
+      usedByItemId[it.id] = used;
+      if (Number(it.qty) < used - 1e-9) {
+        return { ok: false, error: "Can't reduce " + existing.materialName + " below " + used + " — that much has already been used. Enter at least " + used + ", or delete this item's line instead." };
       }
     }
   }
@@ -4733,13 +4745,19 @@ function updateSupplierInvoice_(body) {
     totalAmount += subtotal;
     updateObjectById_("PurchaseInvoiceItems", it.id, { qty: qty, unitPrice: unitPrice, subtotal: subtotal });
     const batch = batches.find(function (b) { return b.materialId === existing.materialId; });
-    if (batch) updateObjectById_("Batches", batch.id, { qtyPurchased: qty, qtyRemaining: qty, unitCost: unitPrice });
+    if (batch) {
+      const used = usedByItemId[it.id] !== undefined ? usedByItemId[it.id] : (Number(batch.qtyPurchased) - Number(batch.qtyRemaining));
+      updateObjectById_("Batches", batch.id, { qtyPurchased: qty, qtyRemaining: qty - used, unitCost: unitPrice });
+    }
   });
 
   const invoicePatch = { totalAmount: totalAmount };
   if (body.invoiceDate !== undefined) invoicePatch.invoiceDate = body.invoiceDate;
   if (body.paymentType !== undefined) invoicePatch.paymentType = body.paymentType;
   if (body.paymentSource !== undefined) invoicePatch.paymentSource = body.paymentSource;
+  if (body.supplierId !== undefined) invoicePatch.supplierId = body.supplierId;
+  if (body.supplierName !== undefined) invoicePatch.supplierName = body.supplierName;
+  if (body.referenceNumber !== undefined) invoicePatch.referenceNumber = body.referenceNumber;
   updateObjectById_("PurchaseInvoices", body.invoiceId, invoicePatch);
 
   const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
@@ -4747,6 +4765,7 @@ function updateSupplierInvoice_(body) {
     const ledgerPatch = { amount: totalAmount };
     if (body.invoiceDate !== undefined) ledgerPatch.ts = body.invoiceDate;
     if (body.description !== undefined) ledgerPatch.description = body.description;
+    if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;
     updateObjectById_("Ledger", linkedLedgerId, ledgerPatch);
   }
 

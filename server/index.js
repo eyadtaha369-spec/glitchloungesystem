@@ -901,7 +901,10 @@ Object.assign(handlers, {
     return { ok: true, state: withStockView_(getState_()) };
   },
   updatePurchase(body) {
-    requireRole_(body.username, ["admin", "cashier"]);
+    // Admin-only per explicit request — matches deletePurchase's
+    // existing restriction, so editing and deleting a procurement
+    // entry are consistently gated the same way.
+    requireRole_(body.username, ["admin"]);
     const result = bizUpdatePurchase_({ readObjects_, updateObjectById_ }, body);
     if (!result.ok) return result;
     logActivity_({

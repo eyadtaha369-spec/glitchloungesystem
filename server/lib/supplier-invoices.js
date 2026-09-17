@@ -154,6 +154,8 @@ function bizGetSupplierLedger_(deps, supplierId) {
       // just to load what's already sitting right here.
       invoiceDate: Number(inv.invoiceDate) || Number(inv.createdAt),
       paymentSource: inv.paymentSource || null,
+      referenceNumber: inv.referenceNumber || null,
+      supplierId: inv.supplierId || null,
       items: items.map((it) => ({ id: it.id, materialId: it.materialId, materialName: it.materialName, qty: Number(it.qty), unitPrice: Number(it.unitPrice) })),
     });
   });

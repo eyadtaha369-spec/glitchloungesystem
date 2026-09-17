@@ -511,6 +511,8 @@ export interface SupplierLedgerEntry {
   // form, avoiding a second round-trip for data already loaded here.
   invoiceDate?: number;
   paymentSource?: string | null;
+  referenceNumber?: string | null;
+  supplierId?: string | null;
   items?: { id: string; materialId: string; materialName: string; qty: number; unitPrice: number }[];
 }
 

@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS RawMaterials (
 CREATE TABLE IF NOT EXISTS PurchaseInvoices (
   id TEXT PRIMARY KEY,
   supplierId TEXT, supplierName TEXT, invoiceDate INTEGER, paymentType TEXT,
-  totalAmount REAL, createdAt INTEGER, createdBy TEXT, paymentSource TEXT
+  totalAmount REAL, createdAt INTEGER, createdBy TEXT, paymentSource TEXT, referenceNumber TEXT
 );
 
 CREATE TABLE IF NOT EXISTS PurchaseInvoiceItems (

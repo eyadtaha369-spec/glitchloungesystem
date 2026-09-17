@@ -325,6 +325,7 @@ export const updateSupplierInvoiceFn = createServerFn({ method: "POST" })
     invoiceId: string;
     items?: { id: string; qty: number; unitPrice: number }[];
     invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
+    supplierId?: string; supplierName?: string; referenceNumber?: string;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();

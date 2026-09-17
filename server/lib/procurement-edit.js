@@ -40,13 +40,23 @@ function bizUpdatePurchase_(deps, body) {
   const costChanging = body.unitCost !== undefined && Number(body.unitCost) !== Number(entry.unitCost);
   const batch = findLinkedBatch(readObjects_, body.ledgerId);
 
-  if ((qtyChanging || costChanging) && batch && !batchIsUntouched(batch)) {
-    const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
-    return { ok: false, error: "Can't change quantity or cost — " + used + " of the " + batch.qtyPurchased + " purchased has already been used. You can still edit the description, category, or supplier." };
-  }
-
   const newQty = qtyChanging ? Number(body.qty) : Number(entry.qty);
   const newCost = costChanging ? Number(body.unitCost) : Number(entry.unitCost);
+
+  // Delta-based, not blanket: the amount already consumed from this
+  // batch stays consumed regardless of the edit, so the new
+  // qtyRemaining is simply the corrected qtyPurchased minus that
+  // fixed used amount. Only genuinely blocks the one case that's
+  // actually impossible — a corrected quantity lower than what's
+  // already been used, which would make remaining go negative.
+  let usedFromBatch = 0;
+  if (qtyChanging && batch) {
+    usedFromBatch = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
+    if (newQty < usedFromBatch - 1e-9) {
+      return { ok: false, error: "Can't reduce quantity below " + usedFromBatch + " — that much has already been used. Enter at least " + usedFromBatch + ", or delete this entry instead." };
+    }
+  }
+
   const ledgerPatch = {};
   if (body.description !== undefined) ledgerPatch.description = body.description;
   if (body.category !== undefined) ledgerPatch.category = body.category;
@@ -58,7 +68,8 @@ function bizUpdatePurchase_(deps, body) {
   updateObjectById_("Ledger", body.ledgerId, ledgerPatch);
 
   if (batch && (qtyChanging || costChanging)) {
-    updateObjectById_("Batches", batch.id, { qtyPurchased: newQty, qtyRemaining: newQty, unitCost: newCost });
+    const newRemaining = qtyChanging ? (newQty - usedFromBatch) : Number(batch.qtyRemaining);
+    updateObjectById_("Batches", batch.id, { qtyPurchased: newQty, qtyRemaining: newRemaining, unitCost: newCost });
   }
 
   return { ok: true };
@@ -129,18 +140,23 @@ function bizUpdateSupplierInvoice_(deps, body) {
   const batches = readObjects_("Batches").filter((b) => b.invoiceId === body.invoiceId);
   const items = Array.isArray(body.items) ? body.items : [];
 
-  // Validate every changed item against its batch BEFORE writing
-  // anything — an edit either fully applies or fully doesn't.
+  // Delta-based, not blanket: validate every changed item against what's
+  // actually already been used from ITS batch, not against whether the
+  // batch has been touched at all. Only genuinely blocks the one case
+  // that's actually impossible — a corrected quantity lower than what's
+  // already been used from that specific item. Validated fully before
+  // writing anything, so an edit either fully applies or fully doesn't.
+  const usedByItemId = {};
   for (const it of items) {
     const existing = existingItems.find((e) => e.id === it.id);
     if (!existing) return { ok: false, error: "One of the items on this invoice couldn't be found." };
     const qtyChanging = Number(it.qty) !== Number(existing.qty);
-    const priceChanging = Number(it.unitPrice) !== Number(existing.unitPrice);
-    if (qtyChanging || priceChanging) {
+    if (qtyChanging) {
       const batch = batches.find((b) => b.materialId === existing.materialId);
-      if (batch && !batchIsUntouched(batch)) {
-        const used = Number(batch.qtyPurchased) - Number(batch.qtyRemaining);
-        return { ok: false, error: "Can't change quantity or cost for " + existing.materialName + " — " + used + " of the " + batch.qtyPurchased + " purchased has already been used." };
+      const used = batch ? Number(batch.qtyPurchased) - Number(batch.qtyRemaining) : 0;
+      usedByItemId[it.id] = used;
+      if (Number(it.qty) < used - 1e-9) {
+        return { ok: false, error: "Can't reduce " + existing.materialName + " below " + used + " — that much has already been used. Enter at least " + used + ", or delete this item's line instead." };
       }
     }
   }
@@ -154,13 +170,19 @@ function bizUpdateSupplierInvoice_(deps, body) {
     totalAmount += subtotal;
     updateObjectById_("PurchaseInvoiceItems", it.id, { qty, unitPrice, subtotal });
     const batch = batches.find((b) => b.materialId === existing.materialId);
-    if (batch) updateObjectById_("Batches", batch.id, { qtyPurchased: qty, qtyRemaining: qty, unitCost: unitPrice });
+    if (batch) {
+      const used = usedByItemId[it.id] !== undefined ? usedByItemId[it.id] : (Number(batch.qtyPurchased) - Number(batch.qtyRemaining));
+      updateObjectById_("Batches", batch.id, { qtyPurchased: qty, qtyRemaining: qty - used, unitCost: unitPrice });
+    }
   });
 
   const invoicePatch = { totalAmount };
   if (body.invoiceDate !== undefined) invoicePatch.invoiceDate = body.invoiceDate;
   if (body.paymentType !== undefined) invoicePatch.paymentType = body.paymentType;
   if (body.paymentSource !== undefined) invoicePatch.paymentSource = body.paymentSource;
+  if (body.supplierId !== undefined) invoicePatch.supplierId = body.supplierId;
+  if (body.supplierName !== undefined) invoicePatch.supplierName = body.supplierName;
+  if (body.referenceNumber !== undefined) invoicePatch.referenceNumber = body.referenceNumber;
   updateObjectById_("PurchaseInvoices", body.invoiceId, invoicePatch);
 
   const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
@@ -168,6 +190,7 @@ function bizUpdateSupplierInvoice_(deps, body) {
     const ledgerPatch = { amount: totalAmount };
     if (body.invoiceDate !== undefined) ledgerPatch.ts = body.invoiceDate;
     if (body.description !== undefined) ledgerPatch.description = body.description;
+    if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;
     updateObjectById_("Ledger", linkedLedgerId, ledgerPatch);
   }
 

@@ -280,6 +280,7 @@ interface StoreContextValue {
   updateSupplierInvoice: (params: {
     invoiceId: string; items?: { id: string; qty: number; unitPrice: number }[];
     invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
+    supplierId?: string; supplierName?: string; referenceNumber?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   deleteSupplierPayment: (paymentId: string) => Promise<{ ok: boolean; error?: string }>;
   migrateToCloud: (p: { password: string; cloudUrl: string; cloudSecret: string }) => Promise<

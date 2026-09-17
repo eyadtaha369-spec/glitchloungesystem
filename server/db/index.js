@@ -58,6 +58,7 @@ addColumnIfMissing_("EventBookings", "eventEndAt", "INTEGER");
 addColumnIfMissing_("EventBookings", "packageType", "TEXT");
 addColumnIfMissing_("EventBookings", "guestCount", "INTEGER");
 addColumnIfMissing_("EventBookings", "totalPackagePrice", "REAL");
+addColumnIfMissing_("PurchaseInvoices", "referenceNumber", "TEXT");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",
