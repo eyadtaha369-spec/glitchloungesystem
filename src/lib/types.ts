@@ -490,6 +490,10 @@ export interface LedgerEntry {
   // one case is what keeps paidFromDrawer false and paymentSource null
   // until it's settled via settleExpense.
   paymentStatus: "paid" | "unpaid";
+  // True only for an expense an admin inserted into an ALREADY-CLOSED
+  // shift after the fact (Backdated Expenses tool) — distinguishes it
+  // from a normal same-shift expense in the Ledger/Executive views.
+  backdated?: boolean;
 }
 
 // A supplier account's transaction history — invoices (debit, only when

@@ -203,6 +203,32 @@ export const submitExpenseFn = createServerFn({ method: "POST" })
     });
   });
 
+// Admin-only: assign an expense to an already-CLOSED shift instead of the
+// currently active one. Backend recalculates that shift's expected
+// cash/discrepancy (bizRecalculateClosedShift_) and persists the result, plus
+// logs a red-risk audit entry -- see server/index.js's submitBackdatedExpense
+// and google-apps-script/Code.gs's matching case for the full logic.
+export const submitBackdatedExpenseFn = createServerFn({ method: "POST" })
+  .validator((d: {
+    itemName: string;
+    category?: string;
+    amount: number;
+    notes?: string;
+    supplierId?: string;
+    paymentStatus: "paid" | "unpaid";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    targetShiftId: string;
+    receiptBase64?: string;
+    receiptMimeType?: string;
+  }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<{ ok: boolean; error?: string; entry?: LedgerEntry; shift?: any }>("submitBackdatedExpense", {
+      ...data,
+      username: user.username,
+    });
+  });
+
 export const getUnpaidExpensesFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
   const res = await callAppsScript<{ items: LedgerEntry[] }>("getUnpaidExpenses", { username: user.username });

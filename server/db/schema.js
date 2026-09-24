@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS Ledger (
   ts INTEGER, amount REAL, direction TEXT, type TEXT, category TEXT,
   description TEXT, supplierId TEXT, staffUsername TEXT, status TEXT,
   receiptUrl TEXT, paidFromDrawer INTEGER, shiftId TEXT, materialId TEXT,
-  qty REAL, unitCost REAL, paymentSource TEXT, paymentStatus TEXT
+  qty REAL, unitCost REAL, paymentSource TEXT, paymentStatus TEXT, backdated INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS VoidRequests (

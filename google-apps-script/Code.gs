@@ -175,7 +175,7 @@ function sheetObjectHeaders_(name) {
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source", "invoiceId", "ledgerId"],
-    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated"],
     PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource", "referenceNumber"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
     SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId"],
@@ -386,6 +386,7 @@ const ACTION_RISK = {
   RAW_MATERIAL_COST_CONTEXT: "yellow", SUPPLIER_CHANGED: "yellow", STOCK_ADJUSTED: "yellow", STOCK_RESTOCKED: "green", ACTUAL_STOCK_SET: "yellow",
   MENU_CATALOG_IMPORTED: "yellow", STAFF_ORDER_LOGGED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
+  BACKDATED_EXPENSE_LOGGED: "red",
 };
 function riskFor_(actionType) {
   return ACTION_RISK[actionType] || "green";
@@ -2897,6 +2898,63 @@ function doPost(e) {
           before: recalcResult.before, after: recalcResult.after,
         });
         return json_({ ok: true, state: withStockView_(getState_()) });
+      }
+
+      // Admin-only: inserts an expense directly into an ALREADY-CLOSED
+      // shift's expense log (not the active shift), then re-runs that
+      // shift's expected-cash/discrepancy calculation so every
+      // daily/monthly report, P&L view, and safe/cashbox figure
+      // derived from it reflects the backdated cost from now on.
+      case "submitBackdatedExpense": {
+        requireRole_(body.username, ["admin"]);
+        if (!body.itemName || !body.amount) return json_({ ok: false, error: "Item/expense description and amount are required." });
+        if (!body.targetShiftId) return json_({ ok: false, error: "Select which closed shift this expense belongs to." });
+        const bdShifts = readObjects_("Shifts");
+        const bdShift = bdShifts.find(function (sh) { return sh.id === body.targetShiftId; });
+        if (!bdShift) return json_({ ok: false, error: "Shift not found." });
+        if (!bdShift.closedAt) return json_({ ok: false, error: "That shift is still open — use the normal expense form instead, not backdating." });
+        const bdPaymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
+        let bdPaymentSource = null;
+        if (bdPaymentStatus === "paid") {
+          const bdValidSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+          if (bdValidSources.indexOf(body.paymentSource) === -1) return json_({ ok: false, error: "Select a payment source." });
+          bdPaymentSource = body.paymentSource;
+        }
+        let bdReceiptUrl = null;
+        if (body.receiptBase64) {
+          try {
+            bdReceiptUrl = uploadReceipt_(body.receiptBase64, body.receiptMimeType, "receipt-" + Date.now() + ".jpg");
+          } catch (err) {
+            return json_({ ok: false, error: "Receipt upload failed: " + String(err) });
+          }
+        }
+        const bdAmount = Number(body.amount);
+        // One second before the shift actually closed, so it sorts as
+        // having happened DURING that shift for every ts-ordered view
+        // and date-range report — never "now", which would misfile it
+        // into today's numbers instead of the historical day it
+        // belongs to.
+        const bdTs = bdShift.closedAt - 1000;
+        const bdEntry = {
+          id: newId_("ledg"), ts: bdTs, amount: bdAmount, direction: "outflow", type: "midShiftPurchase",
+          category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : "") + " (backdated)",
+          supplierId: body.supplierId || null, staffUsername: body.username, status: "approved",
+          receiptUrl: bdReceiptUrl, paidFromDrawer: bdPaymentStatus === "paid" && bdPaymentSource === "cash_drawer",
+          shiftId: bdShift.id, materialId: null, qty: null, unitCost: null,
+          paymentSource: bdPaymentSource, paymentStatus: bdPaymentStatus, backdated: true,
+        };
+        appendObject_("Ledger", bdEntry);
+        const bdResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), bdShift);
+        if (bdResult.ok) {
+          updateObjectById_("Shifts", bdShift.id, { expectedCash: bdResult.after.expectedCash, discrepancy: bdResult.after.discrepancy });
+        }
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "BACKDATED_EXPENSE_LOGGED", shiftId: bdShift.id,
+          description: "Admin " + body.username + " added EGP " + bdAmount.toFixed(2) + " expense to closed Shift #" + bdShift.id + " on " + formatDateLabel_(bdShift.closedAt),
+          before: bdResult.ok ? bdResult.before : undefined,
+          after: bdResult.ok ? Object.assign({}, bdResult.after, { entryId: bdEntry.id, amount: bdAmount, itemName: body.itemName }) : { entryId: bdEntry.id, amount: bdAmount, itemName: body.itemName },
+        });
+        return json_({ ok: true, entry: bdEntry, recalculated: bdResult.ok ? bdResult.after : null, state: withStockView_(getState_()) });
       }
 
       case "forceEndShift": {

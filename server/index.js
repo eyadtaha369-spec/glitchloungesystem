@@ -27,7 +27,7 @@ const {
   bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
-const { bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
+const { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
@@ -1161,6 +1161,60 @@ Object.assign(handlers, {
       after: { status: entry.status, amount, itemName: body.itemName, paymentStatus },
     });
     return { ok: true, status: entry.status, entry };
+  },
+  // Admin-only: inserts an expense directly into an ALREADY-CLOSED
+  // shift's expense log (not the active shift), then immediately
+  // re-runs that shift's expected-cash/discrepancy calculation so its
+  // stored numbers — and therefore every daily/monthly report, P&L
+  // view, and safe/cashbox figure derived from them — reflect the
+  // backdated cost from now on. Every field mirrors submitExpense's
+  // shape exactly so this entry is indistinguishable from a normal
+  // one everywhere else in the app (Ledger table, Executive Ledger,
+  // per-shift expense list) — the only difference is which shift it
+  // lands in and when it was actually logged.
+  submitBackdatedExpense(body) {
+    requireRole_(body.username, ["admin"]);
+    if (!body.itemName || !body.amount) return { ok: false, error: "Item/expense description and amount are required." };
+    if (!body.targetShiftId) return { ok: false, error: "Select which closed shift this expense belongs to." };
+    const shifts = readObjects_("Shifts");
+    const shift = shifts.find((sh) => sh.id === body.targetShiftId);
+    if (!shift) return { ok: false, error: "Shift not found." };
+    if (!shift.closedAt) return { ok: false, error: "That shift is still open — use the normal expense form instead, not backdating." };
+    const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
+    let paymentSource = null;
+    if (paymentStatus === "paid") {
+      const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+      if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
+      paymentSource = body.paymentSource;
+    }
+    const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
+    const amount = Number(body.amount);
+    // Timestamped one second before the shift actually closed, so it
+    // sorts as having happened DURING that shift (before its closing
+    // event) for every ts-ordered view and every date-range report —
+    // never "now", which would misfile it into today's numbers
+    // instead of the historical day it's meant to belong to.
+    const backdatedTs = shift.closedAt - 1000;
+    const entry = {
+      id: newId_("ledg"), ts: backdatedTs, amount, direction: "outflow", type: "midShiftPurchase",
+      category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : "") + " (backdated)",
+      supplierId: body.supplierId || null, staffUsername: body.username, status: "approved",
+      receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
+      shiftId: shift.id, materialId: null, qty: null, unitCost: null,
+      paymentSource, paymentStatus, backdated: true,
+    };
+    appendObject_("Ledger", entry);
+    const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
+    if (result.ok) {
+      updateObjectById_("Shifts", shift.id, { expectedCash: result.after.expectedCash, discrepancy: result.after.discrepancy });
+    }
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "BACKDATED_EXPENSE_LOGGED", shiftId: shift.id,
+      description: "Admin " + body.username + " added EGP " + amount.toFixed(2) + " expense to closed Shift #" + shift.id + " on " + formatDateLabel_(shift.closedAt),
+      before: result.ok ? result.before : undefined,
+      after: result.ok ? { ...result.after, entryId: entry.id, amount, itemName: body.itemName } : { entryId: entry.id, amount, itemName: body.itemName },
+    });
+    return { ok: true, entry, recalculated: result.ok ? result.after : null, state: withStockView_(getState_()) };
   },
   getUnpaidExpenses(body) {
     requireRole_(body.username, ["admin", "cashier"]);

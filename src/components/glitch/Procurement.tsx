@@ -334,7 +334,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
 // Paid/Unpaid toggle that conditionally shows Payment Source (unpaid
 // means no money has moved yet, so there's nothing to pick a source for).
 function ExpenseSubmitForm() {
-  const { state, activeShift, submitExpense } = useStore();
+  const { state, activeShift, submitExpense, submitBackdatedExpense } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
 
   const [itemName, setItemName] = useState("");
@@ -347,16 +347,42 @@ function ExpenseSubmitForm() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
+  // Admin-only: assign this expense to an already-closed shift instead of
+  // the current one, backdating it into that shift's own totals/reports.
+  const [targetMode, setTargetMode] = useState<"current" | "past">("current");
+  const [targetShiftId, setTargetShiftId] = useState("");
+  const closedShifts = [...state.shifts]
+    .filter((s) => s.closedAt !== null)
+    .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+
   const reset = () => {
     setItemName(""); setCategory(""); setAmount(""); setNotes(""); setSupplierId(""); setPaymentStatus("paid"); setPaymentSource("");
+    setTargetMode("current"); setTargetShiftId("");
   };
 
   const submit = async () => {
     setResult(null);
     if (!itemName || !amount) { setResult({ kind: "err", text: "Item/expense description and amount are required." }); return; }
     if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
+    if (isAdmin && targetMode === "past" && !targetShiftId) { setResult({ kind: "err", text: "Select which closed shift this expense belongs to." }); return; }
     setSubmitting(true);
     try {
+      if (isAdmin && targetMode === "past") {
+        const res = await submitBackdatedExpense({
+          itemName,
+          category: category || undefined,
+          amount: parseFloat(amount),
+          notes: notes || undefined,
+          supplierId: supplierId || undefined,
+          paymentStatus,
+          paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
+          targetShiftId,
+        });
+        if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
+        setResult({ kind: "ok", text: `Backdated — ${fmtMoney(parseFloat(amount))} added to that closed shift, and its expected cash/discrepancy was recalculated.` });
+        reset();
+        return;
+      }
       const res = await submitExpense({
         itemName,
         category: category || undefined,
@@ -385,6 +411,54 @@ function ExpenseSubmitForm() {
 
   return (
     <div>
+      {isAdmin && (
+        <div className="mb-4">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Shift / Date</label>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => { setTargetMode("current"); setTargetShiftId(""); }}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                targetMode === "current"
+                  ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.6)] text-[oklch(0.78_0.2_155)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Current Active Shift
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetMode("past")}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                targetMode === "past"
+                  ? "bg-black/20 border-black/60 text-white"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Past Closed Shift / Date
+            </button>
+          </div>
+          {targetMode === "past" && (
+            <div className="mt-2">
+              <select
+                value={targetShiftId}
+                onChange={(e) => setTargetShiftId(e.target.value)}
+                className="w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Select a closed shift...</option>
+                {closedShifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {new Date(s.closedAt ?? 0).toLocaleString()} — {s.cashierUsername} (Shift #{s.id})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-black mt-1.5">
+                This expense will be inserted into that shift's expense log, and its expected cash / discrepancy will be recalculated. Logged as an admin action.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Item / Expense Name</label>
@@ -486,7 +560,7 @@ function ExpenseSubmitForm() {
         disabled={submitting}
         className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
       >
-        {submitting ? "Submitting..." : isAdmin ? "Submit & Approve" : "Submit for Approval"}
+        {submitting ? "Submitting..." : isAdmin && targetMode === "past" ? "Add to Closed Shift" : isAdmin ? "Submit & Approve" : "Submit for Approval"}
       </button>
     </div>
   );

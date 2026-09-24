@@ -16,6 +16,7 @@ const ACTION_RISK = {
   ROOM_AVATAR_UPDATED: "green",
   ROOM_ADDED: "green", ROOM_DELETED: "yellow",
   ORPHANED_ORDERS_RECONCILED: "yellow",
+  BACKDATED_EXPENSE_LOGGED: "red",
 };
 
 // Direct port of Code.gs's logActivity_ — appends one permanent,
