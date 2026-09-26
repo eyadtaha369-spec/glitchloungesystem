@@ -6,6 +6,21 @@ function formatDateLabel_(ts) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
+// This café's real operating cycle runs 8:00 AM to 7:59:59 AM the next
+// calendar day (with a 30-minute grace window before the nominal 8 AM
+// cutoff), NOT calendar midnight to midnight -- see the matching
+// businessDayBounds()/BUSINESS_DAY_START_HOUR comment in
+// src/components/glitch/Reports.tsx, which this deliberately mirrors
+// exactly. A plain formatDateLabel_(ts) of a 2 AM timestamp would claim
+// that moment belongs to "today", when by this café's own accounting it's
+// still last night's business day -- this shifts the clock back by that
+// same 7.5-hour window first, so the calendar date read off the result
+// always lands on the correct business day.
+const BUSINESS_DAY_GRACE_MS = 8 * 3600000 - 30 * 60000;
+function businessDayLabelForTs_(ts) {
+  return formatDateLabel_(ts - BUSINESS_DAY_GRACE_MS);
+}
+
 // Finds every completed session and every drawer expense that was
 // recorded with no shift attached at all (shiftId null/undefined) --
 // this can only happen when a checkout or expense was submitted while
@@ -114,4 +129,4 @@ function bizRecalculateClosedShift_(sessions, ledger, shift) {
   };
 }
 
-module.exports = { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ };
+module.exports = { formatDateLabel_, businessDayLabelForTs_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ };

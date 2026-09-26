@@ -27,7 +27,7 @@ const {
   bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
-const { formatDateLabel_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
+const { formatDateLabel_, businessDayLabelForTs_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
@@ -1146,13 +1146,20 @@ Object.assign(handlers, {
     const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
     const isAdmin = role === "admin";
     const amount = Number(body.amount);
+    const ts = Date.now();
     const entry = {
-      id: newId_("ledg"), ts: Date.now(), amount, direction: "outflow", type: "midShiftPurchase",
+      id: newId_("ledg"), ts, amount, direction: "outflow", type: "midShiftPurchase",
       category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
       supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
       paymentSource, paymentStatus,
+      // Stored once at creation, matching this café's real 8 AM-to-8 AM
+      // business day (not calendar midnight) -- Reports.tsx's "Expenses
+      // History" table and its Selected Day Expenses/Net Profit totals
+      // group strictly by this field, so a late-night expense reliably
+      // stays filed under the business day it actually happened in.
+      expenseDate: businessDayLabelForTs_(ts),
     };
     appendObject_("Ledger", entry);
     logActivity_({
@@ -1202,6 +1209,12 @@ Object.assign(handlers, {
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: shift.id, materialId: null, qty: null, unitCost: null,
       paymentSource, paymentStatus, backdated: true,
+      // Computed from the TARGET shift's close time, not "now" -- this is
+      // what makes it show up under the historical day it's meant to
+      // belong to in Reports.tsx's Expenses History table, instead of
+      // silently vanishing into whichever business day happens to be
+      // selected when someone views that page.
+      expenseDate: businessDayLabelForTs_(backdatedTs),
     };
     appendObject_("Ledger", entry);
     const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
@@ -1215,6 +1228,93 @@ Object.assign(handlers, {
       after: result.ok ? { ...result.after, entryId: entry.id, amount, itemName: body.itemName } : { entryId: entry.id, amount, itemName: body.itemName },
     });
     return { ok: true, entry, recalculated: result.ok ? result.after : null, state: withStockView_(getState_()) };
+  },
+  // Admin-only: edits the amount/category/description/payment source of
+  // an already-recorded expense (normal or backdated). Never touches
+  // ts/shiftId/expenseDate -- WHEN and WHICH shift it belongs to are set
+  // once at creation and never reassigned here; only WHAT it cost and
+  // HOW it was paid can change. If the entry belongs to an
+  // already-closed shift, immediately re-runs that shift's expected-cash
+  // formula (the same one backdated expenses trigger) so its stored
+  // numbers stay truthful.
+  editExpense(body) {
+    requireRole_(body.username, ["admin"]);
+    const before = readObjects_("Ledger").find((l) => l.id === body.id);
+    if (!before) return { ok: false, error: "Entry not found." };
+    if (before.type === "sale" || before.type === "supplierPayment" || before.type === "fixedMonthlyCost") {
+      return { ok: false, error: "This entry type can't be edited here." };
+    }
+    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const patch = body.patch || {};
+    const safePatch = {};
+    if (patch.amount !== undefined) {
+      const amt = Number(patch.amount);
+      if (!amt || amt <= 0) return { ok: false, error: "Amount must be greater than zero." };
+      safePatch.amount = amt;
+    }
+    if (patch.category !== undefined) safePatch.category = patch.category;
+    if (patch.description !== undefined) safePatch.description = patch.description;
+    if (patch.paymentSource !== undefined) {
+      if (validSources.indexOf(patch.paymentSource) === -1) return { ok: false, error: "Invalid payment source." };
+      safePatch.paymentSource = patch.paymentSource;
+      // An unpaid (debt) entry has no payment source to begin with --
+      // use Settle Expense for that, not this action.
+      if (before.paymentStatus !== "unpaid") safePatch.paidFromDrawer = patch.paymentSource === "cash_drawer";
+    }
+    updateObjectById_("Ledger", body.id, safePatch);
+    const after = Object.assign({}, before, safePatch);
+    let recalculated = null;
+    if (before.shiftId) {
+      const shift = readObjects_("Shifts").find((sh) => sh.id === before.shiftId);
+      if (shift && shift.closedAt) {
+        const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
+        if (result.ok) {
+          updateObjectById_("Shifts", shift.id, { expectedCash: result.after.expectedCash, discrepancy: result.after.discrepancy });
+          recalculated = result.after;
+        }
+      }
+    }
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_EDITED", shiftId: before.shiftId,
+      description: "Admin " + body.username + " edited expense \"" + before.description + "\"" +
+        (before.shiftId ? " (Shift #" + before.shiftId + ")" : "") +
+        (safePatch.amount !== undefined ? " — EGP " + Number(before.amount).toFixed(2) + " -> EGP " + safePatch.amount.toFixed(2) : ""),
+      before, after,
+    });
+    return { ok: true, entry: after, recalculated };
+  },
+  // Admin-only: permanently removes an already-recorded expense (normal
+  // or backdated). If it belonged to an already-closed shift, that
+  // shift's expected-cash/discrepancy is immediately recalculated
+  // without the deleted entry, exactly as an edit does.
+  deleteExpense(body) {
+    requireRole_(body.username, ["admin"]);
+    const before = readObjects_("Ledger").find((l) => l.id === body.id);
+    if (!before) return { ok: false, error: "Entry not found." };
+    if (before.type === "sale" || before.type === "supplierPayment" || before.type === "fixedMonthlyCost") {
+      return { ok: false, error: "This entry type can't be deleted here." };
+    }
+    const ok = deleteObjectById_("Ledger", body.id);
+    let recalculated = null;
+    if (ok && before.shiftId) {
+      const shift = readObjects_("Shifts").find((sh) => sh.id === before.shiftId);
+      if (shift && shift.closedAt) {
+        const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
+        if (result.ok) {
+          updateObjectById_("Shifts", shift.id, { expectedCash: result.after.expectedCash, discrepancy: result.after.discrepancy });
+          recalculated = result.after;
+        }
+      }
+    }
+    if (ok) {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DELETED", shiftId: before.shiftId,
+        description: "Admin " + body.username + " deleted expense \"" + before.description + "\" — EGP " + Number(before.amount).toFixed(2) +
+          (before.shiftId ? " (Shift #" + before.shiftId + ")" : ""),
+        before,
+      });
+    }
+    return { ok, recalculated };
   },
   getUnpaidExpenses(body) {
     requireRole_(body.username, ["admin", "cashier"]);

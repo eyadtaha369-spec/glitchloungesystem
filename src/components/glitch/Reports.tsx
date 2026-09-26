@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
-import type { Shift, Session, LedgerEntry } from "@/lib/glitch-store";
+import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
 
@@ -89,6 +89,30 @@ function filterByBusinessDay<T extends { shiftId: string | null; ts?: number; en
     const ts = item.ts ?? item.endedAt ?? 0;
     return ts >= from && ts <= to;
   });
+}
+
+// Prefers the entry's own stored expenseDate (a business-day label set
+// ONCE at creation — see server-side businessDayLabelForTs_) over
+// re-deriving a day from shiftId/ts. This is what makes a Backdated
+// Expense reliably show up under the exact historical day an admin
+// assigned it to in "Expenses History"/"Selected Day Expenses"/"Selected
+// Day Net Profit" — those used to infer the day purely from which
+// business day the target SHIFT opened within, which silently
+// misfiled entries whenever that shift itself straddled the 8 AM
+// business-day boundary (e.g. an overnight shift an admin still thinks
+// of as "yesterday's numbers" belonging to "today"). Entries logged
+// before this field existed have no expenseDate and fall back to the
+// previous shift-first behavior unchanged.
+function expenseMatchesDay_(l: LedgerEntry, dayShiftIds: Set<string>, from: number, to: number, dateStr: string): boolean {
+  if (l.expenseDate) return l.expenseDate === dateStr;
+  if (l.shiftId) return dayShiftIds.has(l.shiftId);
+  return l.ts >= from && l.ts <= to;
+}
+// Same idea, one calendar month at a time (YYYY-MM prefix of expenseDate).
+function expenseMatchesMonth_(l: LedgerEntry, monthShiftIds: Set<string>, from: number, to: number, monthStr: string): boolean {
+  if (l.expenseDate) return l.expenseDate.slice(0, 7) === monthStr;
+  if (l.shiftId) return monthShiftIds.has(l.shiftId);
+  return l.ts >= from && l.ts <= to;
 }
 
 function startOfDay(ts: number) {
@@ -200,8 +224,8 @@ export function ReportsPage() {
     [state.sessions, reportDayShiftIds, reportDayStart, reportDayEnd],
   );
   const dayExpenseEntries = useMemo(
-    () => filterByBusinessDay(state.ledger.filter(isOperationalExpense), reportDayShiftIds, reportDayStart, reportDayEnd),
-    [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd],
+    () => state.ledger.filter(isOperationalExpense).filter((l) => expenseMatchesDay_(l, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate)),
+    [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate],
   );
   const dayRevenue = daySessions.reduce((a, s) => a + s.total, 0);
   const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0);
@@ -369,40 +393,7 @@ export function ReportsPage() {
 
       {/* 5. Expenses History — this specific date only, same exclusions as
           the KPI card above (no Staff Orders, no voids) */}
-      <div className="glass rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
-          <h2 className="text-lg font-semibold">Expenses History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
-        </div>
-        {dayExpenseEntries.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged on this date.</div>
-        ) : (
-          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
-                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
-                  <th className="pb-2 pt-3 pl-3 pr-3">Expense ID</th>
-                  <th className="pb-2 pt-3 pr-3">Description / Category</th>
-                  <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
-                  <th className="pb-2 pt-3 pr-3">Payment Source</th>
-                  <th className="pb-2 pt-3 pr-3">Recorded Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dayExpenseEntries.sort((a, b) => b.ts - a.ts).map((l) => (
-                  <tr key={l.id} className="border-b border-black/5">
-                    <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
-                    <td className="py-2 pr-3">{l.description || l.category}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
-                    <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
-                    <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <ExpensesHistoryPanel selectedReportDate={selectedReportDate} dayExpenseEntries={dayExpenseEntries} isAdmin={isAdmin} />
 
       {/* 6. Material Consumption — linked to the SAME date picker as
           Total Revenue by Date, not the Shift selector above */}
@@ -444,6 +435,230 @@ export function ReportsPage() {
         />
       )}
       {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
+    </div>
+  );
+}
+
+const EDITABLE_EXPENSE_CATEGORIES = [
+  "Expense", "Procurement", "Utilities", "Maintenance", "Office Supplies", "Marketing", "Transportation", "Other",
+];
+
+const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
+  cash_drawer: "Cash Drawer / من الدرج",
+  out_of_pocket: "Out of Pocket / من الجيب",
+  bank_transfer: "Bank Transfer / Visa / InstaPay",
+};
+
+// Expenses History — this specific date only (same exclusions as the KPI
+// card above: no Staff Orders, no voids). Admins get Edit/Delete on every
+// row; both immediately trigger a shift recalculation on the backend if
+// the entry belongs to an already-closed shift, and refreshing the
+// Ledger here is what makes Selected Day Expenses/Net Profit update
+// instantly without a page reload.
+function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, isAdmin }: { selectedReportDate: string; dayExpenseEntries: LedgerEntry[]; isAdmin: boolean }) {
+  const { deleteExpense } = useStore();
+  const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      const res = await deleteExpense(deleteTarget.id);
+      if (!res.ok) { setDeleteErr(res.error ?? "Could not delete this entry."); return; }
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+        <h2 className="text-lg font-semibold">Expenses History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
+      </div>
+      {dayExpenseEntries.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged on this date.</div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pt-3 pl-3 pr-3">Expense ID</th>
+                <th className="pb-2 pt-3 pr-3">Description / Category</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
+                <th className="pb-2 pt-3 pr-3">Payment Source</th>
+                <th className="pb-2 pt-3 pr-3">Recorded Time</th>
+                {isAdmin && <th className="pb-2 pt-3 pr-3 text-right">Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {dayExpenseEntries.sort((a, b) => b.ts - a.ts).map((l) => (
+                <tr key={l.id} className="border-b border-black/5">
+                  <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
+                  <td className="py-2 pr-3">{l.description || l.category}{l.backdated ? <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.62_0.24_25)]">(backdated)</span> : null}</td>
+                  <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
+                  <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
+                  <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
+                  {isAdmin && (
+                    <td className="py-2 pr-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button onClick={() => setEditingEntry(l)} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => { setDeleteTarget(l); setDeleteErr(null); }} title="Delete" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editingEntry && <ExpenseEditModal entry={editingEntry} onClose={() => setEditingEntry(null)} />}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this expense?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently removes <strong>{deleteTarget.description || deleteTarget.category}</strong> ({fmtMoney(Number(deleteTarget.amount))}).
+              {deleteTarget.shiftId ? " If its shift is already closed, that shift's expected cash and discrepancy will be recalculated immediately." : ""} This can't be undone.
+            </p>
+            {deleteErr && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{deleteErr}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+              <button onClick={() => void confirmDelete()} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-50">
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () => void }) {
+  const { editExpense } = useStore();
+  const [description, setDescription] = useState(entry.description ?? "");
+  const [amount, setAmount] = useState(String(entry.amount));
+  const [category, setCategory] = useState(entry.category || "Expense");
+  const [paymentSource, setPaymentSource] = useState<PaymentSource | "">(
+    entry.paymentSource === "cash_drawer" || entry.paymentSource === "out_of_pocket" || entry.paymentSource === "bank_transfer" ? entry.paymentSource : "",
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isUnpaid = entry.paymentStatus === "unpaid";
+
+  const submit = async () => {
+    setErr(null);
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { setErr("Amount must be greater than zero."); return; }
+    if (!description.trim()) { setErr("Description can't be empty."); return; }
+    setSubmitting(true);
+    try {
+      const res = await editExpense(entry.id, {
+        amount: amt,
+        category,
+        description: description.trim(),
+        paymentSource: !isUnpaid && paymentSource ? (paymentSource as PaymentSource) : undefined,
+      });
+      if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-lg max-h-[85vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)] my-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-black/8 shrink-0">
+          <h3 className="text-lg font-bold">Edit Expense{entry.shiftId ? <span className="ml-2 text-xs font-mono text-muted-foreground">Shift #{entry.shiftId.slice(0, 14)}</span> : null}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Description</label>
+            <input
+              value={description} onChange={(e) => setDescription(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount (EGP)</label>
+              <input
+                type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Category</label>
+              <select
+                value={category} onChange={(e) => setCategory(e.target.value)}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+              >
+                {!EDITABLE_EXPENSE_CATEGORIES.includes(category) && <option value={category}>{category}</option>}
+                {EDITABLE_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {isUnpaid ? (
+            <div className="text-xs text-muted-foreground bg-black/[0.03] rounded-lg px-3 py-2">
+              This entry is unpaid (a debt) — Payment Source isn't set until it's settled via Settle Expense.
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Source</label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-1">
+                {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setPaymentSource(src)}
+                    className={`text-xs py-2.5 px-3 rounded-lg border transition ${
+                      paymentSource === src
+                        ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
+                        : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+                    }`}
+                  >
+                    {PAYMENT_SOURCE_LABELS[src]}
+                  </button>
+                ))}
+              </div>
+              {entry.shiftId && (
+                <p className="text-[11px] text-black mt-1.5">If this expense's shift is already closed, changing the amount or payment source recalculates that shift's expected cash and discrepancy immediately.</p>
+              )}
+            </div>
+          )}
+
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+        </div>
+
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/8 shrink-0">
+          <button onClick={onClose} disabled={submitting} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-5 py-2.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-50"
+          >
+            {submitting ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -723,9 +938,10 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   // COGS), so this deliberately does NOT add a separate COGS term
   // below -- doing so would double-count the same raw-material spend.
   const totalExpenses = useMemo(
-    () => filterByBusinessDay(state.ledger.filter(isOperationalExpense), monthShiftIds, monthStart, monthEnd)
+    () => state.ledger.filter(isOperationalExpense)
+      .filter((l) => expenseMatchesMonth_(l, monthShiftIds, monthStart, monthEnd, selectedMonth))
       .reduce((a, l) => a + Number(l.amount), 0),
-    [state.ledger, monthShiftIds, monthStart, monthEnd],
+    [state.ledger, monthShiftIds, monthStart, monthEnd, selectedMonth],
   );
 
   // Fixed monthly costs are now genuine, dated Ledger entries

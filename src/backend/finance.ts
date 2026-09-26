@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry, WasteInvoice, WasteInvoiceReason, SupplierLedgerEntry } from "@/lib/types";
+import type { RawMaterial, Supplier, RecurringExpense, LedgerEntry, AppState, RestockLogEntry, WasteInvoice, WasteInvoiceReason, SupplierLedgerEntry, PaymentSource } from "@/lib/types";
 
 // ---------- Raw materials ----------
 export const getRawMaterialsFn = createServerFn({ method: "GET" }).handler(async () => {
@@ -344,6 +344,26 @@ export const deleteFixedMonthlyCostFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string }>("deleteFixedMonthlyCost", { ...data, username: user.username });
+  });
+
+// Admin-only: edit the amount/category/description/payment source of an
+// already-recorded expense (normal or backdated) from Reports.tsx's
+// Expenses History table. Backend re-recalculates the owning shift's
+// expected cash/discrepancy if that shift is already closed.
+export const editExpenseFn = createServerFn({ method: "POST" })
+  .validator((d: { id: string; patch: { amount?: number; category?: string; description?: string; paymentSource?: PaymentSource } }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; entry?: LedgerEntry; recalculated?: { expectedCash: number; discrepancy: number } | null }>("editExpense", { ...data, username: user.username });
+  });
+
+// Admin-only: permanently delete an already-recorded expense (normal or
+// backdated). Same shift-recalculation behavior as editExpenseFn.
+export const deleteExpenseFn = createServerFn({ method: "POST" })
+  .validator((d: { id: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; recalculated?: { expectedCash: number; discrepancy: number } | null }>("deleteExpense", { ...data, username: user.username });
   });
 
 export const updateSupplierInvoiceFn = createServerFn({ method: "POST" })

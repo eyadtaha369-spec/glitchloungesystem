@@ -175,7 +175,7 @@ function sheetObjectHeaders_(name) {
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source", "invoiceId", "ledgerId"],
-    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated", "expenseDate"],
     PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource", "referenceNumber"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
     SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId"],
@@ -387,6 +387,7 @@ const ACTION_RISK = {
   MENU_CATALOG_IMPORTED: "yellow", STAFF_ORDER_LOGGED: "yellow",
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
   BACKDATED_EXPENSE_LOGGED: "red",
+  EXPENSE_EDITED: "red", EXPENSE_DELETED: "red",
 };
 function riskFor_(actionType) {
   return ACTION_RISK[actionType] || "green";
@@ -1556,6 +1557,19 @@ function bizAttachOrphanedToShift_(sessions, ledger, targetShiftId) {
 function formatDateLabel_(ts) {
   const d = new Date(ts);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+// This café's real operating cycle runs 8:00 AM to 7:59:59 AM the next
+// calendar day (with a 30-minute grace window before the nominal 8 AM
+// cutoff), NOT calendar midnight to midnight -- mirrors
+// businessDayBounds()/BUSINESS_DAY_START_HOUR in
+// src/components/glitch/Reports.tsx exactly. Shifts the clock back by
+// that same 7.5-hour window before reading off the calendar date, so a
+// 2 AM timestamp correctly reports as still belonging to last night's
+// business day rather than "today".
+const BUSINESS_DAY_GRACE_MS = 8 * 3600000 - 30 * 60000;
+function businessDayLabelForTs_(ts) {
+  return formatDateLabel_(ts - BUSINESS_DAY_GRACE_MS);
 }
 
 // Scoped to the calendar day, not the currently active shift — a
@@ -2942,6 +2956,9 @@ function doPost(e) {
           receiptUrl: bdReceiptUrl, paidFromDrawer: bdPaymentStatus === "paid" && bdPaymentSource === "cash_drawer",
           shiftId: bdShift.id, materialId: null, qty: null, unitCost: null,
           paymentSource: bdPaymentSource, paymentStatus: bdPaymentStatus, backdated: true,
+          // Computed from the TARGET shift's close time, not "now" — see
+          // businessDayLabelForTs_'s comment for why.
+          expenseDate: businessDayLabelForTs_(bdTs),
         };
         appendObject_("Ledger", bdEntry);
         const bdResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), bdShift);
@@ -2955,6 +2972,90 @@ function doPost(e) {
           after: bdResult.ok ? Object.assign({}, bdResult.after, { entryId: bdEntry.id, amount: bdAmount, itemName: body.itemName }) : { entryId: bdEntry.id, amount: bdAmount, itemName: body.itemName },
         });
         return json_({ ok: true, entry: bdEntry, recalculated: bdResult.ok ? bdResult.after : null, state: withStockView_(getState_()) });
+      }
+
+      // Admin-only: edits the amount/category/description/payment source
+      // of an already-recorded expense (normal or backdated). Never
+      // touches ts/shiftId/expenseDate. If the entry belongs to an
+      // already-closed shift, immediately re-runs that shift's
+      // expected-cash formula so its stored numbers stay truthful.
+      case "editExpense": {
+        requireRole_(body.username, ["admin"]);
+        const editExpBefore = readObjects_("Ledger").find(function (l) { return l.id === body.id; });
+        if (!editExpBefore) return json_({ ok: false, error: "Entry not found." });
+        if (editExpBefore.type === "sale" || editExpBefore.type === "supplierPayment" || editExpBefore.type === "fixedMonthlyCost") {
+          return json_({ ok: false, error: "This entry type can't be edited here." });
+        }
+        const editExpValidSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+        const editExpPatch = body.patch || {};
+        const editExpSafePatch = {};
+        if (editExpPatch.amount !== undefined) {
+          const editExpAmt = Number(editExpPatch.amount);
+          if (!editExpAmt || editExpAmt <= 0) return json_({ ok: false, error: "Amount must be greater than zero." });
+          editExpSafePatch.amount = editExpAmt;
+        }
+        if (editExpPatch.category !== undefined) editExpSafePatch.category = editExpPatch.category;
+        if (editExpPatch.description !== undefined) editExpSafePatch.description = editExpPatch.description;
+        if (editExpPatch.paymentSource !== undefined) {
+          if (editExpValidSources.indexOf(editExpPatch.paymentSource) === -1) return json_({ ok: false, error: "Invalid payment source." });
+          editExpSafePatch.paymentSource = editExpPatch.paymentSource;
+          if (editExpBefore.paymentStatus !== "unpaid") editExpSafePatch.paidFromDrawer = editExpPatch.paymentSource === "cash_drawer";
+        }
+        updateObjectById_("Ledger", body.id, editExpSafePatch);
+        const editExpAfter = Object.assign({}, editExpBefore, editExpSafePatch);
+        let editExpRecalculated = null;
+        if (editExpBefore.shiftId) {
+          const editExpShift = readObjects_("Shifts").find(function (sh) { return sh.id === editExpBefore.shiftId; });
+          if (editExpShift && editExpShift.closedAt) {
+            const editExpResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), editExpShift);
+            if (editExpResult.ok) {
+              updateObjectById_("Shifts", editExpShift.id, { expectedCash: editExpResult.after.expectedCash, discrepancy: editExpResult.after.discrepancy });
+              editExpRecalculated = editExpResult.after;
+            }
+          }
+        }
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_EDITED", shiftId: editExpBefore.shiftId,
+          description: "Admin " + body.username + " edited expense \"" + editExpBefore.description + "\"" +
+            (editExpBefore.shiftId ? " (Shift #" + editExpBefore.shiftId + ")" : "") +
+            (editExpSafePatch.amount !== undefined ? " — EGP " + Number(editExpBefore.amount).toFixed(2) + " -> EGP " + editExpSafePatch.amount.toFixed(2) : ""),
+          before: editExpBefore, after: editExpAfter,
+        });
+        return json_({ ok: true, entry: editExpAfter, recalculated: editExpRecalculated });
+      }
+
+      // Admin-only: permanently removes an already-recorded expense
+      // (normal or backdated). If it belonged to an already-closed
+      // shift, that shift's expected-cash/discrepancy is immediately
+      // recalculated without the deleted entry.
+      case "deleteExpense": {
+        requireRole_(body.username, ["admin"]);
+        const delExpBefore = readObjects_("Ledger").find(function (l) { return l.id === body.id; });
+        if (!delExpBefore) return json_({ ok: false, error: "Entry not found." });
+        if (delExpBefore.type === "sale" || delExpBefore.type === "supplierPayment" || delExpBefore.type === "fixedMonthlyCost") {
+          return json_({ ok: false, error: "This entry type can't be deleted here." });
+        }
+        const delExpOk = deleteObjectById_("Ledger", body.id);
+        let delExpRecalculated = null;
+        if (delExpOk && delExpBefore.shiftId) {
+          const delExpShift = readObjects_("Shifts").find(function (sh) { return sh.id === delExpBefore.shiftId; });
+          if (delExpShift && delExpShift.closedAt) {
+            const delExpResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), delExpShift);
+            if (delExpResult.ok) {
+              updateObjectById_("Shifts", delExpShift.id, { expectedCash: delExpResult.after.expectedCash, discrepancy: delExpResult.after.discrepancy });
+              delExpRecalculated = delExpResult.after;
+            }
+          }
+        }
+        if (delExpOk) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DELETED", shiftId: delExpBefore.shiftId,
+            description: "Admin " + body.username + " deleted expense \"" + delExpBefore.description + "\" — EGP " + Number(delExpBefore.amount).toFixed(2) +
+              (delExpBefore.shiftId ? " (Shift #" + delExpBefore.shiftId + ")" : ""),
+            before: delExpBefore,
+          });
+        }
+        return json_({ ok: delExpOk, recalculated: delExpRecalculated });
       }
 
       case "forceEndShift": {
@@ -4934,13 +5035,18 @@ function handleSubmitExpense_(body) {
   try {
     const isAdmin = role === "admin";
     const amount = Number(body.amount);
+    const ts = Date.now();
     const entry = {
-      id: newId_("ledg"), ts: Date.now(), amount: amount, direction: "outflow", type: "midShiftPurchase",
+      id: newId_("ledg"), ts: ts, amount: amount, direction: "outflow", type: "midShiftPurchase",
       category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
       supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
       receiptUrl: receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
       paymentSource: paymentSource, paymentStatus: paymentStatus,
+      // Stored once at creation, matching this café's real 8 AM-to-8 AM
+      // business day — Reports.tsx's Expenses History table and its
+      // Selected Day totals group strictly by this field.
+      expenseDate: businessDayLabelForTs_(ts),
     };
     appendObject_("Ledger", entry);
     logActivity_({

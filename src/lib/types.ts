@@ -494,6 +494,15 @@ export interface LedgerEntry {
   // shift after the fact (Backdated Expenses tool) — distinguishes it
   // from a normal same-shift expense in the Ledger/Executive views.
   backdated?: boolean;
+  // The business day (8 AM–8 AM, YYYY-MM-DD) this expense is filed
+  // under, set once at creation and never recomputed from ts later.
+  // Reports.tsx's Expenses History table and its Selected Day
+  // Expenses/Net Profit totals group by this field — it's what makes a
+  // backdated expense reliably show up under the historical day it was
+  // actually assigned to, rather than wherever its raw timestamp happens
+  // to fall. Older entries logged before this field existed won't have
+  // it; those still fall back to the previous shift-based grouping.
+  expenseDate?: string;
 }
 
 // A supplier account's transaction history — invoices (debit, only when
