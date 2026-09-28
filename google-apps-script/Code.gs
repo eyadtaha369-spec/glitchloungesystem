@@ -388,6 +388,7 @@ const ACTION_RISK = {
   FRAUD_THRESHOLD_CHANGED: "yellow", GEOFENCE_CONFIG_CHANGED: "yellow",
   BACKDATED_EXPENSE_LOGGED: "red",
   EXPENSE_EDITED: "red", EXPENSE_DELETED: "red",
+  ORDER_MOVED_SHIFT: "red",
 };
 function riskFor_(actionType) {
   return ACTION_RISK[actionType] || "green";
@@ -2485,6 +2486,61 @@ function doPost(e) {
           description: body.username + " reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction",
         });
         return json_({ ok: true, state: withStockView_(result.state) });
+      }
+
+      // Admin-only: re-assigns an already-closed order/check to a
+      // different shift (and therefore business day). Moves endedAt
+      // along with shiftId — one second before the TARGET shift's close
+      // time if it's already closed, mirroring Backdated Expenses'
+      // convention. Recalculates BOTH the source and target shift's
+      // expected cash/discrepancy immediately if either is closed.
+      case "moveSessionToShift": {
+        requireRole_(body.username, ["admin"]);
+        if (!body.sessionId) return json_({ ok: false, error: "No order selected." });
+        if (!body.targetShiftId) return json_({ ok: false, error: "Select a target shift." });
+        const msSession = readSessions_().find(function (s) { return s.id === body.sessionId; });
+        if (!msSession) return json_({ ok: false, error: "Order not found." });
+        const msShifts = readObjects_("Shifts");
+        const msTargetShift = msShifts.find(function (sh) { return sh.id === body.targetShiftId; });
+        if (!msTargetShift) return json_({ ok: false, error: "Target shift not found." });
+        if (msTargetShift.id === msSession.shiftId) return json_({ ok: false, error: "This order is already on that shift." });
+        const msSourceShift = msSession.shiftId ? (msShifts.find(function (sh) { return sh.id === msSession.shiftId; }) || null) : null;
+
+        const msNewEndedAt = msTargetShift.closedAt ? msTargetShift.closedAt - 1000 : Date.now();
+        const msBefore = { shiftId: msSession.shiftId, endedAt: msSession.endedAt };
+        updateObjectById_("Sessions", msSession.id, { shiftId: msTargetShift.id, endedAt: msNewEndedAt });
+
+        const msFreshSessions = readSessions_();
+        const msFreshLedger = readObjects_("Ledger");
+        let msSourceRecalculated = null;
+        let msTargetRecalculated = null;
+        if (msSourceShift && msSourceShift.closedAt) {
+          const msR1 = bizRecalculateClosedShift_(msFreshSessions, msFreshLedger, msSourceShift);
+          if (msR1.ok) {
+            updateObjectById_("Shifts", msSourceShift.id, { expectedCash: msR1.after.expectedCash, discrepancy: msR1.after.discrepancy });
+            msSourceRecalculated = msR1.after;
+          }
+        }
+        if (msTargetShift.closedAt) {
+          const msR2 = bizRecalculateClosedShift_(msFreshSessions, msFreshLedger, msTargetShift);
+          if (msR2.ok) {
+            updateObjectById_("Shifts", msTargetShift.id, { expectedCash: msR2.after.expectedCash, discrepancy: msR2.after.discrepancy });
+            msTargetRecalculated = msR2.after;
+          }
+        }
+
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "ORDER_MOVED_SHIFT", shiftId: msTargetShift.id,
+          description: "Admin " + body.username + " moved Order " + msSession.id + " (" + msSession.roomName + ", " + Number(msSession.total).toFixed(2) + " EGP) from Shift " +
+            (msSourceShift ? "#" + msSourceShift.id : "(none)") + " to Shift #" + msTargetShift.id + " on " + formatDateLabel_(msNewEndedAt),
+          before: msBefore, after: { shiftId: msTargetShift.id, endedAt: msNewEndedAt },
+        });
+        return json_({
+          ok: true,
+          session: Object.assign({}, msSession, { shiftId: msTargetShift.id, endedAt: msNewEndedAt }),
+          sourceRecalculated: msSourceRecalculated, targetRecalculated: msTargetRecalculated,
+          state: withStockView_(getState_()),
+        });
       }
 
       case "pauseRoom": {

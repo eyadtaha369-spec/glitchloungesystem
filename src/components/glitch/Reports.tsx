@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
 import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X } from "lucide-react";
+import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
 
 // What counts as a real, same-day operational expense — used
@@ -347,49 +347,7 @@ export function ReportsPage() {
 
       {/* 4. Order History — this specific date only, every row opens the
           full check via ReceiptModal */}
-      <div className="glass rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-          <h2 className="text-lg font-semibold">Order History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
-        </div>
-        {daySessions.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono text-center py-6">No closed orders on this date.</div>
-        ) : (
-          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
-                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
-                  <th className="pb-2 pt-3 pl-3 pr-3">Order ID</th>
-                  <th className="pb-2 pt-3 pr-3">Room/Table</th>
-                  <th className="pb-2 pt-3 pr-3">Time</th>
-                  <th className="pb-2 pt-3 pr-3">Payment</th>
-                  <th className="pb-2 pt-3 pr-3 text-right">Subtotal</th>
-                  <th className="pb-2 pt-3 pr-3 text-right">Discount</th>
-                  <th className="pb-2 pt-3 pr-3 text-right">Total EGP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {daySessions.sort((a, b) => b.endedAt - a.endedAt).map((s) => (
-                  <tr
-                    key={s.id}
-                    onClick={() => setViewingCheck(s)}
-                    className="border-b border-black/5 cursor-pointer hover:bg-[oklch(0.7_0.19_260/0.06)]"
-                    title="Click to view full check details"
-                  >
-                    <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
-                    <td className="py-2 pr-3">{s.roomName}</td>
-                    <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
-                    <td className="py-2 pr-3 uppercase">{s.paymentMethod.replace(/_/g, " ")}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmtMoney(s.total + (s.discountAmount || 0))}</td>
-                    <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—"}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <OrderHistoryPanel selectedReportDate={selectedReportDate} daySessions={daySessions} isAdmin={isAdmin} onViewCheck={setViewingCheck} />
 
       {/* 5. Expenses History — this specific date only, same exclusions as
           the KPI card above (no Staff Orders, no voids) */}
@@ -435,6 +393,138 @@ export function ReportsPage() {
         />
       )}
       {reopenTarget && <ReopenCheckModal session={reopenTarget} onClose={() => setReopenTarget(null)} />}
+    </div>
+  );
+}
+
+// Order History — this specific date only, every row opens the full
+// check via ReceiptModal. Admins get a Move icon per row to re-assign a
+// closed order to a different shift (and therefore business day),
+// without dragging up the check details modal at the same time.
+function OrderHistoryPanel({ selectedReportDate, daySessions, isAdmin, onViewCheck }: { selectedReportDate: string; daySessions: Session[]; isAdmin: boolean; onViewCheck: (s: Session) => void }) {
+  const [moveTarget, setMoveTarget] = useState<Session | null>(null);
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+        <h2 className="text-lg font-semibold">Order History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
+      </div>
+      {daySessions.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No closed orders on this date.</div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pt-3 pl-3 pr-3">Order ID</th>
+                <th className="pb-2 pt-3 pr-3">Room/Table</th>
+                <th className="pb-2 pt-3 pr-3">Time</th>
+                <th className="pb-2 pt-3 pr-3">Payment</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Subtotal</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Discount</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Total EGP</th>
+                {isAdmin && <th className="pb-2 pt-3 pr-3 text-right">Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {daySessions.sort((a, b) => b.endedAt - a.endedAt).map((s) => (
+                <tr
+                  key={s.id}
+                  onClick={() => onViewCheck(s)}
+                  className="border-b border-black/5 cursor-pointer hover:bg-[oklch(0.7_0.19_260/0.06)]"
+                  title="Click to view full check details"
+                >
+                  <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
+                  <td className="py-2 pr-3">{s.roomName}</td>
+                  <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
+                  <td className="py-2 pr-3 uppercase">{s.paymentMethod.replace(/_/g, " ")}</td>
+                  <td className="py-2 pr-3 text-right font-mono">{fmtMoney(s.total + (s.discountAmount || 0))}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—"}</td>
+                  <td className="py-2 pr-3 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
+                  {isAdmin && (
+                    <td className="py-2 pr-3 text-right">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMoveTarget(s); }}
+                        title="Move to Shift/Date"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/10"
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" /> Move
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {moveTarget && <MoveOrderModal session={moveTarget} onClose={() => setMoveTarget(null)} />}
+    </div>
+  );
+}
+
+function MoveOrderModal({ session, onClose }: { session: Session; onClose: () => void }) {
+  const { state, moveSessionToShift } = useStore();
+  const [targetShiftId, setTargetShiftId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const candidateShifts = useMemo(
+    () => [...state.shifts].filter((sh) => sh.id !== session.shiftId).sort((a, b) => b.openedAt - a.openedAt),
+    [state.shifts, session.shiftId],
+  );
+  const currentShift = state.shifts.find((sh) => sh.id === session.shiftId) ?? null;
+
+  const submit = async () => {
+    setErr(null);
+    if (!targetShiftId) { setErr("Select a target shift."); return; }
+    setSubmitting(true);
+    try {
+      const res = await moveSessionToShift(session.id, targetShiftId);
+      if (!res.ok) { setErr(res.error ?? "Could not move this order."); return; }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-md glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold mb-2">Move Order to a Different Shift/Date</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          <strong>{session.roomName}</strong> — {fmtMoney(session.total)}, currently on{" "}
+          {currentShift ? <>Shift #{currentShift.id.slice(0, 14)} ({new Date(currentShift.openedAt).toLocaleDateString()})</> : "no shift"}.
+          Moving it will immediately recalculate expected cash/discrepancy for both the source and target shift, if either is already closed.
+        </p>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Target Shift</label>
+          <select
+            value={targetShiftId} onChange={(e) => setTargetShiftId(e.target.value)}
+            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
+          >
+            <option value="">Select a shift...</option>
+            {candidateShifts.map((sh) => (
+              <option key={sh.id} value={sh.id}>
+                {new Date(sh.openedAt).toLocaleString()} — {sh.cashierUsername}{sh.closedAt ? "" : " (active)"}
+              </option>
+            ))}
+          </select>
+        </div>
+        {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-3">{err}</div>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} disabled={submitting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+          >
+            {submitting ? "Moving..." : "Move Order"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

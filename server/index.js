@@ -164,6 +164,69 @@ const handlers = {
     return json_({ ok: true, state: withStockView_(result.state) });
   },
 
+  // Admin-only: re-assigns an already-closed order/check to a different
+  // shift (and therefore a different business day, since Reports.tsx's
+  // Order History / revenue totals are shift-first). Corrects a cashier
+  // logging a check under the wrong shift, or reattaches an order that
+  // was orphaned. Moves endedAt along with shiftId — one second before
+  // the TARGET shift's close time if it's already closed (same
+  // convention Backdated Expenses uses), so the order sorts correctly
+  // within that shift and lands under the right calendar day everywhere
+  // that reads endedAt. If either the source or target shift is already
+  // closed, its stored expectedCash/discrepancy is immediately
+  // recalculated so cash reconciliation numbers never go stale.
+  moveSessionToShift(body) {
+    requireRole_(body.username, ["admin"]);
+    if (!body.sessionId) return { ok: false, error: "No order selected." };
+    if (!body.targetShiftId) return { ok: false, error: "Select a target shift." };
+    const session = readSessions_().find((s) => s.id === body.sessionId);
+    if (!session) return { ok: false, error: "Order not found." };
+    const shifts = readObjects_("Shifts");
+    const targetShift = shifts.find((sh) => sh.id === body.targetShiftId);
+    if (!targetShift) return { ok: false, error: "Target shift not found." };
+    if (targetShift.id === session.shiftId) return { ok: false, error: "This order is already on that shift." };
+    const sourceShift = session.shiftId ? shifts.find((sh) => sh.id === session.shiftId) || null : null;
+
+    const newEndedAt = targetShift.closedAt ? targetShift.closedAt - 1000 : Date.now();
+    const before = { shiftId: session.shiftId, endedAt: session.endedAt };
+    updateObjectById_("Sessions", session.id, { shiftId: targetShift.id, endedAt: newEndedAt });
+
+    // Re-read AFTER the move so cashSales for each shift's recalculation
+    // correctly reflects the order's new home (excluded from source,
+    // included in target).
+    const freshSessions = readSessions_();
+    const freshLedger = readObjects_("Ledger");
+    let sourceRecalculated = null;
+    let targetRecalculated = null;
+    if (sourceShift && sourceShift.closedAt) {
+      const r = bizRecalculateClosedShift_(freshSessions, freshLedger, sourceShift);
+      if (r.ok) {
+        updateObjectById_("Shifts", sourceShift.id, { expectedCash: r.after.expectedCash, discrepancy: r.after.discrepancy });
+        sourceRecalculated = r.after;
+      }
+    }
+    if (targetShift.closedAt) {
+      const r2 = bizRecalculateClosedShift_(freshSessions, freshLedger, targetShift);
+      if (r2.ok) {
+        updateObjectById_("Shifts", targetShift.id, { expectedCash: r2.after.expectedCash, discrepancy: r2.after.discrepancy });
+        targetRecalculated = r2.after;
+      }
+    }
+
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "ORDER_MOVED_SHIFT", shiftId: targetShift.id,
+      description: "Admin " + body.username + " moved Order " + session.id + " (" + session.roomName + ", " + Number(session.total).toFixed(2) + " EGP) from Shift " +
+        (sourceShift ? "#" + sourceShift.id : "(none)") + " to Shift #" + targetShift.id + " on " + formatDateLabel_(newEndedAt),
+      before, after: { shiftId: targetShift.id, endedAt: newEndedAt },
+    });
+    return {
+      ok: true,
+      session: Object.assign({}, session, { shiftId: targetShift.id, endedAt: newEndedAt }),
+      sourceRecalculated, targetRecalculated,
+      state: withStockView_(getState_()),
+    };
+  },
+
   pauseRoom(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const state0 = getState_();

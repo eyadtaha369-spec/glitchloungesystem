@@ -18,6 +18,7 @@ const ACTION_RISK = {
   ORPHANED_ORDERS_RECONCILED: "yellow",
   BACKDATED_EXPENSE_LOGGED: "red",
   EXPENSE_EDITED: "red", EXPENSE_DELETED: "red",
+  ORDER_MOVED_SHIFT: "red",
 };
 
 // Direct port of Code.gs's logActivity_ — appends one permanent,

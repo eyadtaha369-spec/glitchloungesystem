@@ -376,6 +376,22 @@ export const reopenSessionFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("reopenSession", { ...data, username: user.username });
   });
 
+// Admin-only: re-assigns an already-closed order/check to a different
+// shift (and therefore a different business day). Backend recalculates
+// both the source and target shift's expected cash/discrepancy
+// immediately if either is already closed.
+export const moveSessionToShiftFn = createServerFn({ method: "POST" })
+  .validator((d: { sessionId: string; targetShiftId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{
+      ok: boolean; error?: string; session?: Session;
+      sourceRecalculated?: { expectedCash: number; discrepancy: number } | null;
+      targetRecalculated?: { expectedCash: number; discrepancy: number } | null;
+      state: AppState;
+    }>("moveSessionToShift", { ...data, username: user.username });
+  });
+
 export const recalculateClosedShiftFn = createServerFn({ method: "POST" })
   .validator((d: { shiftId: string; confirmText: string; password: string }) => d)
   .handler(async ({ data }) => {

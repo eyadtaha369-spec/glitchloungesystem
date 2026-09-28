@@ -42,7 +42,7 @@ import {
   extendRoomTimeFn,
   switchRateModeFn,
   transferOrderItemFn,
-  reopenSessionFn,
+  reopenSessionFn, moveSessionToShiftFn,
   recalculateClosedShiftFn,
   saveDailyReconciliationFn,
   getDailyReconciliationHistoryFn,
@@ -172,6 +172,10 @@ interface StoreContextValue {
   switchRateMode: (roomId: string, newMode: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
   transferOrderItem: (sourceRoomId: string, targetRoomId: string, menuItemId: string, qty: number) => Promise<{ ok: boolean; error?: string }>;
   reopenSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+  // Admin-only: re-assign an already-closed order/check to a different
+  // shift (and therefore business day). Recalculates both the source and
+  // target shift's expected cash/discrepancy if either is already closed.
+  moveSessionToShift: (sessionId: string, targetShiftId: string) => Promise<{ ok: boolean; error?: string }>;
   recalculateClosedShift: (shiftId: string, confirmText: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   saveDailyReconciliation: (actualCash: number, instapayTotal: number, visaTotal: number) => Promise<{ ok: boolean; error?: string; record?: DailyReconciliation }>;
   getDailyReconciliationHistory: () => Promise<DailyReconciliation[]>;
@@ -742,6 +746,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { ok: res.ok, error: res.error };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Could not reopen check." };
+      }
+    });
+  };
+  const moveSessionToShift: StoreContextValue["moveSessionToShift"] = async (sessionId, targetShiftId) => {
+    return withPending(`moveSessionToShift:${sessionId}`, async () => {
+      try {
+        const res = await moveSessionToShiftFn({ data: { sessionId, targetShiftId } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not move this order." };
       }
     });
   };
@@ -1627,7 +1642,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: StoreContextValue = {
     state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
-    setRoomRate, renameRoom, addOwnerTable, deleteOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
+    setRoomRate, renameRoom, addOwnerTable, deleteOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, moveSessionToShift, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, attachOrphanedToShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
     addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
