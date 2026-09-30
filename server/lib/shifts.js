@@ -1,9 +1,24 @@
 const { appendObject_, updateObjectById_ } = require("../db");
 const { pushActivity_ } = require("./util");
 
+// This café's business day is defined in Africa/Cairo local time,
+// regardless of what timezone the machine running this code is
+// actually set to. A cloud host commonly defaults to UTC, and other
+// hosts can be set to anything -- if this read the *server's* local
+// clock instead, the exact same timestamp could label itself onto a
+// different calendar day depending purely on where the process
+// happens to run, which is exactly the bug that let morning expenses
+// (7:50 AM-10:00 AM Cairo time) drift onto the wrong date. Pinning the
+// formatting to an explicit IANA zone makes the result identical no
+// matter the host's own timezone, and Intl handles Egypt's DST
+// transitions automatically so this never needs manual offset math.
+const CAFE_TIMEZONE = "Africa/Cairo";
+const cafeDateFormatter_ = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CAFE_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+});
 function formatDateLabel_(ts) {
-  const d = new Date(ts);
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  // en-CA formats as YYYY-MM-DD directly.
+  return cafeDateFormatter_.format(new Date(ts));
 }
 
 // This café's real operating cycle runs 8:00 AM to 7:59:59 AM the next

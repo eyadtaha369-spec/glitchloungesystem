@@ -50,6 +50,26 @@ function json_(obj) {
   return obj;
 }
 
+// The correct business-day label for an expense: whenever it's tied to
+// a shift (open or closed), that shift's OWN business day always wins
+// -- shift.businessDayId -> BusinessDays.label, fixed once when that
+// business day began -- rather than re-deriving a label from a raw
+// timestamp, which is exactly what let morning expenses drift onto the
+// wrong calendar date. Only falls back to a fresh
+// businessDayLabelForTs_(ts) computation when there's genuinely no
+// shift to anchor to (no shift open at all, or the shift/business-day
+// row can't be found for some reason).
+function expenseDateForShift_(shiftId, ts) {
+  if (shiftId) {
+    const shift = readObjects_("Shifts").find((sh) => sh.id === shiftId);
+    if (shift && shift.businessDayId) {
+      const bd = readObjects_("BusinessDays").find((b) => b.id === shift.businessDayId);
+      if (bd && bd.label) return bd.label;
+    }
+  }
+  return businessDayLabelForTs_(ts);
+}
+
 // Shared by the password-gated exportAllData action (a human explicitly
 // requesting a one-time export) and the automated background sync loop
 // (no password involved at all, since nothing in that path is a human
@@ -1217,12 +1237,16 @@ Object.assign(handlers, {
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
       paymentSource, paymentStatus,
-      // Stored once at creation, matching this café's real 8 AM-to-8 AM
-      // business day (not calendar midnight) -- Reports.tsx's "Expenses
-      // History" table and its Selected Day Expenses/Net Profit totals
-      // group strictly by this field, so a late-night expense reliably
-      // stays filed under the business day it actually happened in.
-      expenseDate: businessDayLabelForTs_(ts),
+      // Bound to the CURRENT ACTIVE SHIFT's own business day whenever a
+      // shift is open (shift.businessDayId -> BusinessDays.label, set
+      // once when that business day began), not recomputed from "now".
+      // A shift stays open across the 8 AM cutover in either direction,
+      // so re-deriving the label from a fresh timestamp at submit time
+      // can disagree with the shift it's actually being logged into —
+      // this keeps every expense filed under the SAME business day as
+      // the rest of its shift's activity. Falls back to the timestamp
+      // only when no shift is open at all (expenseDateForShift_ below).
+      expenseDate: expenseDateForShift_(body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
     logActivity_({
@@ -1272,12 +1296,13 @@ Object.assign(handlers, {
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: shift.id, materialId: null, qty: null, unitCost: null,
       paymentSource, paymentStatus, backdated: true,
-      // Computed from the TARGET shift's close time, not "now" -- this is
-      // what makes it show up under the historical day it's meant to
-      // belong to in Reports.tsx's Expenses History table, instead of
-      // silently vanishing into whichever business day happens to be
-      // selected when someone views that page.
-      expenseDate: businessDayLabelForTs_(backdatedTs),
+      // Bound to the TARGET shift's own business day (shift.businessDayId
+      // -> BusinessDays.label), not recomputed from its close time -- this
+      // is what makes it show up under the exact historical day it's
+      // meant to belong to in Reports.tsx's Expenses History table,
+      // instead of silently vanishing into whichever business day happens
+      // to be selected when someone views that page.
+      expenseDate: expenseDateForShift_(shift.id, backdatedTs),
     };
     appendObject_("Ledger", entry);
     const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
@@ -1292,14 +1317,16 @@ Object.assign(handlers, {
     });
     return { ok: true, entry, recalculated: result.ok ? result.after : null, state: withStockView_(getState_()) };
   },
-  // Admin-only: edits the amount/category/description/payment source of
-  // an already-recorded expense (normal or backdated). Never touches
-  // ts/shiftId/expenseDate -- WHEN and WHICH shift it belongs to are set
-  // once at creation and never reassigned here; only WHAT it cost and
-  // HOW it was paid can change. If the entry belongs to an
-  // already-closed shift, immediately re-runs that shift's expected-cash
-  // formula (the same one backdated expenses trigger) so its stored
-  // numbers stay truthful.
+  // Admin-only: edits the amount/category/description/payment source --
+  // and now the business-day date -- of an already-recorded expense
+  // (normal or backdated). Never touches ts/shiftId here: WHICH SHIFT'S
+  // DRAWER it hit (and therefore that shift's own cash reconciliation)
+  // stays exactly as recorded; expenseDate is deliberately its own
+  // independent field precisely so a misfiled REPORTING date can be
+  // corrected without disturbing shift-level cash accounting. If the
+  // entry belongs to an already-closed shift, immediately re-runs that
+  // shift's expected-cash formula (the same one backdated expenses
+  // trigger) so its stored numbers stay truthful.
   editExpense(body) {
     requireRole_(body.username, ["admin"]);
     const before = readObjects_("Ledger").find((l) => l.id === body.id);
@@ -1324,6 +1351,10 @@ Object.assign(handlers, {
       // use Settle Expense for that, not this action.
       if (before.paymentStatus !== "unpaid") safePatch.paidFromDrawer = patch.paymentSource === "cash_drawer";
     }
+    if (patch.expenseDate !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(patch.expenseDate)) return { ok: false, error: "Date must be in YYYY-MM-DD format." };
+      safePatch.expenseDate = patch.expenseDate;
+    }
     updateObjectById_("Ledger", body.id, safePatch);
     const after = Object.assign({}, before, safePatch);
     let recalculated = null;
@@ -1341,7 +1372,8 @@ Object.assign(handlers, {
       actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_EDITED", shiftId: before.shiftId,
       description: "Admin " + body.username + " edited expense \"" + before.description + "\"" +
         (before.shiftId ? " (Shift #" + before.shiftId + ")" : "") +
-        (safePatch.amount !== undefined ? " — EGP " + Number(before.amount).toFixed(2) + " -> EGP " + safePatch.amount.toFixed(2) : ""),
+        (safePatch.amount !== undefined ? " — EGP " + Number(before.amount).toFixed(2) + " -> EGP " + safePatch.amount.toFixed(2) : "") +
+        (safePatch.expenseDate !== undefined ? " — moved from " + (before.expenseDate || "unknown date") + " to " + safePatch.expenseDate : ""),
       before, after,
     });
     return { ok: true, entry: after, recalculated };

@@ -269,7 +269,7 @@ interface StoreContextValue {
   // Admin-only: edit or delete an already-recorded expense (normal or
   // backdated) from Reports.tsx's Expenses History table. Recalculates
   // the owning shift's expected cash/discrepancy if it's already closed.
-  editExpense: (id: string, patch: { amount?: number; category?: string; description?: string; paymentSource?: PaymentSource }) => Promise<{ ok: boolean; error?: string }>;
+  editExpense: (id: string, patch: { amount?: number; category?: string; description?: string; paymentSource?: PaymentSource; expenseDate?: string }) => Promise<{ ok: boolean; error?: string }>;
   deleteExpense: (id: string) => Promise<{ ok: boolean; error?: string }>;
   unpaidExpenses: LedgerEntry[];
   refreshUnpaidExpenses: () => Promise<void>;

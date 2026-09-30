@@ -1555,9 +1555,19 @@ function bizAttachOrphanedToShift_(sessions, ledger, targetShiftId) {
   return found;
 }
 
+// This café's business day is defined in Africa/Cairo local time,
+// regardless of this Apps Script project's own configured Script
+// Timezone (File > Project Settings), which may not be set to Cairo at
+// all. Reading new Date(ts).getFullYear()/getMonth()/getDate() uses
+// THAT project timezone, not the café's -- if they disagree, the exact
+// same timestamp can label itself onto the wrong calendar date, which
+// is exactly what let morning expenses (7:50 AM-10:00 AM Cairo time)
+// drift onto the wrong date. Utilities.formatDate takes an explicit
+// IANA zone and handles Egypt's DST transitions automatically, so this
+// is correct no matter how the project's own Script Timezone is set.
+const CAFE_TIMEZONE = "Africa/Cairo";
 function formatDateLabel_(ts) {
-  const d = new Date(ts);
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  return Utilities.formatDate(new Date(ts), CAFE_TIMEZONE, "yyyy-MM-dd");
 }
 
 // This café's real operating cycle runs 8:00 AM to 7:59:59 AM the next
@@ -1571,6 +1581,25 @@ function formatDateLabel_(ts) {
 const BUSINESS_DAY_GRACE_MS = 8 * 3600000 - 30 * 60000;
 function businessDayLabelForTs_(ts) {
   return formatDateLabel_(ts - BUSINESS_DAY_GRACE_MS);
+}
+
+// The correct business-day label for an expense: whenever it's tied
+// to a shift (open or closed), that shift's OWN business day always
+// wins -- shift.businessDayId -> BusinessDays.label, fixed once when
+// that business day began -- rather than re-deriving a label from a
+// raw timestamp, which is exactly what let morning expenses drift
+// onto the wrong calendar date. Only falls back to a fresh
+// businessDayLabelForTs_(ts) computation when there's genuinely no
+// shift to anchor to.
+function expenseDateForShift_(shiftId, ts) {
+  if (shiftId) {
+    const shift = readObjects_("Shifts").find(function (sh) { return sh.id === shiftId; });
+    if (shift && shift.businessDayId) {
+      const bd = readObjects_("BusinessDays").find(function (b) { return b.id === shift.businessDayId; });
+      if (bd && bd.label) return bd.label;
+    }
+  }
+  return businessDayLabelForTs_(ts);
 }
 
 // Scoped to the calendar day, not the currently active shift — a
@@ -3012,9 +3041,11 @@ function doPost(e) {
           receiptUrl: bdReceiptUrl, paidFromDrawer: bdPaymentStatus === "paid" && bdPaymentSource === "cash_drawer",
           shiftId: bdShift.id, materialId: null, qty: null, unitCost: null,
           paymentSource: bdPaymentSource, paymentStatus: bdPaymentStatus, backdated: true,
-          // Computed from the TARGET shift's close time, not "now" — see
-          // businessDayLabelForTs_'s comment for why.
-          expenseDate: businessDayLabelForTs_(bdTs),
+          // Bound to the TARGET shift's own business day (see
+          // expenseDateForShift_), not recomputed from its close time —
+          // this is what makes it show up under the exact historical day
+          // it's meant to belong to.
+          expenseDate: expenseDateForShift_(bdShift.id, bdTs),
         };
         appendObject_("Ledger", bdEntry);
         const bdResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), bdShift);
@@ -3030,9 +3061,13 @@ function doPost(e) {
         return json_({ ok: true, entry: bdEntry, recalculated: bdResult.ok ? bdResult.after : null, state: withStockView_(getState_()) });
       }
 
-      // Admin-only: edits the amount/category/description/payment source
-      // of an already-recorded expense (normal or backdated). Never
-      // touches ts/shiftId/expenseDate. If the entry belongs to an
+      // Admin-only: edits the amount/category/description/payment
+      // source -- and now the business-day date -- of an
+      // already-recorded expense (normal or backdated). Never touches
+      // ts/shiftId here: WHICH SHIFT'S DRAWER it hit stays exactly as
+      // recorded; expenseDate is its own independent field precisely so
+      // a misfiled REPORTING date can be corrected without disturbing
+      // shift-level cash accounting. If the entry belongs to an
       // already-closed shift, immediately re-runs that shift's
       // expected-cash formula so its stored numbers stay truthful.
       case "editExpense": {
@@ -3057,6 +3092,10 @@ function doPost(e) {
           editExpSafePatch.paymentSource = editExpPatch.paymentSource;
           if (editExpBefore.paymentStatus !== "unpaid") editExpSafePatch.paidFromDrawer = editExpPatch.paymentSource === "cash_drawer";
         }
+        if (editExpPatch.expenseDate !== undefined) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(editExpPatch.expenseDate)) return json_({ ok: false, error: "Date must be in YYYY-MM-DD format." });
+          editExpSafePatch.expenseDate = editExpPatch.expenseDate;
+        }
         updateObjectById_("Ledger", body.id, editExpSafePatch);
         const editExpAfter = Object.assign({}, editExpBefore, editExpSafePatch);
         let editExpRecalculated = null;
@@ -3074,7 +3113,8 @@ function doPost(e) {
           actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_EDITED", shiftId: editExpBefore.shiftId,
           description: "Admin " + body.username + " edited expense \"" + editExpBefore.description + "\"" +
             (editExpBefore.shiftId ? " (Shift #" + editExpBefore.shiftId + ")" : "") +
-            (editExpSafePatch.amount !== undefined ? " — EGP " + Number(editExpBefore.amount).toFixed(2) + " -> EGP " + editExpSafePatch.amount.toFixed(2) : ""),
+            (editExpSafePatch.amount !== undefined ? " — EGP " + Number(editExpBefore.amount).toFixed(2) + " -> EGP " + editExpSafePatch.amount.toFixed(2) : "") +
+            (editExpSafePatch.expenseDate !== undefined ? " — moved from " + (editExpBefore.expenseDate || "unknown date") + " to " + editExpSafePatch.expenseDate : ""),
           before: editExpBefore, after: editExpAfter,
         });
         return json_({ ok: true, entry: editExpAfter, recalculated: editExpRecalculated });
@@ -5099,10 +5139,11 @@ function handleSubmitExpense_(body) {
       receiptUrl: receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
       paymentSource: paymentSource, paymentStatus: paymentStatus,
-      // Stored once at creation, matching this café's real 8 AM-to-8 AM
-      // business day — Reports.tsx's Expenses History table and its
-      // Selected Day totals group strictly by this field.
-      expenseDate: businessDayLabelForTs_(ts),
+      // Bound to the CURRENT ACTIVE SHIFT's own business day whenever a
+      // shift is open (shift.businessDayId -> BusinessDays.label), not
+      // recomputed from "now" -- see expenseDateForShift_. Falls back to
+      // the timestamp only when no shift is open at all.
+      expenseDate: expenseDateForShift_(body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
     logActivity_({

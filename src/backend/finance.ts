@@ -351,7 +351,7 @@ export const deleteFixedMonthlyCostFn = createServerFn({ method: "POST" })
 // Expenses History table. Backend re-recalculates the owning shift's
 // expected cash/discrepancy if that shift is already closed.
 export const editExpenseFn = createServerFn({ method: "POST" })
-  .validator((d: { id: string; patch: { amount?: number; category?: string; description?: string; paymentSource?: PaymentSource } }) => d)
+  .validator((d: { id: string; patch: { amount?: number; category?: string; description?: string; paymentSource?: PaymentSource; expenseDate?: string } }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; entry?: LedgerEntry; recalculated?: { expectedCash: number; discrepancy: number } | null }>("editExpense", { ...data, username: user.username });

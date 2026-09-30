@@ -68,6 +68,22 @@ function businessDayBounds(dateStr: string) {
   return { from, to };
 }
 
+// This café operates in Africa/Cairo local time, regardless of the
+// timezone the viewing browser (or an SSR render) happens to be set
+// to. Every expense's own expenseDate is already computed server-side
+// pinned to Cairo (see server/lib/shifts.js's formatDateLabel_), so
+// the ONLY place that still mattered was picking today's date as the
+// initial default for the day/month pickers below — a viewer whose
+// own machine is set to a different timezone than the café's would
+// otherwise land on the wrong default date the moment their local
+// midnight and Cairo's don't line up.
+const CAIRO_TZ_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+});
+function cairoDateLabel(ts: number): string {
+  return CAIRO_TZ_FORMATTER.format(new Date(ts));
+}
+
 // Shift-first binding: an order/expense/void that has a shiftId is
 // scoped by whichever business day that SHIFT opened within — never
 // by re-deriving a calendar date from the record's own timestamp,
@@ -200,19 +216,13 @@ export function ReportsPage() {
   // 8 AM, this café's confirmed real cycle), independent of the Shift
   // selector above, which is a separate tool for printing one
   // specific shift's own end-of-shift report.
-  const [selectedReportDate, setSelectedReportDate] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  });
+  const [selectedReportDate, setSelectedReportDate] = useState(() => cairoDateLabel(Date.now()));
   const { from: reportDayStart, to: reportDayEnd } = useMemo(() => businessDayBounds(selectedReportDate), [selectedReportDate]);
 
   // Financial Reconciliation is genuinely monthly (Day 1 through the
   // last day), independent of the daily date picker above — a
   // separate month picker, not derived from selectedReportDate.
-  const [selectedMonth, setSelectedMonth] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  });
+  const [selectedMonth, setSelectedMonth] = useState(() => cairoDateLabel(Date.now()).slice(0, 7));
 
   const reportDayShiftIds = useMemo(
     () => new Set(state.shifts.filter((sh) => sh.openedAt >= reportDayStart && sh.openedAt <= reportDayEnd).map((sh) => sh.id)),
@@ -319,7 +329,7 @@ export function ReportsPage() {
           </div>
           <div>
             <input
-              type="date" value={selectedReportDate} max={new Date().toISOString().slice(0, 10)}
+              type="date" value={selectedReportDate} max={cairoDateLabel(Date.now())}
               onChange={(e) => setSelectedReportDate(e.target.value)}
               className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
             />
@@ -645,15 +655,23 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">(
     entry.paymentSource === "cash_drawer" || entry.paymentSource === "out_of_pocket" || entry.paymentSource === "bank_transfer" ? entry.paymentSource : "",
   );
+  // Falls back to a Cairo-pinned label derived from ts for the rare
+  // legacy entry logged before expenseDate existed, so the field is
+  // never blank -- same fallback logic as the backend's own
+  // businessDayLabelForTs_, just so the date shown here always matches
+  // what the server would already consider this entry's business day.
+  const [expenseDate, setExpenseDate] = useState(entry.expenseDate || cairoDateLabel(entry.ts));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const isUnpaid = entry.paymentStatus === "unpaid";
+  const dateChanged = expenseDate !== (entry.expenseDate || cairoDateLabel(entry.ts));
 
   const submit = async () => {
     setErr(null);
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setErr("Amount must be greater than zero."); return; }
     if (!description.trim()) { setErr("Description can't be empty."); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) { setErr("Pick a valid date."); return; }
     setSubmitting(true);
     try {
       const res = await editExpense(entry.id, {
@@ -661,6 +679,7 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
         category,
         description: description.trim(),
         paymentSource: !isUnpaid && paymentSource ? (paymentSource as PaymentSource) : undefined,
+        expenseDate: dateChanged ? expenseDate : undefined,
       });
       if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
       onClose();
@@ -734,6 +753,17 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
               )}
             </div>
           )}
+
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Expense Date</label>
+            <input
+              type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Which day this shows up under in Expenses History and Net Profit — moves the report entry only, not which shift's drawer it was paid from.
+            </p>
+          </div>
 
           {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
         </div>
@@ -1057,7 +1087,7 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
           <h2 className="text-lg font-semibold">Financial Reconciliation</h2>
         </div>
         <input
-          type="month" value={selectedMonth} max={new Date().toISOString().slice(0, 7)}
+          type="month" value={selectedMonth} max={cairoDateLabel(Date.now()).slice(0, 7)}
           onChange={(e) => onMonthChange(e.target.value)}
           className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
         />
