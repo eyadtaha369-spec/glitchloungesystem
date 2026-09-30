@@ -242,6 +242,7 @@ interface StoreContextValue {
     paymentStatus: "paid" | "unpaid";
     paymentSource?: PaymentSource;
     receiptFile?: File | null;
+    targetShiftId?: string;
   }) => Promise<{ ok: boolean; error?: string; status?: string }>;
   submitExpense: (p: {
     itemName: string;
@@ -1076,6 +1077,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           paymentStatus: p.paymentStatus,
           paymentSource: p.paymentStatus === "paid" ? p.paymentSource : undefined,
           shiftId: appState.activeShiftId,
+          targetShiftId: p.targetShiftId,
           receiptBase64,
           receiptMimeType: p.receiptFile?.type || undefined,
         },

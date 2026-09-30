@@ -1182,17 +1182,45 @@ Object.assign(handlers, {
       if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
       paymentSource = body.paymentSource;
     }
+    // Admin-only backdating, mirroring submitBackdatedExpense exactly:
+    // a raw-material purchase logged after the fact against an
+    // already-closed shift, so it reports under that historical day
+    // instead of today's.
+    let targetShift = null;
+    if (body.targetShiftId) {
+      requireRole_(body.username, ["admin"]);
+      const shifts = readObjects_("Shifts");
+      targetShift = shifts.find((sh) => sh.id === body.targetShiftId);
+      if (!targetShift) return { ok: false, error: "Shift not found." };
+      if (!targetShift.closedAt) return { ok: false, error: "That shift is still open — use the normal purchase form instead, not backdating." };
+    }
     const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
     const amount = Number(body.qty) * Number(body.unitCost);
     const isAdmin = role === "admin";
+    const ts = targetShift ? targetShift.closedAt - 1000 : Date.now();
     const entry = {
-      id: newId_("ledg"), ts: Date.now(), amount, direction: "outflow", type: body.purchaseType,
-      category: body.category || "Procurement", description: body.description || "", supplierId: body.supplierId || null,
-      staffUsername: body.username, status: isAdmin ? "approved" : "pending", receiptUrl,
-      paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer", paymentSource, paymentStatus, shiftId: body.shiftId || null,
+      id: newId_("ledg"), ts, amount, direction: "outflow", type: body.purchaseType,
+      category: body.category || "Procurement", description: (body.description || "") + (targetShift ? " (backdated)" : ""), supplierId: body.supplierId || null,
+      staffUsername: body.username, status: targetShift ? "approved" : isAdmin ? "approved" : "pending", receiptUrl,
+      paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer", paymentSource, paymentStatus,
+      shiftId: targetShift ? targetShift.id : (body.shiftId || null),
       materialId: body.materialId, qty: body.qty, unitCost: body.unitCost,
+      backdated: !!targetShift,
+      // Bound to the shift this purchase actually belongs to (current
+      // active, or the backdated target) via expenseDateForShift_, not
+      // recomputed from "now" -- same reasoning as submitExpense's
+      // expenseDate, so Reports.tsx's Expenses History/Selected Day
+      // Expenses group this purchase under the correct business day
+      // even when it has no shiftId at all (falls back to the ts).
+      expenseDate: expenseDateForShift_(targetShift ? targetShift.id : body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
+    if (targetShift) {
+      const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), targetShift);
+      if (result.ok) {
+        updateObjectById_("Shifts", targetShift.id, { expectedCash: result.after.expectedCash, discrepancy: result.after.discrepancy });
+      }
+    }
     if (isAdmin) {
       // The material physically arrives either way — receiving it on
       // credit (unpaid) doesn't change that it's now in stock, only

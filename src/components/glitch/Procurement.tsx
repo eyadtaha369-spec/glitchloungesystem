@@ -169,17 +169,28 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
+  // Admin-only: assign this purchase to an already-closed shift instead
+  // of the current one, backdating it into that shift's own
+  // totals/reports — mirrors ExpenseSubmitForm's Shift/Date selector.
+  const [targetMode, setTargetMode] = useState<"current" | "past">("current");
+  const [targetShiftId, setTargetShiftId] = useState("");
+  const closedShifts = [...state.shifts]
+    .filter((s) => s.closedAt !== null)
+    .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+
   const material = state.materials.find((m) => m.id === materialId);
   const total = (parseFloat(qty) || 0) * (parseFloat(unitCost) || 0);
 
   const reset = () => {
     setMaterialId(""); setQty(""); setUnitCost(""); setSupplierId(""); setDescription(""); setPaymentStatus("paid"); setPaymentSource("");
+    setTargetMode("current"); setTargetShiftId("");
   };
 
   const submit = async () => {
     setResult(null);
     if (!materialId || !qty || !unitCost) { setResult({ kind: "err", text: "Material, quantity, and unit cost are required." }); return; }
     if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
+    if (isAdmin && targetMode === "past" && !targetShiftId) { setResult({ kind: "err", text: "Select which closed shift this purchase belongs to." }); return; }
     setSubmitting(true);
     try {
       const res = await submitPurchase({
@@ -192,11 +203,14 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         description,
         paymentStatus,
         paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
+        targetShiftId: isAdmin && targetMode === "past" ? targetShiftId : undefined,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
         kind: "ok",
-        text: res.status === "approved"
+        text: isAdmin && targetMode === "past"
+          ? `Backdated — ${fmtMoney(total)} added to that closed shift's inventory/expenses, and its expected cash/discrepancy was recalculated.`
+          : res.status === "approved"
           ? paymentStatus === "unpaid"
             ? `Approved instantly — ${fmtMoney(total)} added to inventory, recorded as unpaid until settled.`
             : `Approved instantly — ${fmtMoney(total)} added to inventory.`
@@ -214,6 +228,54 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
 
   return (
     <div>
+      {isAdmin && (
+        <div className="mb-4">
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Shift / Date</label>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => { setTargetMode("current"); setTargetShiftId(""); }}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                targetMode === "current"
+                  ? "bg-[oklch(0.78_0.2_155/0.2)] border-[oklch(0.78_0.2_155/0.6)] text-[oklch(0.78_0.2_155)]"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Current Active Shift
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetMode("past")}
+              className={`text-sm font-semibold py-2.5 px-3 rounded-lg border transition ${
+                targetMode === "past"
+                  ? "bg-black/20 border-black/60 text-white"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              Past Closed Shift / Date
+            </button>
+          </div>
+          {targetMode === "past" && (
+            <div className="mt-2">
+              <select
+                value={targetShiftId}
+                onChange={(e) => setTargetShiftId(e.target.value)}
+                className="w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Select a closed shift...</option>
+                {closedShifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {new Date(s.closedAt ?? 0).toLocaleString()} — {s.cashierUsername} (Shift #{s.id})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-black mt-1.5">
+                Stock still arrives now, but this expense reports under that shift's day, and its expected cash/discrepancy is recalculated immediately.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Material</label>

@@ -48,6 +48,23 @@ function isOperationalExpense(l: LedgerEntry): boolean {
   );
 }
 
+// A settled supplier-account payment (deferred invoice being paid off)
+// is real cash leaving the business, on the day it's actually paid --
+// but a DEFERRED invoice never creates any Ledger entry at all when
+// it's first received (only a cash invoice does), so the only Ledger
+// event that ever exists for that debt is this payment. Previously
+// excluded entirely from Selected Day/Monthly Expenses and Net Profit
+// (kept in its own Monthly Expenses Ledger panel instead) on the
+// reasoning that counting it would double-count the original invoice
+// -- but since the original deferred invoice was never counted
+// anywhere, that left every deferred purchase permanently absent from
+// every P&L figure. Counted here on a cash basis (the day it was
+// actually paid, via its own ts -- these are never backdated, so no
+// expenseDate exists or is needed).
+function isSettledSupplierPayment_(l: LedgerEntry): boolean {
+  return l.type === "supplierPayment";
+}
+
 // This café's confirmed real operating cycle: a "business day" runs
 // 8:00 AM to 7:59:59 AM the next calendar day, not midnight to
 // midnight. A shift that opens at 11 PM and runs until 4 AM belongs
@@ -237,8 +254,18 @@ export function ReportsPage() {
     () => state.ledger.filter(isOperationalExpense).filter((l) => expenseMatchesDay_(l, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate)),
     [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate],
   );
+  // Settled supplier payments for this day, counted toward the total
+  // but kept out of dayExpenseEntries itself -- they're not editable
+  // via the Expenses History row actions (editExpense/deleteExpense
+  // both explicitly reject type "supplierPayment"), and they already
+  // have their own dedicated audit panel (Monthly Expenses Ledger)
+  // below, so they're summed here without duplicating that row list.
+  const daySupplierPayments = useMemo(
+    () => state.ledger.filter(isSettledSupplierPayment_).filter((l) => expenseMatchesDay_(l, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate)),
+    [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate],
+  );
   const dayRevenue = daySessions.reduce((a, s) => a + s.total, 0);
-  const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0);
+  const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0) + daySupplierPayments.reduce((a, l) => a + Number(l.amount), 0);
   const dayNetProfit = dayRevenue - dayExpensesTotal;
 
   // Material Consumption, linked to the SAME date picker as Total
@@ -1057,8 +1084,15 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   // already includes procurement/supplier invoices (the source of
   // COGS), so this deliberately does NOT add a separate COGS term
   // below -- doing so would double-count the same raw-material spend.
+  // Also includes settled supplier-account payments (deferred invoices
+  // paid off this month) — see isSettledSupplierPayment_ for why these
+  // have to be counted here on a cash basis, on pain of a deferred
+  // purchase's cost never appearing in Net Profit at all.
   const totalExpenses = useMemo(
-    () => state.ledger.filter(isOperationalExpense)
+    () => [
+      ...state.ledger.filter(isOperationalExpense),
+      ...state.ledger.filter(isSettledSupplierPayment_),
+    ]
       .filter((l) => expenseMatchesMonth_(l, monthShiftIds, monthStart, monthEnd, selectedMonth))
       .reduce((a, l) => a + Number(l.amount), 0),
     [state.ledger, monthShiftIds, monthStart, monthEnd, selectedMonth],

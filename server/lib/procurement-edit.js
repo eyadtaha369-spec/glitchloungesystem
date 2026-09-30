@@ -7,6 +7,11 @@
 // already been partially consumed would either go negative or
 // silently misstate what's actually in stock.
 
+// Same reasoning as supplier-invoices.js: invoiceDate is a plain
+// calendar date, not a real timestamp, so use the direct Cairo-pinned
+// read, not the grace-window-shifted one.
+const { formatDateLabel_ } = require("./shifts");
+
 function findLinkedBatch(readObjects_, ledgerId) {
   return readObjects_("Batches").find((b) => b.ledgerId === ledgerId) || null;
 }
@@ -188,7 +193,14 @@ function bizUpdateSupplierInvoice_(deps, body) {
   const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
   if (linkedLedgerId) {
     const ledgerPatch = { amount: totalAmount };
-    if (body.invoiceDate !== undefined) ledgerPatch.ts = body.invoiceDate;
+    if (body.invoiceDate !== undefined) {
+      ledgerPatch.ts = body.invoiceDate;
+      // Keep expenseDate in lockstep with ts -- otherwise Reports.tsx's
+      // day/month matching (which prefers expenseDate over ts whenever
+      // it's set) would keep showing this under the OLD date even after
+      // the invoice date was corrected here.
+      ledgerPatch.expenseDate = formatDateLabel_(body.invoiceDate);
+    }
     if (body.description !== undefined) ledgerPatch.description = body.description;
     if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;
     updateObjectById_("Ledger", linkedLedgerId, ledgerPatch);

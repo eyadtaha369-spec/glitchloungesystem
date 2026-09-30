@@ -9,6 +9,15 @@
 // else stays correct); deferred ones don't touch the Ledger at all,
 // only the supplier's running balance.
 
+// Deliberately formatDateLabel_ (a direct Cairo-pinned calendar read),
+// NOT businessDayLabelForTs_ (which also subtracts the 7.5-hour grace
+// window) -- the admin picks a plain calendar date here (a <input
+// type="date">, no time-of-day at all), not a real event timestamp, so
+// applying the grace-window shift would push a plain midnight value
+// back onto the PREVIOUS calendar day, one off from what was actually
+// selected.
+const { formatDateLabel_ } = require("./shifts");
+
 function bizSubmitPurchaseInvoice_(deps, body) {
   const { readObjects_, appendObject_, updateObjectById_, newId_ } = deps;
   const items = Array.isArray(body.items) ? body.items : [];
@@ -77,6 +86,14 @@ function bizSubmitPurchaseInvoice_(deps, body) {
       supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
       paidFromDrawer: paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
       qty: null, unitCost: null, paymentSource, paymentStatus: "paid",
+      // The admin already picks an explicit Invoice Date on this form
+      // (which can be any past date, not just "today") -- that's the
+      // authoritative source of which business day this expense belongs
+      // to, so it's used directly here instead of "now"/the active
+      // shift's day. Before this field existed, a backdated cash invoice
+      // silently reported under today regardless of the date the admin
+      // actually picked.
+      expenseDate: formatDateLabel_(Number(body.invoiceDate) || now),
     });
   }
 

@@ -4600,6 +4600,11 @@ function submitPurchaseInvoice_(body) {
       supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
       paidFromDrawer: paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
       qty: null, unitCost: null, paymentSource: paymentSource, paymentStatus: "paid",
+      // The admin already picks an explicit Invoice Date on this form
+      // (any past date, not just "today") -- that's the authoritative
+      // source of which business day this expense belongs to, used
+      // directly here instead of "now"/the active shift's day.
+      expenseDate: formatDateLabel_(Number(body.invoiceDate) || now),
     });
   }
 
@@ -5018,7 +5023,12 @@ function updateSupplierInvoice_(body) {
   const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
   if (linkedLedgerId) {
     const ledgerPatch = { amount: totalAmount };
-    if (body.invoiceDate !== undefined) ledgerPatch.ts = body.invoiceDate;
+    if (body.invoiceDate !== undefined) {
+      ledgerPatch.ts = body.invoiceDate;
+      // Keep expenseDate in lockstep with ts -- see the matching
+      // comment on the local server's version of this function.
+      ledgerPatch.expenseDate = formatDateLabel_(body.invoiceDate);
+    }
     if (body.description !== undefined) ledgerPatch.description = body.description;
     if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;
     updateObjectById_("Ledger", linkedLedgerId, ledgerPatch);
@@ -5187,32 +5197,62 @@ function handleSubmitPurchase_(body) {
     }
   }
 
+  // Admin-only backdating, mirroring submitBackdatedExpense exactly: a
+  // raw-material purchase logged after the fact against an
+  // already-closed shift, so it reports under that historical day
+  // instead of today's.
+  let targetShift = null;
+  if (body.targetShiftId) {
+    try {
+      requireRole_(body.username, ["admin"]);
+    } catch (err) {
+      return json_({ ok: false, error: String(err) });
+    }
+    targetShift = readObjects_("Shifts").find(function (sh) { return sh.id === body.targetShiftId; });
+    if (!targetShift) return json_({ ok: false, error: "Shift not found." });
+    if (!targetShift.closedAt) return json_({ ok: false, error: "That shift is still open — use the normal purchase form instead, not backdating." });
+  }
+
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const amount = Number(body.qty) * Number(body.unitCost);
     const isAdmin = role === "admin";
+    const ts = targetShift ? targetShift.closedAt - 1000 : Date.now();
     const entry = {
       id: newId_("ledg"),
-      ts: Date.now(),
+      ts: ts,
       amount: amount,
       direction: "outflow",
       type: body.purchaseType, // "stockedBatch" | "dailyFresh" | "midShiftPurchase"
       category: body.category || "Procurement",
-      description: body.description || "",
+      description: (body.description || "") + (targetShift ? " (backdated)" : ""),
       supplierId: body.supplierId || null,
       staffUsername: body.username,
-      status: isAdmin ? "approved" : "pending",
+      status: targetShift ? "approved" : (isAdmin ? "approved" : "pending"),
       receiptUrl: receiptUrl,
       paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       paymentSource: paymentSource,
       paymentStatus: paymentStatus,
-      shiftId: body.shiftId || null,
+      shiftId: targetShift ? targetShift.id : (body.shiftId || null),
       materialId: body.materialId,
       qty: body.qty,
       unitCost: body.unitCost,
+      backdated: !!targetShift,
+      // Bound to the shift this purchase actually belongs to (current
+      // active, or the backdated target) via expenseDateForShift_, not
+      // recomputed from "now" -- see the matching comment on
+      // handleSubmitExpense_.
+      expenseDate: expenseDateForShift_(targetShift ? targetShift.id : body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
+
+    if (targetShift) {
+      const purchaseRecalcResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), targetShift);
+      if (purchaseRecalcResult.ok) {
+        updateObjectById_("Shifts", targetShift.id, { expectedCash: purchaseRecalcResult.after.expectedCash, discrepancy: purchaseRecalcResult.after.discrepancy });
+      }
+    }
 
     if (isAdmin) {
       // The material physically arrives either way — receiving it on

@@ -173,6 +173,9 @@ export const submitPurchaseFn = createServerFn({ method: "POST" })
     shiftId?: string | null;
     receiptBase64?: string;
     receiptMimeType?: string;
+    // Admin-only: backdate this purchase into an already-closed shift
+    // instead of the current active one, mirroring submitBackdatedExpense.
+    targetShiftId?: string;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
