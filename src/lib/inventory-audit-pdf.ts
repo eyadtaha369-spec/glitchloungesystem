@@ -25,14 +25,15 @@ function statusFor(s: StockItem): { label: string; labelAr: string; color: strin
   return { label: "Available", labelAr: "متوفر", color: "#16a34a" };
 }
 
+const FONT_LINK_ID = "inventory-audit-pdf-font";
+
 // Loads the Arabic-capable web font and waits until the browser has it
 // ready, so the html2canvas snapshot taken right after doesn't fall back
 // to tofu boxes for the first frame.
 async function ensureArabicFontLoaded(): Promise<void> {
-  const linkId = "inventory-audit-pdf-font";
-  if (!document.getElementById(linkId)) {
+  if (!document.getElementById(FONT_LINK_ID)) {
     const link = document.createElement("link");
-    link.id = linkId;
+    link.id = FONT_LINK_ID;
     link.rel = "stylesheet";
     link.href = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap";
     document.head.appendChild(link);
@@ -45,6 +46,24 @@ async function ensureArabicFontLoaded(): Promise<void> {
     // Best-effort — if the font fails to load (offline, blocked), the
     // report still generates with the browser's default fallback fonts.
   }
+}
+
+// html2canvas (inside html2pdf.js) can't parse modern CSS color functions
+// — oklch(), color-mix(), lab()/lch() — and this app's own global
+// stylesheet uses oklch() everywhere for its theme. html2canvas throws
+// outright ("unsupported color function oklch") rather than skipping
+// those rules, even though none of that CSS is actually needed here:
+// every element this report renders is styled with plain inline hex
+// colors. Stripping every external stylesheet/<style> tag from the
+// CLONE html2canvas renders from (never the live page) removes the only
+// source of oklch() it would ever encounter, while the Google Fonts
+// <link> (matched by id) is kept so Arabic text still renders with Cairo.
+function stripUnsupportedStyles(clonedDoc: Document): void {
+  clonedDoc.querySelectorAll("link[rel='stylesheet'], style").forEach((el) => {
+    if (el.id === FONT_LINK_ID) return;
+    el.remove();
+  });
+  if (clonedDoc.body) clonedDoc.body.style.backgroundColor = "#ffffff";
 }
 
 function escapeHtml(s: string): string {
@@ -171,7 +190,7 @@ export async function generateInventoryAuditReportPdf({ stock, cashRecon }: Gene
         margin: 20,
         filename: `Inventory_Audit_Report_${dateLabel}.pdf`,
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", onclone: stripUnsupportedStyles },
         jsPDF: { unit: "pt", format: "a4", orientation: "landscape" },
       })
       .from(container)
