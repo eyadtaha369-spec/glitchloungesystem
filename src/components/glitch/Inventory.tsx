@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, STOCK_AUDIT_VARIANCE_REASON_LABELS, MODIFIER_GROUPS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot, type StockAuditVarianceReason } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
+import { generateInventoryAuditReportPdf } from "@/lib/inventory-audit-pdf";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
 
 export function InventoryPage() {
@@ -121,7 +122,7 @@ export function InventoryPage() {
       </div>
 
       {/* Stock inventory */}
-      <InventoryAuditReportButton />
+      <InventoryAuditReportButton expected={expectedToday} actual={state.actualCashInput} discrepancy={discrepancy} />
       <InventorySection />
       <InventoryResetPanel />
 
@@ -233,95 +234,35 @@ function EmergencyResetPanel({ activeShift, forceEndShift }: {
   );
 }
 
-function InventoryAuditReportButton() {
+function InventoryAuditReportButton({ expected, actual, discrepancy }: { expected: number; actual: number; discrepancy: number }) {
   const { state } = useStore();
+  const [generating, setGenerating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
+    setGenerating(true);
+    setErr(null);
+    try {
+      await generateInventoryAuditReportPdf({ stock: state.stock, cashRecon: { expected, actual, discrepancy } });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not generate the PDF — please try again.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
-    <div className="flex justify-end">
+    <div className="flex flex-col items-end gap-1.5">
       <button
-        onClick={() => printInventoryAuditReport(state)}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
+        onClick={() => void run()}
+        disabled={generating}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] text-sm font-semibold shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)] disabled:opacity-60"
       >
-        <FileBarChart className="w-4 h-4" /> Generate Inventory Audit Report
+        <FileBarChart className="w-4 h-4" /> {generating ? "Generating PDF..." : "Generate Inventory Audit Report"}
       </button>
+      {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
     </div>
   );
-}
-
-function printInventoryAuditReport(state: ReturnType<typeof useStore>["state"]) {
-  const win = window.open("", "_blank", "width=900,height=1200");
-  if (!win) return;
-  const today = new Date().toLocaleString();
-
-  const rows = state.stock.map((s) => {
-    const totalRestocked = state.restockLog.filter((r) => r.materialId === s.id).reduce((a, r) => a + r.qtyAdded, 0);
-    // initialStock is the true lifetime total ever added (Procurement +
-    // Restock's new-quantity portions, carryover never double-counted).
-    // Starting Stock = whatever existed before any Restock-button events.
-    const startingStock = Math.max(0, s.initialStock - totalRestocked);
-    return {
-      name: s.name, unit: s.unit, startingStock,
-      totalRestocked, totalConsumed: s.used, remaining: s.remaining, unitCost: s.unitCost,
-      valueOnHand: s.totalValue, valueConsumed: Math.round(s.used * s.unitCost * 100) / 100,
-    };
-  });
-  const totalOnHand = rows.reduce((a, r) => a + r.valueOnHand, 0);
-  const totalConsumedValue = rows.reduce((a, r) => a + r.valueConsumed, 0);
-
-  const recentRestocks = state.restockLog.slice(0, 50);
-
-  win.document.write(`
-<!DOCTYPE html><html><head><title>Inventory Audit Report</title>
-<style>
-  body { font-family: ui-sans-serif, system-ui, sans-serif; padding: 32px; color: #111; }
-  h1 { margin: 0 0 4px; letter-spacing: 4px; }
-  .sub { color: #666; text-transform: uppercase; letter-spacing: 3px; font-size: 11px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-  th, td { border-bottom: 1px solid #ddd; padding: 7px; font-size: 12px; text-align: left; }
-  th { background: #f5f5f5; text-transform: uppercase; letter-spacing: 1px; font-size: 9px; }
-  .totals { margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px; }
-  .totals div { display: flex; justify-content: space-between; padding: 4px 0; font-family: ui-monospace, monospace; }
-  .grand { font-weight: bold; border-top: 2px solid #111; margin-top: 6px; padding-top: 8px !important; font-size: 14px; }
-</style></head><body>
-<h1>GLITCH LOUNGE</h1>
-<div class="sub">Inventory Valuation &amp; Audit Report — ${today}</div>
-<div class="totals">
-  <div><span>Total Value On Hand</span><span>${totalOnHand.toFixed(2)} EGP</span></div>
-  <div class="grand"><span>Lifetime Value Consumed</span><span>${totalConsumedValue.toFixed(2)} EGP</span></div>
-</div>
-<h3 style="margin-top:24px">Stock Valuation by Material</h3>
-<table>
-  <thead><tr><th>Material</th><th>Starting</th><th>Restocked</th><th>Consumed</th><th>Remaining</th><th>Unit Cost</th><th>Value On Hand</th><th>Value Consumed</th></tr></thead>
-  <tbody>
-    ${rows.map((r) => `<tr>
-      <td>${r.name}</td>
-      <td>${r.startingStock} ${r.unit}</td>
-      <td>${r.totalRestocked} ${r.unit}</td>
-      <td>${r.totalConsumed} ${r.unit}</td>
-      <td>${r.remaining} ${r.unit}</td>
-      <td>${r.unitCost.toFixed(2)} EGP</td>
-      <td>${r.valueOnHand.toFixed(2)} EGP</td>
-      <td>${r.valueConsumed.toFixed(2)} EGP</td>
-    </tr>`).join("")}
-  </tbody>
-</table>
-<h3 style="margin-top:24px">Recent Restock Activity (User Log)</h3>
-<table>
-  <thead><tr><th>Time</th><th>Material</th><th>Qty Added</th><th>Carryover</th><th>New Total</th><th>Unit Cost</th><th>Performed By</th></tr></thead>
-  <tbody>
-    ${recentRestocks.map((r) => `<tr>
-      <td>${new Date(r.ts).toLocaleString()}</td>
-      <td>${r.materialName}</td>
-      <td>+${r.qtyAdded}</td>
-      <td>${r.carryoverAdded}</td>
-      <td>${r.newTotal}</td>
-      <td>${r.unitCost.toFixed(2)} EGP</td>
-      <td>${r.performedBy}</td>
-    </tr>`).join("") || "<tr><td colspan=7>No restocks logged yet</td></tr>"}
-  </tbody>
-</table>
-<script>window.onload = () => setTimeout(() => { if (window.electronAPI) { window.electronAPI.printSilent({ deviceName: localStorage.getItem("glitch-preferred-printer") || "" }).catch(() => window.print()); } else { window.print(); } }, 300);</script>
-</body></html>`);
-  win.document.close();
 }
 
 function InventoryResetPanel() {
