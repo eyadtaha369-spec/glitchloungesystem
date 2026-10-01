@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useStore, fmtMoney } from "@/lib/glitch-store";
+import { useStore, fmtMoney, computeMenuItemCost } from "@/lib/glitch-store";
 import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
+import { generateMonthlyAuditReportPdf, type MonthlyAuditFinancials, type MonthlyAuditItemRow } from "@/lib/monthly-audit-report-pdf";
 import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
@@ -146,6 +147,83 @@ function expenseMatchesMonth_(l: LedgerEntry, monthShiftIds: Set<string>, from: 
   if (l.expenseDate) return l.expenseDate.slice(0, 7) === monthStr;
   if (l.shiftId) return monthShiftIds.has(l.shiftId);
   return l.ts >= from && l.ts <= to;
+}
+
+// Same business-day month range as MonthlyReconciliationDashboard
+// below, extracted as a standalone function so the Monthly Audit
+// Report (which needs the same range for two fixed months, August and
+// September 2026, rather than one admin-picked month) doesn't
+// duplicate the day-1-through-last-day math independently.
+function monthBusinessDayBounds(monthStr: string): { from: number; to: number } {
+  const [y, m] = monthStr.split("-").map(Number);
+  const firstDay = `${monthStr}-01`;
+  const lastDayNum = new Date(y, m, 0).getDate();
+  const lastDay = `${monthStr}-${String(lastDayNum).padStart(2, "0")}`;
+  return { from: businessDayBounds(firstDay).from, to: businessDayBounds(lastDay).to };
+}
+
+// Identical revenue/expense/net-profit logic to
+// MonthlyReconciliationDashboard (same inclusions: operational
+// expenses + settled supplier payments + approved fixed monthly
+// costs, all business-day/shift-first scoped) — kept as a plain
+// function here since the Monthly Audit Report below needs it for
+// two specific months at once (for the compare view), not one
+// admin-picked month tied to a single component's own state.
+function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], monthStr: string): MonthlyAuditFinancials {
+  const { from, to } = monthBusinessDayBounds(monthStr);
+  const [y, m] = monthStr.split("-").map(Number);
+  const monthLabel = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const monthShiftIds = new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id));
+  const revenue = filterByBusinessDay(state.sessions, monthShiftIds, from, to).reduce((a, s) => a + s.total, 0);
+  const operationalAndSupplier = [
+    ...state.ledger.filter(isOperationalExpense),
+    ...state.ledger.filter(isSettledSupplierPayment_),
+  ]
+    .filter((l) => expenseMatchesMonth_(l, monthShiftIds, from, to, monthStr))
+    .reduce((a, l) => a + Number(l.amount), 0);
+  const fixedCosts = filterByBusinessDay(
+    state.ledger.filter((l) => l.type === "fixedMonthlyCost" && l.status === "approved"),
+    monthShiftIds, from, to,
+  ).reduce((a, l) => a + Number(l.amount), 0);
+  const expenses = operationalAndSupplier + fixedCosts;
+  return { monthStr, monthLabel, revenue, expenses, netProfit: revenue - expenses };
+}
+
+// Per-item sales aggregated across every session closed in the given
+// month, with COGS computed the same way the rest of the app computes
+// recipe cost (computeMenuItemCost: current ingredient unitCost × recipe
+// qty) — there's no historical per-sale ingredient-cost snapshot stored
+// anywhere, so, consistent with every other cost figure in this app
+// (Dashboard, Inventory), this uses each material's current cost
+// rather than reconstructing what it cost on the exact day of sale.
+function computeItemSalesBreakdown(state: ReturnType<typeof useStore>["state"], monthStr: string): { rows: MonthlyAuditItemRow[]; totalRevenue: number; totalCost: number; totalProfit: number } {
+  const { from, to } = monthBusinessDayBounds(monthStr);
+  const monthShiftIds = new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id));
+  const sessions = filterByBusinessDay(state.sessions, monthShiftIds, from, to);
+
+  const map = new Map<string, { name: string; qty: number; revenue: number }>();
+  sessions.forEach((s) => {
+    s.orders.forEach((o) => {
+      const cur = map.get(o.menuItemId) ?? { name: o.name, qty: 0, revenue: 0 };
+      cur.qty += o.qty;
+      cur.revenue += o.qty * o.price;
+      map.set(o.menuItemId, cur);
+    });
+  });
+
+  const rows: MonthlyAuditItemRow[] = Array.from(map.entries()).map(([menuItemId, v]) => {
+    const item = state.menu.find((m) => m.id === menuItemId);
+    const unitCost = item ? computeMenuItemCost(item, state.stock) : 0;
+    const totalCost = Math.round(unitCost * v.qty * 100) / 100;
+    const revenue = Math.round(v.revenue * 100) / 100;
+    const profit = Math.round((revenue - totalCost) * 100) / 100;
+    const marginPct = revenue > 0 ? Math.round((profit / revenue) * 1000) / 10 : null;
+    return { name: v.name, qty: v.qty, revenue, unitCost, totalCost, profit, marginPct };
+  }).sort((a, b) => b.revenue - a.revenue);
+
+  const totalRevenue = rows.reduce((a, r) => a + r.revenue, 0);
+  const totalCost = rows.reduce((a, r) => a + r.totalCost, 0);
+  return { rows, totalRevenue, totalCost, totalProfit: totalRevenue - totalCost };
 }
 
 function startOfDay(ts: number) {
@@ -337,6 +415,11 @@ export function ReportsPage() {
 
       {/* 1. Financial Reconciliation — top-level monthly overview */}
       <MonthlyReconciliationDashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+
+      {/* 1a. Monthly Financial & Sales Audit Report — fixed to August and
+          September 2026 specifically, independent of the admin-picked
+          month above */}
+      <MonthlyFinancialAuditReport />
 
       {/* 1b. Fixed Monthly Costs — dedicated ledger, directly below
           Financial Reconciliation per explicit request */}
@@ -1170,6 +1253,173 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const AUDIT_MONTHS = ["2026-08", "2026-09"] as const;
+type AuditMonth = (typeof AUDIT_MONTHS)[number];
+
+// Dedicated Monthly Financial & Sales Audit Report — deliberately scoped
+// to exactly Month 8 (August 2026) and Month 9 (September 2026), not a
+// free-pick month selector like Financial Reconciliation above. Shows
+// the same Revenue / Expenses & Purchases / Net Profit summary (with an
+// optional side-by-side comparison of both months), plus a full
+// item-level sales & COGS breakdown table for whichever of the two
+// months is currently selected, and an export button that rasterizes
+// the whole thing into a downloadable PDF (same html2pdf.js approach as
+// the Inventory Audit Report, for reliable Arabic text rendering).
+function MonthlyFinancialAuditReport() {
+  const { state } = useStore();
+  const [auditMonth, setAuditMonth] = useState<AuditMonth>("2026-09");
+  const [compareView, setCompareView] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genErr, setGenErr] = useState<string | null>(null);
+
+  const financialsByMonth = useMemo(
+    () => Object.fromEntries(AUDIT_MONTHS.map((m) => [m, computeMonthFinancials(state, m)])) as Record<AuditMonth, MonthlyAuditFinancials>,
+    [state],
+  );
+  const selectedFinancials = financialsByMonth[auditMonth];
+  const itemBreakdown = useMemo(() => computeItemSalesBreakdown(state, auditMonth), [state, auditMonth]);
+
+  const handleExport = async () => {
+    setGenerating(true);
+    setGenErr(null);
+    try {
+      await generateMonthlyAuditReportPdf({
+        financials: selectedFinancials,
+        items: itemBreakdown.rows,
+        totalRevenue: itemBreakdown.totalRevenue,
+        totalCost: itemBreakdown.totalCost,
+        totalProfit: itemBreakdown.totalProfit,
+      });
+    } catch (e) {
+      setGenErr(e instanceof Error ? e.message : "Could not generate the PDF — please try again.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const financialCard = (f: MonthlyAuditFinancials, highlighted: boolean) => (
+    <div key={f.monthStr} className={`rounded-xl p-5 border ${highlighted ? "border-[oklch(0.7_0.19_260/0.6)] bg-[oklch(0.7_0.19_260/0.06)]" : "border-black/8 bg-white/60"}`}>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground mb-3">{f.monthLabel}</div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue<br /><span dir="rtl" className="normal-case font-normal opacity-70">الإيرادات</span></div>
+          <div className="text-lg font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(f.revenue)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Expenses &amp; Purchases<br /><span dir="rtl" className="normal-case font-normal opacity-70">المصاريف والمشتريات</span></div>
+          <div className="text-lg font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(f.expenses)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Profit<br /><span dir="rtl" className="normal-case font-normal opacity-70">صافي الربح</span></div>
+          <div className={`text-lg font-mono font-black ${f.netProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(f.netProfit)}</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.4)]">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Monthly Financial &amp; Sales Audit Report</h2>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-lg border border-black/10 overflow-hidden">
+            {AUDIT_MONTHS.map((m) => (
+              <button
+                key={m}
+                onClick={() => setAuditMonth(m)}
+                className={`px-3 py-2 text-xs font-bold uppercase tracking-widest ${auditMonth === m ? "bg-[oklch(0.7_0.19_260/0.2)] text-[oklch(0.7_0.19_260)]" : "bg-white/60 text-muted-foreground hover:bg-black/5"}`}
+              >
+                {financialsByMonth[m].monthLabel}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setCompareView((v) => !v)}
+            className={`px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-widest border ${compareView ? "bg-black/15 border-black/50 text-[#2b2416]" : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"}`}
+          >
+            {compareView ? "Hide Comparison" : "Compare Aug vs Sep"}
+          </button>
+          <button
+            onClick={() => void handleExport()}
+            disabled={generating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] text-sm font-semibold disabled:opacity-60"
+          >
+            <FileDown className="w-4 h-4" /> {generating ? "Generating PDF..." : "Download PDF / Print Report"}
+          </button>
+        </div>
+      </div>
+      {genErr && <div className="text-xs text-[oklch(0.62_0.24_25)] mb-2">{genErr}</div>}
+
+      <p className="text-xs text-muted-foreground mb-4">
+        Month 8 (August 2026) and Month 9 (September 2026) only — business-day bound (8 AM to 8 AM), the same
+        definition used everywhere else on this page.
+      </p>
+
+      <div className={`grid gap-4 mb-6 ${compareView ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"}`}>
+        {compareView
+          ? AUDIT_MONTHS.map((m) => financialCard(financialsByMonth[m], m === auditMonth))
+          : financialCard(selectedFinancials, true)}
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+          Item-Level Sales &amp; Cost Breakdown — {selectedFinancials.monthLabel}
+          <span dir="rtl" className="normal-case font-normal opacity-70 ml-2">تقرير مبيعات وتكلفة الأصناف</span>
+        </h3>
+      </div>
+
+      {itemBreakdown.rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No sales recorded in {selectedFinancials.monthLabel}.</div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pt-3 pl-3 pr-3">Item<br /><span dir="rtl" className="normal-case font-normal opacity-70">اسم الصنف</span></th>
+                <th className="pb-2 pt-3 pr-3 text-right">Qty Sold<br /><span dir="rtl" className="normal-case font-normal opacity-70">الكمية</span></th>
+                <th className="pb-2 pt-3 pr-3 text-right">Revenue<br /><span dir="rtl" className="normal-case font-normal opacity-70">إجمالي البيع</span></th>
+                <th className="pb-2 pt-3 pr-3 text-right">Unit Cost<br /><span dir="rtl" className="normal-case font-normal opacity-70">تكلفة الوحدة</span></th>
+                <th className="pb-2 pt-3 pr-3 text-right">Total Cost (COGS)<br /><span dir="rtl" className="normal-case font-normal opacity-70">إجمالي التكلفة</span></th>
+                <th className="pb-2 pt-3 pr-3 text-right">Profit<br /><span dir="rtl" className="normal-case font-normal opacity-70">المكسب</span></th>
+                <th className="pb-2 pt-3 pr-3 text-right">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itemBreakdown.rows.map((r) => (
+                <tr key={r.name} className="border-b border-black/5">
+                  <td className="py-2 pl-3 pr-3 font-semibold">{r.name}</td>
+                  <td className="py-2 pr-3 text-right font-mono">{r.qty}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-[oklch(0.78_0.2_155)]">{fmtMoney(r.revenue)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-muted-foreground">{fmtMoney(r.unitCost)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{fmtMoney(r.totalCost)}</td>
+                  <td className={`py-2 pr-3 text-right font-mono font-bold ${r.profit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(r.profit)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-muted-foreground">{r.marginPct === null ? "—" : `${r.marginPct}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-black/20 font-bold">
+                <td className="py-3 pl-3 pr-3">Total</td>
+                <td className="py-3 pr-3 text-right font-mono">{itemBreakdown.rows.reduce((a, r) => a + r.qty, 0)}</td>
+                <td className="py-3 pr-3 text-right font-mono text-[oklch(0.78_0.2_155)]">{fmtMoney(itemBreakdown.totalRevenue)}</td>
+                <td className="py-3 pr-3"></td>
+                <td className="py-3 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{fmtMoney(itemBreakdown.totalCost)}</td>
+                <td className={`py-3 pr-3 text-right font-mono ${itemBreakdown.totalProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(itemBreakdown.totalProfit)}</td>
+                <td className="py-3 pr-3 text-right font-mono">
+                  {itemBreakdown.totalRevenue > 0 ? `${Math.round((itemBreakdown.totalProfit / itemBreakdown.totalRevenue) * 1000) / 10}%` : "—"}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
