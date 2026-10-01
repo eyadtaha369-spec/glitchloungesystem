@@ -388,7 +388,7 @@ export function ReportsPage() {
 
       {/* 5. Expenses History — this specific date only, same exclusions as
           the KPI card above (no Staff Orders, no voids) */}
-      <ExpensesHistoryPanel selectedReportDate={selectedReportDate} dayExpenseEntries={dayExpenseEntries} isAdmin={isAdmin} />
+      <ExpensesHistoryPanel selectedReportDate={selectedReportDate} dayExpenseEntries={dayExpenseEntries} daySupplierPayments={daySupplierPayments} isAdmin={isAdmin} />
 
       {/* 6. Material Consumption — linked to the SAME date picker as
           Total Revenue by Date, not the Shift selector above */}
@@ -582,19 +582,29 @@ const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
 // the entry belongs to an already-closed shift, and refreshing the
 // Ledger here is what makes Selected Day Expenses/Net Profit update
 // instantly without a page reload.
-function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, isAdmin }: { selectedReportDate: string; dayExpenseEntries: LedgerEntry[]; isAdmin: boolean }) {
-  const { deleteExpense } = useStore();
+function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, daySupplierPayments, isAdmin }: { selectedReportDate: string; dayExpenseEntries: LedgerEntry[]; daySupplierPayments: LedgerEntry[]; isAdmin: boolean }) {
+  const { deleteExpense, deleteSupplierPayment } = useStore();
   const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
+
+  // Settled supplier payments show up here too (Issue 1) so the table
+  // actually reflects what's already counted in Selected Day
+  // Expenses/Net Profit, instead of a total with no rows behind it.
+  // They're not editable (editExpense explicitly rejects this type —
+  // there's nothing to "amend" about a plain settlement) but they ARE
+  // deletable, routed to deleteSupplierPayment instead of deleteExpense
+  // since it's a different table (SupplierPayments + its own Ledger row).
+  const allRows = [...dayExpenseEntries, ...daySupplierPayments];
+  const isPayment = (l: LedgerEntry) => l.type === "supplierPayment";
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     setDeleteErr(null);
     try {
-      const res = await deleteExpense(deleteTarget.id);
+      const res = isPayment(deleteTarget) ? await deleteSupplierPayment(deleteTarget.id) : await deleteExpense(deleteTarget.id);
       if (!res.ok) { setDeleteErr(res.error ?? "Could not delete this entry."); return; }
       setDeleteTarget(null);
     } finally {
@@ -608,7 +618,7 @@ function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, isAdmin }
         <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
         <h2 className="text-lg font-semibold">Expenses History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
       </div>
-      {dayExpenseEntries.length === 0 ? (
+      {allRows.length === 0 ? (
         <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged on this date.</div>
       ) : (
         <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
@@ -624,19 +634,25 @@ function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, isAdmin }
               </tr>
             </thead>
             <tbody>
-              {dayExpenseEntries.sort((a, b) => b.ts - a.ts).map((l) => (
+              {allRows.sort((a, b) => b.ts - a.ts).map((l) => (
                 <tr key={l.id} className="border-b border-black/5">
                   <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
-                  <td className="py-2 pr-3">{l.description || l.category}{l.backdated ? <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.62_0.24_25)]">(backdated)</span> : null}</td>
+                  <td className="py-2 pr-3">
+                    {l.description || l.category}
+                    {l.backdated ? <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.62_0.24_25)]">(backdated)</span> : null}
+                    {isPayment(l) ? <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)]">(supplier payment)</span> : null}
+                  </td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                   <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
                   <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
                   {isAdmin && (
                     <td className="py-2 pr-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button onClick={() => setEditingEntry(l)} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!isPayment(l) && (
+                          <button onClick={() => setEditingEntry(l)} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button onClick={() => { setDeleteTarget(l); setDeleteErr(null); }} title="Delete" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -655,10 +671,10 @@ function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, isAdmin }
       {deleteTarget && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)}>
           <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this expense?</h3>
+            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this {isPayment(deleteTarget) ? "supplier payment" : "expense"}?</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Permanently removes <strong>{deleteTarget.description || deleteTarget.category}</strong> ({fmtMoney(Number(deleteTarget.amount))}).
-              {deleteTarget.shiftId ? " If its shift is already closed, that shift's expected cash and discrepancy will be recalculated immediately." : ""} This can't be undone.
+              {isPayment(deleteTarget) ? " The supplier's outstanding balance goes back up by this amount." : (deleteTarget.shiftId ? " If its shift is already closed, that shift's expected cash and discrepancy will be recalculated immediately." : "")} This can't be undone.
             </p>
             {deleteErr && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{deleteErr}</div>}
             <div className="flex justify-end gap-2">

@@ -52,20 +52,25 @@ function json_(obj) {
 
 // The correct business-day label for an expense: whenever it's tied to
 // a shift (open or closed), that shift's OWN business day always wins
-// -- shift.businessDayId -> BusinessDays.label, fixed once when that
-// business day began -- rather than re-deriving a label from a raw
-// timestamp, which is exactly what let morning expenses drift onto the
-// wrong calendar date. Only falls back to a fresh
-// businessDayLabelForTs_(ts) computation when there's genuinely no
-// shift to anchor to (no shift open at all, or the shift/business-day
-// row can't be found for some reason).
+// -- recomputed fresh from the shift's openedAt via
+// businessDayLabelForTs_, rather than re-deriving a label from the
+// EXPENSE's own raw timestamp, which is exactly what let morning
+// expenses drift onto the wrong calendar date. Deliberately NOT a
+// lookup of the shift's stored BusinessDays.label: that label was
+// fixed in stone the moment the business day opened, so any shift
+// opened before the Cairo-timezone fix (businessDayLabelForTs_ used to
+// read the host process's own timezone) is carrying a label computed
+// by the OLD, buggy logic -- trusting it here would silently
+// reintroduce the exact bug this was meant to fix for every shift that
+// predates the fix. Recomputing from openedAt is also what keeps this
+// in lockstep with Reports.tsx's own reportDayShiftIds, which buckets
+// shifts by openedAt the same way, not by their stored label. Falls
+// back to businessDayLabelForTs_(ts) only when there's no shift to
+// anchor to at all.
 function expenseDateForShift_(shiftId, ts) {
   if (shiftId) {
     const shift = readObjects_("Shifts").find((sh) => sh.id === shiftId);
-    if (shift && shift.businessDayId) {
-      const bd = readObjects_("BusinessDays").find((b) => b.id === shift.businessDayId);
-      if (bd && bd.label) return bd.label;
-    }
+    if (shift) return businessDayLabelForTs_(shift.openedAt);
   }
   return businessDayLabelForTs_(ts);
 }
@@ -1266,8 +1271,9 @@ Object.assign(handlers, {
       shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
       paymentSource, paymentStatus,
       // Bound to the CURRENT ACTIVE SHIFT's own business day whenever a
-      // shift is open (shift.businessDayId -> BusinessDays.label, set
-      // once when that business day began), not recomputed from "now".
+      // shift is open (recomputed from the shift's openedAt -- see
+      // expenseDateForShift_ above for why that's not a lookup of the
+      // shift's stored BusinessDays.label), not recomputed from "now".
       // A shift stays open across the 8 AM cutover in either direction,
       // so re-deriving the label from a fresh timestamp at submit time
       // can disagree with the shift it's actually being logged into —
@@ -1324,8 +1330,8 @@ Object.assign(handlers, {
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
       shiftId: shift.id, materialId: null, qty: null, unitCost: null,
       paymentSource, paymentStatus, backdated: true,
-      // Bound to the TARGET shift's own business day (shift.businessDayId
-      // -> BusinessDays.label), not recomputed from its close time -- this
+      // Bound to the TARGET shift's own business day (its openedAt, via
+      // expenseDateForShift_), not recomputed from its close time -- this
       // is what makes it show up under the exact historical day it's
       // meant to belong to in Reports.tsx's Expenses History table,
       // instead of silently vanishing into whichever business day happens
