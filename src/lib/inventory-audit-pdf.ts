@@ -1,13 +1,15 @@
-import html2pdf from "html2pdf.js";
 import type { StockItem } from "./types";
+import { renderElementToPdf } from "./render-report-pdf";
 
-// Why html2pdf.js (DOM → canvas → PDF) instead of jsPDF/autotable here:
-// jsPDF's built-in fonts have no Arabic glyphs at all, and getting Arabic
-// to render correctly with jsPDF requires manually embedding a shaped
-// Arabic font as base64 — brittle and heavy. html2pdf.js rasterizes real
-// rendered HTML through the browser's own text engine, so Arabic item
-// names (زبادي، عسل، إلخ) and mixed RTL/LTR lines render exactly as the
-// browser shapes them, for free, using a web font we load up front.
+// Why html2canvas (DOM → canvas → PDF, via render-report-pdf.ts) instead
+// of jsPDF/autotable here: jsPDF's built-in fonts have no Arabic glyphs
+// at all, and getting Arabic to render correctly with jsPDF requires
+// manually embedding a shaped Arabic font as base64 — brittle and heavy.
+// Rasterizing real rendered HTML through the browser's own text engine
+// means Arabic item names (زبادي، عسل، إلخ) and mixed RTL/LTR lines
+// render exactly as the browser shapes them, for free, using a web font
+// loaded up front. See render-report-pdf.ts for why this calls
+// html2canvas directly rather than going through html2pdf.js.
 
 export interface InventoryAuditCashRecon {
   expected: number;
@@ -48,24 +50,6 @@ async function ensureArabicFontLoaded(): Promise<void> {
   }
 }
 
-// html2canvas (inside html2pdf.js) can't parse modern CSS color functions
-// — oklch(), color-mix(), lab()/lch() — and this app's own global
-// stylesheet uses oklch() everywhere for its theme. html2canvas throws
-// outright ("unsupported color function oklch") rather than skipping
-// those rules, even though none of that CSS is actually needed here:
-// every element this report renders is styled with plain inline hex
-// colors. Stripping every external stylesheet/<style> tag from the
-// CLONE html2canvas renders from (never the live page) removes the only
-// source of oklch() it would ever encounter, while the Google Fonts
-// <link> (matched by id) is kept so Arabic text still renders with Cairo.
-function stripUnsupportedStyles(clonedDoc: Document): void {
-  clonedDoc.querySelectorAll("link[rel='stylesheet'], style").forEach((el) => {
-    if (el.id === FONT_LINK_ID) return;
-    el.remove();
-  });
-  if (clonedDoc.body) clonedDoc.body.style.backgroundColor = "#ffffff";
-}
-
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -96,7 +80,7 @@ export async function generateInventoryAuditReportPdf({ stock, cashRecon }: Gene
   const totalStockValue = rows.reduce((a, r) => a + r.stockValue, 0);
 
   const container = document.createElement("div");
-  container.style.position = "fixed";
+  container.style.position = "absolute";
   container.style.left = "-10000px";
   container.style.top = "0";
   container.style.width = "1100px";
@@ -185,16 +169,10 @@ export async function generateInventoryAuditReportPdf({ stock, cashRecon }: Gene
   document.body.appendChild(container);
 
   try {
-    await html2pdf()
-      .set({
-        margin: 20,
-        filename: `Inventory_Audit_Report_${dateLabel}.pdf`,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", onclone: stripUnsupportedStyles },
-        jsPDF: { unit: "pt", format: "a4", orientation: "landscape" },
-      })
-      .from(container)
-      .save();
+    await renderElementToPdf(container, `Inventory_Audit_Report_${dateLabel}.pdf`, {
+      keepStyleId: FONT_LINK_ID,
+      orientation: "landscape",
+    });
   } finally {
     container.remove();
   }

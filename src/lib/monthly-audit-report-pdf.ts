@@ -1,9 +1,11 @@
-import html2pdf from "html2pdf.js";
+import { renderElementToPdf } from "./render-report-pdf";
 
-// Same approach as inventory-audit-pdf.ts: html2pdf.js rasterizes real
-// rendered HTML through the browser's own text engine, so Arabic column
+// Same approach as inventory-audit-pdf.ts: rasterizing real rendered
+// HTML through the browser's own text engine means Arabic column
 // headers and (if a menu item is named in Arabic) item names render
 // correctly without needing a manually embedded Arabic font for jsPDF.
+// See render-report-pdf.ts for why this calls html2canvas directly
+// rather than going through html2pdf.js.
 
 export interface MonthlyAuditFinancials {
   monthStr: string; // "2026-08"
@@ -54,24 +56,6 @@ async function ensureArabicFontLoaded(): Promise<void> {
   }
 }
 
-// html2canvas (inside html2pdf.js) can't parse modern CSS color functions
-// — oklch(), color-mix(), lab()/lch() — and this app's own global
-// stylesheet uses oklch() everywhere for its theme. html2canvas throws
-// outright ("unsupported color function oklch") rather than skipping
-// those rules, even though none of that CSS is actually needed here:
-// every element this report renders is styled with plain inline hex
-// colors. Stripping every external stylesheet/<style> tag from the
-// CLONE html2canvas renders from (never the live page) removes the only
-// source of oklch() it would ever encounter, while the Google Fonts
-// <link> (matched by id) is kept so Arabic text still renders with Cairo.
-function stripUnsupportedStyles(clonedDoc: Document): void {
-  clonedDoc.querySelectorAll("link[rel='stylesheet'], style").forEach((el) => {
-    if (el.id === FONT_LINK_ID) return;
-    el.remove();
-  });
-  if (clonedDoc.body) clonedDoc.body.style.backgroundColor = "#ffffff";
-}
-
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -83,7 +67,7 @@ export async function generateMonthlyAuditReportPdf({ financials, items, totalRe
   const marginPct = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 1000) / 10 : null;
 
   const container = document.createElement("div");
-  container.style.position = "fixed";
+  container.style.position = "absolute";
   container.style.left = "-10000px";
   container.style.top = "0";
   container.style.width = "1100px";
@@ -166,16 +150,10 @@ export async function generateMonthlyAuditReportPdf({ financials, items, totalRe
   document.body.appendChild(container);
 
   try {
-    await html2pdf()
-      .set({
-        margin: 20,
-        filename: `Monthly_Audit_Report_${financials.monthStr}.pdf`,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", onclone: stripUnsupportedStyles },
-        jsPDF: { unit: "pt", format: "a4", orientation: "landscape" },
-      })
-      .from(container)
-      .save();
+    await renderElementToPdf(container, `Monthly_Audit_Report_${financials.monthStr}.pdf`, {
+      keepStyleId: FONT_LINK_ID,
+      orientation: "landscape",
+    });
   } finally {
     container.remove();
   }
