@@ -468,6 +468,10 @@ export function ReportsPage() {
           export; every row still opens the full check via ReceiptModal */}
       <OrderHistoryPanel isAdmin={isAdmin} onViewCheck={setViewingCheck} />
 
+      {/* 4a. Monthly Itemized Sales Quantity Report — every menu item sold
+          in a selected calendar month, aggregated by item */}
+      <MonthlyItemSalesPanel />
+
       {/* 5. Expenses History — its own independent date-range picker and
           PDF export, same exclusions as before (no Staff Orders, no voids) */}
       <ExpensesHistoryPanel isAdmin={isAdmin} />
@@ -774,6 +778,150 @@ function OrderHistoryPanel({ isAdmin, onViewCheck }: { isAdmin: boolean; onViewC
       )}
 
       {moveTarget && <MoveOrderModal session={moveTarget} onClose={() => setMoveTarget(null)} />}
+    </div>
+  );
+}
+
+// One month's itemized sales — every menu item ordered across every
+// checked-out session that business-month, aggregated by item (qty
+// summed, revenue = qty * the price actually charged on each line, so
+// a mid-month price change is still reflected accurately rather than
+// re-priced at today's menu price). Room/table TIME charges are
+// intentionally excluded — Session.orders only ever holds actual menu
+// item lines, never the time charge itself, so this is naturally
+// drink/food/shisha sales only, matching what "Item Sales" means here.
+function MonthlyItemSalesPanel() {
+  const { state } = useStore();
+  const [month, setMonth] = useState(() => cairoDateLabel(Date.now()).slice(0, 7));
+  const [generating, setGenerating] = useState(false);
+
+  const { from, to } = useMemo(() => monthBusinessDayBounds(month), [month]);
+  const monthShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id)),
+    [state.shifts, from, to],
+  );
+  const monthSessions = useMemo(() => filterByBusinessDay(state.sessions, monthShiftIds, from, to), [state.sessions, monthShiftIds, from, to]);
+  const menuById = useMemo(() => new Map(state.menu.map((m) => [m.id, m])), [state.menu]);
+
+  const itemRows = useMemo(() => {
+    const agg = new Map<string, { name: string; category: string; qty: number; revenue: number }>();
+    for (const s of monthSessions) {
+      for (const line of s.orders) {
+        // Group by menuItemId when present (stable across a rename);
+        // falls back to the line's own name for any legacy line with
+        // no id, so nothing silently drops out of the totals.
+        const key = line.menuItemId || line.name;
+        const category = menuById.get(line.menuItemId)?.category ?? "—";
+        const revenue = line.qty * line.price;
+        const existing = agg.get(key);
+        if (existing) {
+          existing.qty += line.qty;
+          existing.revenue += revenue;
+        } else {
+          agg.set(key, { name: line.name, category, qty: line.qty, revenue });
+        }
+      }
+    }
+    return Array.from(agg.values()).sort((a, b) => b.qty - a.qty);
+  }, [monthSessions, menuById]);
+
+  const totals = useMemo(() => ({
+    totalQty: itemRows.reduce((a, r) => a + r.qty, 0),
+    totalRevenue: itemRows.reduce((a, r) => a + r.revenue, 0),
+    distinctItems: itemRows.length,
+  }), [itemRows]);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      const monthLabel = formatMonthYearLabel(month);
+      const [y, m] = month.split("-").map(Number);
+      const lastDayNum = new Date(y, m, 0).getDate();
+      const startDate = `${month}-01`;
+      const endDate = `${month}-${String(lastDayNum).padStart(2, "0")}`;
+
+      await generateSectionReportPdf({
+        sectionTitle: "Monthly Itemized Sales Quantity Report",
+        sectionTitleAr: "تقرير إجمالي الكميات المباعة شهريًا",
+        rangeLabel: monthLabel,
+        columns: [
+          { header: "Item Name" },
+          { header: "Category" },
+          { header: "Total Quantity Sold", align: "right" },
+          { header: "Total Revenue (EGP)", align: "right" },
+        ],
+        rows: itemRows.map((r) => [r.name, r.category, r.qty, fmtMoney(r.revenue)]),
+        summaryLines: [
+          { label: "Distinct Items", value: String(totals.distinctItems) },
+          { label: "Total Quantity Sold", value: String(totals.totalQty) },
+          { label: "Total Revenue", value: fmtMoney(totals.totalRevenue) },
+        ],
+        startDate,
+        endDate,
+        filename: `Monthly_Item_Sales_${month}.pdf`,
+        emptyMessage: "No items sold in this month.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Monthly Itemized Sales Quantity Report — {formatMonthYearLabel(month)}</h2>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input
+            type="month" value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+          />
+          <button
+            onClick={() => void handleGeneratePdf()}
+            disabled={generating}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-50"
+          >
+            <FileDown className="w-3.5 h-3.5" /> {generating ? "Generating..." : "Download Monthly Item Sales PDF"}
+          </button>
+        </div>
+      </div>
+
+      {itemRows.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No items sold in this month.</div>
+      ) : (
+        <>
+          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground mb-3">
+            <span>{totals.distinctItems} items</span>
+            <span>{totals.totalQty} total units sold</span>
+            <span>{fmtMoney(totals.totalRevenue)} total revenue</span>
+          </div>
+          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                  <th className="pb-2 pt-3 pl-3 pr-3">Item Name</th>
+                  <th className="pb-2 pt-3 pr-3">Category</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Total Qty Sold</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Total Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemRows.map((r) => (
+                  <tr key={r.name} className="border-b border-black/5">
+                    <td className="py-2 pl-3 pr-3 font-semibold">{r.name}</td>
+                    <td className="py-2 pr-3 text-muted-foreground">{r.category}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{r.qty}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{fmtMoney(r.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
