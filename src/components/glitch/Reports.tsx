@@ -488,6 +488,11 @@ export function ReportsPage() {
           independent date-range picker and PDF export */}
       <MonthlyExpensesLedger />
 
+      {/* 8a. Reopen Check Audit & Modifications Report — admin-only,
+          reads the structured CHECK_REOPENED / CHECK_REOPEN_RESOLVED
+          audit log entries */}
+      <ReopenCheckAuditPanel />
+
       {/* 9. Shift History */}
       <MonthlyShiftsExportPanel />
       <ShiftHistoryPanel />
@@ -2558,6 +2563,191 @@ function MonthlyShiftsExportPanel() {
       <div className="text-xs text-muted-foreground font-mono">
         {rows.length} shift{rows.length === 1 ? "" : "s"} opened in {formatMonthYearLabel(month)} · Aggregate Revenue {fmtMoney(monthlyTotals.aggregateRevenue)} · Aggregate Expenses {fmtMoney(monthlyTotals.aggregateExpenses)}
       </div>
+    </div>
+  );
+}
+
+function safeJsonParse_<T = Record<string, unknown>>(s: string | undefined): T | null {
+  if (!s) return null;
+  try { return JSON.parse(s) as T; } catch { return null; }
+}
+
+interface ReopenedCheckSnapshot {
+  sessionId: string; orderNumber: number; roomName: string; total: number;
+  orders: { menuItemId: string; name: string; qty: number; price: number }[]; endedAt: number;
+}
+interface ReopenResolvedAfter {
+  sessionId: string; orderNumber: number; total: number;
+  orders: { menuItemId: string; name: string; qty: number; price: number }[];
+  variance: number; changes: string[];
+}
+
+// Pairs every "a check was reopened" audit entry with its eventual "it
+// was closed out again" entry (see bizReopenSession_/the endRoom case
+// handler in Code.gs), matched by the original session's id, which
+// both entries carry in their own `before` snapshot. A reopen with no
+// match yet just means that check hasn't been checked out again since
+// — shown as "Still Open" rather than silently dropped.
+function ReopenCheckAuditPanel() {
+  const { state, refreshActivityLogs } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRange();
+
+  useEffect(() => {
+    if (isAdmin) void refreshActivityLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  const rows = useMemo(() => {
+    const resolvedByOriginalId = new Map<string, { after: ReopenResolvedAfter; resolvedBy: string; resolvedAt: number }>();
+    state.activityLogs.forEach((l) => {
+      if (l.actionType !== "CHECK_REOPEN_RESOLVED") return;
+      const before = safeJsonParse_<{ sessionId: string }>(l.before);
+      const after = safeJsonParse_<ReopenResolvedAfter>(l.after);
+      if (before?.sessionId && after) resolvedByOriginalId.set(before.sessionId, { after, resolvedBy: l.actorUsername, resolvedAt: l.ts });
+    });
+
+    return state.activityLogs
+      .filter((l) => l.actionType === "CHECK_REOPENED" && l.ts >= from && l.ts <= to)
+      .map((l) => {
+        const before = safeJsonParse_<ReopenedCheckSnapshot>(l.before);
+        const resolved = before ? resolvedByOriginalId.get(before.sessionId) : undefined;
+        const originalTotal = before?.total ?? 0;
+        const variance = resolved ? resolved.after.variance : null;
+        return {
+          id: l.id,
+          orderNumber: before?.orderNumber ?? "—",
+          roomName: l.location || "—",
+          reopenedBy: l.actorUsername,
+          reopenedAt: l.ts,
+          originalTotal,
+          updatedTotal: resolved ? resolved.after.total : null,
+          newOrderNumber: resolved ? resolved.after.orderNumber : null,
+          variance,
+          changes: resolved ? resolved.after.changes : [],
+          resolved: !!resolved,
+        };
+      })
+      .sort((a, b) => b.reopenedAt - a.reopenedAt);
+  }, [state.activityLogs, from, to]);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Reopen Check Audit & Modifications Report",
+        rangeLabel,
+        columns: [
+          { header: "Check # / Table" },
+          { header: "Reopened By / When" },
+          { header: "Original Amount", align: "right" },
+          { header: "Updated Amount", align: "right" },
+          { header: "Variance", align: "right" },
+          { header: "Detailed Changes" },
+        ],
+        rows: rows.map((r) => [
+          `#${r.orderNumber} — ${r.roomName}`,
+          `${r.reopenedBy} — ${new Date(r.reopenedAt).toLocaleString()}`,
+          fmtMoney(r.originalTotal),
+          r.resolved ? fmtMoney(r.updatedTotal!) : "Still Open",
+          r.resolved ? `${r.variance! >= 0 ? "+" : ""}${fmtMoney(r.variance!)}` : "—",
+          r.resolved ? (r.changes.length ? r.changes.join("; ") : "No item changes") : "Not yet reclosed",
+        ]),
+        summaryLines: [
+          { label: "Reopened Checks", value: String(rows.length) },
+          { label: "Resolved", value: String(rows.filter((r) => r.resolved).length) },
+          { label: "Still Open", value: String(rows.filter((r) => !r.resolved).length) },
+          { label: "Net Variance", value: `${rows.reduce((a, r) => a + (r.variance ?? 0), 0) >= 0 ? "+" : ""}${fmtMoney(rows.reduce((a, r) => a + (r.variance ?? 0), 0))}` },
+        ],
+        filenameBase: "Reopen_Check_Audit",
+        startDate, endDate,
+        emptyMessage: "No checks were reopened in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (!isAdmin) {
+    return (
+      <div className="glass rounded-2xl p-6">
+        <div className="flex items-center gap-2 mb-2">
+          <AlertTriangle className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Reopen Check Audit & Modifications Report</h2>
+        </div>
+        <div className="text-sm text-muted-foreground font-mono">Admin access required to view this report.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Edit2 className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+          <h2 className="text-lg font-semibold">Reopen Check Audit & Modifications Report — {rangeLabel}</h2>
+        </div>
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No checks were reopened in this date range.</div>
+      ) : (
+        <>
+          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground mb-3">
+            <span>{rows.length} reopened</span>
+            <span>{rows.filter((r) => r.resolved).length} resolved</span>
+            <span>{rows.filter((r) => !r.resolved).length} still open</span>
+          </div>
+          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                  <th className="pb-2 pt-3 pl-3 pr-3">Check # / Table</th>
+                  <th className="pb-2 pt-3 pr-3">Reopened By / When</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Original</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Updated</th>
+                  <th className="pb-2 pt-3 pr-3 text-right">Variance</th>
+                  <th className="pb-2 pt-3 pr-3">Changes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b border-black/5 align-top">
+                    <td className="py-2 pl-3 pr-3 font-mono">
+                      #{r.orderNumber}{r.resolved && r.newOrderNumber ? ` → #${r.newOrderNumber}` : ""}
+                      <div className="text-muted-foreground">{r.roomName}</div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {r.reopenedBy}
+                      <div className="font-mono text-muted-foreground text-xs">{new Date(r.reopenedAt).toLocaleString()}</div>
+                    </td>
+                    <td className="py-2 pr-3 text-right font-mono">{fmtMoney(r.originalTotal)}</td>
+                    <td className="py-2 pr-3 text-right font-mono">
+                      {r.resolved ? fmtMoney(r.updatedTotal!) : <span className="text-[oklch(0.85_0.18_85)] font-bold">Still Open</span>}
+                    </td>
+                    <td className={`py-2 pr-3 text-right font-mono font-bold ${
+                      !r.resolved ? "text-muted-foreground" : r.variance! > 0.005 ? "text-[oklch(0.85_0.18_85)]" : r.variance! < -0.005 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"
+                    }`}>
+                      {r.resolved ? `${r.variance! >= 0 ? "+" : ""}${fmtMoney(r.variance!)}` : "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-xs">
+                      {r.resolved ? (r.changes.length ? r.changes.join("; ") : "No item changes") : <span className="text-muted-foreground">Not yet reclosed</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

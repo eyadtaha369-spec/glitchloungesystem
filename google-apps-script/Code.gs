@@ -389,6 +389,7 @@ const ACTION_RISK = {
   BACKDATED_EXPENSE_LOGGED: "red",
   EXPENSE_EDITED: "red", EXPENSE_DELETED: "red",
   ORDER_MOVED_SHIFT: "red",
+  CHECK_REOPENED: "red", CHECK_REOPEN_RESOLVED: "yellow",
 };
 function riskFor_(actionType) {
   return ACTION_RISK[actionType] || "green";
@@ -842,7 +843,7 @@ function bizTransferOrderItem_(state, sourceRoomId, targetRoomId, menuItemId, qt
 // entirely once reopened (not just hidden), since its revenue is
 // already reflected in past report totals — leaving it in place would
 // double-count it the moment the room is checked out again.
-function bizReopenSession_(state, session) {
+function bizReopenSession_(state, session, username) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before reopening a check.", state: state };
   const room = state.rooms.find(function (r) { return r.id === session.roomId; });
   if (!room) return { ok: false, error: "The original room/table no longer exists.", state: state };
@@ -854,6 +855,19 @@ function bizReopenSession_(state, session) {
   const patch = {
     status: "active", startedAt: newStartedAt, orders: session.orders,
     isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [],
+    // Snapshot of the check exactly as it stood before reopening —
+    // carried on the room (part of the one JSON state blob, so this
+    // persists with no schema change needed) until it's closed out
+    // again. That next "endRoom" call reads this back to log a
+    // CHECK_REOPEN_RESOLVED audit entry with a real old-vs-new diff
+    // (see the endRoom case handler), instead of the reopen only ever
+    // being a bare "was reopened" note with no eventual outcome.
+    // Cleared on the room's next checkout or staff-order close either way.
+    reopenedFrom: {
+      originalSessionId: session.id, originalOrderNumber: session.orderNumber,
+      originalTotal: session.total, originalOrders: session.orders,
+      reopenedBy: username || "unknown", reopenedAt: now,
+    },
   };
   if (room.zone === "room") {
     patch.hourlyRate = room.hourlyRate || room.singleRate || 0;
@@ -866,6 +880,44 @@ function bizReopenSession_(state, session) {
   state.rooms = state.rooms.map(function (r) { return r.id === room.id ? Object.assign({}, r, patch) : r; });
   pushActivity_(state, "Reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction — its prior revenue is removed from totals until it's checked out again.");
   return { ok: true, state: state };
+}
+
+// Pure diff computation for the Reopen Check Audit report: given the
+// snapshot a room carried from bizReopenSession_ (the check as it
+// stood BEFORE reopening) and the freshly-created session from this
+// checkout (the check as it stands AFTER correction), produces the
+// exact before/after/variance/item-change-log the CHECK_REOPEN_RESOLVED
+// audit entry is built from. Kept standalone (no Apps Script globals
+// touched) so it's testable in isolation from the doPost plumbing.
+function computeReopenResolution_(reopenedFrom, newSession, timeSplitAdjustment) {
+  const originalByKey = {};
+  (reopenedFrom.originalOrders || []).forEach(function (o) { originalByKey[o.menuItemId || o.name] = o; });
+  const newByKey = {};
+  (newSession.orders || []).forEach(function (o) { newByKey[o.menuItemId || o.name] = o; });
+
+  const changes = [];
+  Object.keys(newByKey).forEach(function (key) {
+    const now_ = newByKey[key], was = originalByKey[key];
+    if (!was) changes.push(now_.qty + "x " + now_.name + " added");
+    else if (now_.qty !== was.qty) changes.push(now_.name + " qty " + was.qty + " → " + now_.qty);
+  });
+  Object.keys(originalByKey).forEach(function (key) {
+    if (!newByKey[key]) changes.push(originalByKey[key].qty + "x " + originalByKey[key].name + " removed");
+  });
+  if (timeSplitAdjustment) changes.push("time billing adjusted");
+
+  const variance = newSession.total - reopenedFrom.originalTotal;
+  return {
+    before: {
+      sessionId: reopenedFrom.originalSessionId, orderNumber: reopenedFrom.originalOrderNumber,
+      total: reopenedFrom.originalTotal, orders: reopenedFrom.originalOrders,
+      reopenedBy: reopenedFrom.reopenedBy, reopenedAt: reopenedFrom.reopenedAt,
+    },
+    after: {
+      sessionId: newSession.id, orderNumber: newSession.orderNumber, total: newSession.total,
+      orders: newSession.orders, variance: variance, changes: changes,
+    },
+  };
 }
 
 // Flexible Time Extension/Reduction — either add a fixed increment
@@ -1098,7 +1150,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     ),
   };
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0 }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0, reopenedFrom: null }) : r
   );
   // NOTE: the session is NOT added to state.sessions here anymore — it's
   // persisted directly to the dedicated Sessions sheet by the "endRoom"
@@ -1144,7 +1196,7 @@ function bizEndRoomAsStaffOrder_(state, roomId, staffName, frozenAt) {
   state.rooms = state.rooms.map(function (r) {
     return r.id === roomId ? Object.assign({}, r, {
       status: "available", startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
-      isPaused: false, pausedAt: null, pausedDurationSec: 0, transferredFrom: null,
+      isPaused: false, pausedAt: null, pausedDurationSec: 0, transferredFrom: null, reopenedFrom: null,
     }) : r;
   });
   pushActivity_(state, room.name + " closed as Staff Order for " + trimmedName + " — " + totalAmount.toFixed(2) + " EGP (excluded from revenue)");
@@ -2511,14 +2563,20 @@ function doPost(e) {
         const session = readSessions_().find(function (s) { return s.id === body.sessionId; });
         if (!session) return json_({ ok: false, error: "Check not found." });
         const state0 = getState_();
-        const result = bizReopenSession_(state0, session);
+        const result = bizReopenSession_(state0, session, body.username);
         if (!result.ok) return json_({ ok: false, error: result.error, state: withStockView_(result.state) });
         setState_(result.state);
         deleteObjectById_("Sessions", session.id);
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "CHECK_REOPENED",
           location: session.roomName, shiftId: result.state.activeShiftId,
-          description: body.username + " reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction",
+          description: body.username + " reopened check #" + session.orderNumber + " (" + session.roomName + ") for correction — original total " + Number(session.total).toFixed(2) + " EGP",
+          // The Reopen Check Audit report (Reports page) matches this
+          // entry up with the eventual CHECK_REOPEN_RESOLVED entry (if
+          // any) by before.sessionId, so it can show both the original
+          // amount and, once the check is closed out again, the
+          // corrected amount/variance/item changes.
+          before: { sessionId: session.id, orderNumber: session.orderNumber, roomName: session.roomName, total: session.total, orders: session.orders, endedAt: session.endedAt },
         });
         return json_({ ok: true, state: withStockView_(result.state) });
       }
@@ -2690,6 +2748,26 @@ function doPost(e) {
               cashAmount: result.session.cashAmount, visaAmount: result.session.visaAmount, instapayAmount: result.session.instapayAmount,
             },
           });
+          // This room was reopened (see bizReopenSession_) and is now
+          // being closed out again — log the actual outcome of that
+          // correction: original total vs. the newly-charged total,
+          // the variance, and an item-level diff. This is what lets
+          // the Reopen Check Audit report (Reports page) show a real
+          // before/after instead of just "was reopened" with no
+          // resolution. roomBefore was read before bizEndRoom_ reset
+          // the room, so its reopenedFrom snapshot (if any) is intact.
+          if (roomBefore && roomBefore.reopenedFrom) {
+            const resolution = computeReopenResolution_(roomBefore.reopenedFrom, result.session, result.timeSplitAdjustment);
+            logActivity_({
+              actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "CHECK_REOPEN_RESOLVED",
+              location: result.session.roomName, shiftId: result.session.shiftId,
+              description: "Check #" + resolution.before.orderNumber + " → #" + resolution.after.orderNumber + " (" + result.session.roomName + "): reopened by " +
+                resolution.before.reopenedBy + ", reclosed by " + body.username + " — " + resolution.before.total.toFixed(2) + " EGP → " + resolution.after.total.toFixed(2) +
+                " EGP (" + (resolution.after.variance >= 0 ? "+" : "") + resolution.after.variance.toFixed(2) + " EGP)" + (resolution.after.changes.length ? ": " + resolution.after.changes.join(", ") : ""),
+              before: resolution.before,
+              after: resolution.after,
+            });
+          }
         }
         return json_({ session: result.session, state: withStockView_(result.state) });
       }
