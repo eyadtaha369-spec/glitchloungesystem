@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney, computeMenuItemCost } from "@/lib/glitch-store";
 import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
 import { generateMonthlyAuditReportPdf, type MonthlyAuditFinancials, type MonthlyAuditItemRow } from "@/lib/monthly-audit-report-pdf";
+import { generateSectionReportPdf } from "@/lib/section-report-pdf";
 import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
@@ -102,6 +103,86 @@ function cairoDateLabel(ts: number): string {
   return CAIRO_TZ_FORMATTER.format(new Date(ts));
 }
 
+// Generalizes businessDayBounds to a closed [startDateStr, endDateStr]
+// range — every section below now has its own independent date-range
+// picker (rather than sharing one page-level date), and each one's own
+// range still has to resolve to the same 8 AM-to-8 AM business-day
+// bounds as everywhere else in this app, just spanning more than one day.
+function rangeBusinessDayBounds(startDateStr: string, endDateStr: string): { from: number; to: number } {
+  const orderedStart = startDateStr <= endDateStr ? startDateStr : endDateStr;
+  const orderedEnd = startDateStr <= endDateStr ? endDateStr : startDateStr;
+  return { from: businessDayBounds(orderedStart).from, to: businessDayBounds(orderedEnd).to };
+}
+
+function formatRangeLabel(startDate: string, endDate: string): string {
+  const fmt = (d: string) => new Date(d + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return startDate === endDate ? fmt(startDate) : `${fmt(startDate)} – ${fmt(endDate)}`;
+}
+
+// Shared header toolbar for every independently-dated Reports section:
+// a start/end date range picker plus its own "Generate PDF Report"
+// button. Each section owns its own range state and PDF-building
+// callback — this just renders the controls consistently everywhere.
+function SectionDateRangeToolbar({
+  startDate, endDate, onStartDateChange, onEndDateChange, onGeneratePdf, generating, maxDate,
+}: {
+  startDate: string;
+  endDate: string;
+  onStartDateChange: (v: string) => void;
+  onEndDateChange: (v: string) => void;
+  onGeneratePdf: () => void;
+  generating: boolean;
+  maxDate?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <input
+        type="date" value={startDate} max={endDate}
+        onChange={(e) => onStartDateChange(e.target.value)}
+        className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+      />
+      <span className="text-xs text-muted-foreground">to</span>
+      <input
+        type="date" value={endDate} min={startDate} max={maxDate}
+        onChange={(e) => onEndDateChange(e.target.value)}
+        className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+      />
+      <button
+        onClick={onGeneratePdf}
+        disabled={generating}
+        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-50"
+      >
+        <FileDown className="w-3.5 h-3.5" /> {generating ? "Generating..." : "Generate PDF Report"}
+      </button>
+    </div>
+  );
+}
+
+// Tiny shared hook-like helper: a section's own [startDate, endDate]
+// range state, defaulted to today (Cairo) on both ends, plus a
+// generating flag for its Generate PDF Report button.
+function useSectionDateRange() {
+  const today = cairoDateLabel(Date.now());
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [generating, setGenerating] = useState(false);
+  return { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today };
+}
+
+// Same as useSectionDateRange, but defaults the start of the range to
+// the 1st of the current (Cairo) month instead of today — for sections
+// whose entries are logged occasionally rather than daily (Fixed
+// Monthly Costs, Expenses Ledger), so the default view shows this
+// month's activity instead of an empty "today only" range.
+function useSectionDateRangeMonthToDate() {
+  const today = cairoDateLabel(Date.now());
+  const monthStart = today.slice(0, 7) + "-01";
+  const [startDate, setStartDate] = useState(monthStart);
+  const [endDate, setEndDate] = useState(today);
+  const [generating, setGenerating] = useState(false);
+  return { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today };
+}
+
 // Shift-first binding: an order/expense/void that has a shiftId is
 // scoped by whichever business day that SHIFT opened within — never
 // by re-deriving a calendar date from the record's own timestamp,
@@ -128,24 +209,29 @@ function filterByBusinessDay<T extends { shiftId: string | null; ts?: number; en
 // Prefers the entry's own stored expenseDate (a business-day label set
 // ONCE at creation — see server-side businessDayLabelForTs_) over
 // re-deriving a day from shiftId/ts. This is what makes a Backdated
-// Expense reliably show up under the exact historical day an admin
-// assigned it to in "Expenses History"/"Selected Day Expenses"/"Selected
-// Day Net Profit" — those used to infer the day purely from which
-// business day the target SHIFT opened within, which silently
-// misfiled entries whenever that shift itself straddled the 8 AM
-// business-day boundary (e.g. an overnight shift an admin still thinks
-// of as "yesterday's numbers" belonging to "today"). Entries logged
-// before this field existed have no expenseDate and fall back to the
-// previous shift-first behavior unchanged.
-function expenseMatchesDay_(l: LedgerEntry, dayShiftIds: Set<string>, from: number, to: number, dateStr: string): boolean {
-  if (l.expenseDate) return l.expenseDate === dateStr;
-  if (l.shiftId) return dayShiftIds.has(l.shiftId);
-  return l.ts >= from && l.ts <= to;
-}
+// Expense reliably show up under the exact historical day/range an
+// admin assigned it to, rather than whichever business day the target
+// SHIFT opened within (which silently misfiled entries whenever that
+// shift itself straddled the 8 AM business-day boundary). Entries
+// logged before this field existed have no expenseDate and fall back
+// to the previous shift-first behavior unchanged. See
+// expenseMatchesRange_ below for the actual [startDate, endDate]
+// version every section now uses; expenseMatchesMonth_ remains for the
+// Monthly Financial & Sales Audit Report and Financial Reconciliation,
+// which are genuinely calendar-month-scoped rather than date-range-scoped.
 // Same idea, one calendar month at a time (YYYY-MM prefix of expenseDate).
 function expenseMatchesMonth_(l: LedgerEntry, monthShiftIds: Set<string>, from: number, to: number, monthStr: string): boolean {
   if (l.expenseDate) return l.expenseDate.slice(0, 7) === monthStr;
   if (l.shiftId) return monthShiftIds.has(l.shiftId);
+  return l.ts >= from && l.ts <= to;
+}
+// Same idea again, but for an arbitrary [startDate, endDate] range —
+// every independently-dated Reports section below uses this one.
+// YYYY-MM-DD strings compare correctly with plain <=/>=, so no date
+// parsing is needed for the expenseDate branch.
+function expenseMatchesRange_(l: LedgerEntry, rangeShiftIds: Set<string>, from: number, to: number, startDate: string, endDate: string): boolean {
+  if (l.expenseDate) return l.expenseDate >= startDate && l.expenseDate <= endDate;
+  if (l.shiftId) return rangeShiftIds.has(l.shiftId);
   return l.ts >= from && l.ts <= to;
 }
 
@@ -307,64 +393,10 @@ export function ReportsPage() {
     }).sort((a, b) => b.qty - a.qty);
   }, [shiftSessions, state.menu, state.stock]);
 
-  // Total Revenue by Date — shift-first, business-day bound (8 AM to
-  // 8 AM, this café's confirmed real cycle), independent of the Shift
-  // selector above, which is a separate tool for printing one
-  // specific shift's own end-of-shift report.
-  const [selectedReportDate, setSelectedReportDate] = useState(() => cairoDateLabel(Date.now()));
-  const { from: reportDayStart, to: reportDayEnd } = useMemo(() => businessDayBounds(selectedReportDate), [selectedReportDate]);
-
   // Financial Reconciliation is genuinely monthly (Day 1 through the
-  // last day), independent of the daily date picker above — a
-  // separate month picker, not derived from selectedReportDate.
+  // last day) — a separate month picker from any of the per-section
+  // date ranges below.
   const [selectedMonth, setSelectedMonth] = useState(() => cairoDateLabel(Date.now()).slice(0, 7));
-
-  const reportDayShiftIds = useMemo(
-    () => new Set(state.shifts.filter((sh) => sh.openedAt >= reportDayStart && sh.openedAt <= reportDayEnd).map((sh) => sh.id)),
-    [state.shifts, reportDayStart, reportDayEnd],
-  );
-
-  const daySessions = useMemo(
-    () => filterByBusinessDay(state.sessions, reportDayShiftIds, reportDayStart, reportDayEnd),
-    [state.sessions, reportDayShiftIds, reportDayStart, reportDayEnd],
-  );
-  const dayExpenseEntries = useMemo(
-    () => state.ledger.filter(isOperationalExpense).filter((l) => expenseMatchesDay_(l, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate)),
-    [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate],
-  );
-  // Settled supplier payments for this day, counted toward the total
-  // but kept out of dayExpenseEntries itself -- they're not editable
-  // via the Expenses History row actions (editExpense/deleteExpense
-  // both explicitly reject type "supplierPayment"), and they already
-  // have their own dedicated audit panel (Monthly Expenses Ledger)
-  // below, so they're summed here without duplicating that row list.
-  const daySupplierPayments = useMemo(
-    () => state.ledger.filter(isSettledSupplierPayment_).filter((l) => expenseMatchesDay_(l, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate)),
-    [state.ledger, reportDayShiftIds, reportDayStart, reportDayEnd, selectedReportDate],
-  );
-  const dayRevenue = daySessions.reduce((a, s) => a + s.total, 0);
-  const dayExpensesTotal = dayExpenseEntries.reduce((a, l) => a + Number(l.amount), 0) + daySupplierPayments.reduce((a, l) => a + Number(l.amount), 0);
-  const dayNetProfit = dayRevenue - dayExpensesTotal;
-
-  // Material Consumption, linked to the SAME date picker as Total
-  // Revenue by Date — deliberately separate from `consumption` above,
-  // which stays shift-scoped for the existing Generate Report button.
-  const dayConsumption = useMemo(() => {
-    const map = new Map<string, number>();
-    daySessions.forEach((s) => {
-      s.orders.forEach((o) => {
-        const item = state.menu.find((m) => m.id === o.menuItemId);
-        if (!item) return;
-        item.ingredients.forEach((ing) => {
-          map.set(ing.stockId, (map.get(ing.stockId) ?? 0) + ing.qty * o.qty);
-        });
-      });
-    });
-    return Array.from(map.entries()).map(([stockId, qty]) => {
-      const stk = state.stock.find((s) => s.id === stockId);
-      return { name: stk?.name ?? stockId, unit: stk?.unit ?? "", qty };
-    }).sort((a, b) => b.qty - a.qty);
-  }, [daySessions, state.menu, state.stock]);
 
   const [viewingCheck, setViewingCheck] = useState<Session | null>(null);
   const [reopenTarget, setReopenTarget] = useState<Session | null>(null);
@@ -428,77 +460,28 @@ export function ReportsPage() {
       {/* 2. Current Business Day Overview */}
       <BusinessDayPanel />
 
-      {/* 3. Total Revenue by Date — a specific calendar day's own numbers,
-          independent of the Shift selector above (which is a separate
-          tool for printing one specific shift's end-of-shift report) */}
-      <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
-            <h2 className="text-lg font-semibold">Total Revenue by Date</h2>
-          </div>
-          <div>
-            <input
-              type="date" value={selectedReportDate} max={cairoDateLabel(Date.now())}
-              onChange={(e) => setSelectedReportDate(e.target.value)}
-              className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono"
-            />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground mb-4">
-          Orders closed and expenses logged on {new Date(selectedReportDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}.
-          Staff Orders and voided items are never counted here.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">Selected Day Revenue</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(dayRevenue)}</div>
-          </div>
-          <div className="bg-white/60 rounded-lg p-4 border border-black/8">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">Selected Day Expenses</div>
-            <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.62_0.24_25)]">{fmtMoney(dayExpensesTotal)}</div>
-          </div>
-          <div className={`rounded-lg p-4 border ${dayNetProfit >= 0 ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)]"}`}>
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">Selected Day Net Profit</div>
-            <div className={`text-2xl font-mono font-bold mt-1 ${dayNetProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(dayNetProfit)}</div>
-          </div>
-        </div>
-      </div>
+      {/* 3. Total Revenue by Date — its own independent date-range picker
+          and PDF export, decoupled from every other section's picker */}
+      <TotalRevenueByDatePanel />
 
-      {/* 4. Order History — this specific date only, every row opens the
-          full check via ReceiptModal */}
-      <OrderHistoryPanel selectedReportDate={selectedReportDate} daySessions={daySessions} isAdmin={isAdmin} onViewCheck={setViewingCheck} />
+      {/* 4. Order History — its own independent date-range picker and PDF
+          export; every row still opens the full check via ReceiptModal */}
+      <OrderHistoryPanel isAdmin={isAdmin} onViewCheck={setViewingCheck} />
 
-      {/* 5. Expenses History — this specific date only, same exclusions as
-          the KPI card above (no Staff Orders, no voids) */}
-      <ExpensesHistoryPanel selectedReportDate={selectedReportDate} dayExpenseEntries={dayExpenseEntries} daySupplierPayments={daySupplierPayments} isAdmin={isAdmin} />
+      {/* 5. Expenses History — its own independent date-range picker and
+          PDF export, same exclusions as before (no Staff Orders, no voids) */}
+      <ExpensesHistoryPanel isAdmin={isAdmin} />
 
-      {/* 6. Material Consumption — linked to the SAME date picker as
-          Total Revenue by Date, not the Shift selector above */}
-      <div className="glass rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Boxes className="w-5 h-5 text-black" />
-          <h2 className="text-lg font-semibold">Material Consumption — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
-        </div>
-        {dayConsumption.length === 0 ? (
-          <div className="text-sm text-muted-foreground font-mono">No orders completed on this date.</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {dayConsumption.map((c) => (
-              <div key={c.name} className="bg-white/60 rounded-lg p-3 border border-black/8 flex justify-between items-center">
-                <span className="text-sm">{c.name}</span>
-                <span className="font-mono text-sm text-black">{c.qty}{c.unit}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* 6. Material Consumption — its own independent date-range picker
+          and PDF export */}
+      <MaterialConsumptionPanel />
 
       {/* 7. Wasted / Marketing / Complimentary — audit summary, valued at COGS */}
-      <WastedComplimentaryLedger selectedDate={selectedReportDate} />
+      <WastedComplimentaryLedger />
       <WasteMarketingPanel allEntries={state.ledger.filter((l) => l.category === "Marketing / Waste Expense")} />
 
-      {/* 8. Expenses Ledger — global, deliberately NOT filtered by the date picker */}
+      {/* 8. Expenses Ledger — settled supplier payments, now with its own
+          independent date-range picker and PDF export */}
       <MonthlyExpensesLedger />
 
       {/* 9. Shift History */}
@@ -517,21 +500,230 @@ export function ReportsPage() {
   );
 }
 
-// Order History — this specific date only, every row opens the full
-// check via ReceiptModal. Admins get a Move icon per row to re-assign a
-// closed order to a different shift (and therefore business day),
-// without dragging up the check details modal at the same time.
-function OrderHistoryPanel({ selectedReportDate, daySessions, isAdmin, onViewCheck }: { selectedReportDate: string; daySessions: Session[]; isAdmin: boolean; onViewCheck: (s: Session) => void }) {
-  const [moveTarget, setMoveTarget] = useState<Session | null>(null);
+// Total Revenue by Date — now its own independent start/end date-range
+// picker and "Generate PDF Report" button. Order History, Expenses
+// History, and Material Consumption used to all share this one date —
+// each of the four now owns its own range completely independently.
+function TotalRevenueByDatePanel() {
+  const { state } = useStore();
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRange();
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id)),
+    [state.shifts, from, to],
+  );
+  const rangeSessions = useMemo(() => filterByBusinessDay(state.sessions, rangeShiftIds, from, to), [state.sessions, rangeShiftIds, from, to]);
+  const rangeExpenseEntries = useMemo(
+    () => state.ledger.filter(isOperationalExpense).filter((l) => expenseMatchesRange_(l, rangeShiftIds, from, to, startDate, endDate)),
+    [state.ledger, rangeShiftIds, from, to, startDate, endDate],
+  );
+  const rangeSupplierPayments = useMemo(
+    () => state.ledger.filter(isSettledSupplierPayment_).filter((l) => expenseMatchesRange_(l, rangeShiftIds, from, to, startDate, endDate)),
+    [state.ledger, rangeShiftIds, from, to, startDate, endDate],
+  );
+  const revenue = rangeSessions.reduce((a, s) => a + s.total, 0);
+  const expensesTotal = rangeExpenseEntries.reduce((a, l) => a + Number(l.amount), 0) + rangeSupplierPayments.reduce((a, l) => a + Number(l.amount), 0);
+  const netProfit = revenue - expensesTotal;
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Total Revenue by Date",
+        rangeLabel,
+        columns: [{ header: "Metric" }, { header: "Amount EGP", align: "right" }],
+        rows: [
+          ["Revenue", fmtMoney(revenue)],
+          ["Expenses", fmtMoney(expensesTotal)],
+          ["Net Profit", fmtMoney(netProfit)],
+        ],
+        summaryLines: [
+          { label: "Revenue", value: fmtMoney(revenue) },
+          { label: "Expenses", value: fmtMoney(expensesTotal) },
+          { label: "Net Profit", value: fmtMoney(netProfit) },
+        ],
+        filenameBase: "Total_Revenue_by_Date",
+        startDate, endDate,
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-[oklch(0.78_0.2_155)]" />
+          <h2 className="text-lg font-semibold">Total Revenue by Date</h2>
+        </div>
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Orders closed and expenses logged {rangeLabel}. Staff Orders and voided items are never counted here.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground">Revenue</div>
+          <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(revenue)}</div>
+        </div>
+        <div className="bg-white/60 rounded-lg p-4 border border-black/8">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground">Expenses</div>
+          <div className="text-2xl font-mono font-bold mt-1 text-[oklch(0.62_0.24_25)]">{fmtMoney(expensesTotal)}</div>
+        </div>
+        <div className={`rounded-lg p-4 border ${netProfit >= 0 ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)]"}`}>
+          <div className="text-xs uppercase tracking-widest text-muted-foreground">Net Profit</div>
+          <div className={`text-2xl font-mono font-bold mt-1 ${netProfit >= 0 ? "text-[oklch(0.78_0.2_155)]" : "text-[oklch(0.62_0.24_25)]"}`}>{fmtMoney(netProfit)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Material Consumption — its own independent date-range picker and PDF
+// export, decoupled from Total Revenue by Date (they used to share one
+// page-level date picker).
+function MaterialConsumptionPanel() {
+  const { state } = useStore();
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRange();
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id)),
+    [state.shifts, from, to],
+  );
+  const rangeSessions = useMemo(() => filterByBusinessDay(state.sessions, rangeShiftIds, from, to), [state.sessions, rangeShiftIds, from, to]);
+  const consumption = useMemo(() => {
+    const map = new Map<string, number>();
+    rangeSessions.forEach((s) => {
+      s.orders.forEach((o) => {
+        const item = state.menu.find((m) => m.id === o.menuItemId);
+        if (!item) return;
+        item.ingredients.forEach((ing) => {
+          map.set(ing.stockId, (map.get(ing.stockId) ?? 0) + ing.qty * o.qty);
+        });
+      });
+    });
+    return Array.from(map.entries()).map(([stockId, qty]) => {
+      const stk = state.stock.find((s) => s.id === stockId);
+      return { name: stk?.name ?? stockId, unit: stk?.unit ?? "", qty };
+    }).sort((a, b) => b.qty - a.qty);
+  }, [rangeSessions, state.menu, state.stock]);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Material Consumption",
+        rangeLabel,
+        columns: [{ header: "Material" }, { header: "Qty Consumed", align: "right" }, { header: "Unit" }],
+        rows: consumption.map((c) => [c.name, c.qty, c.unit]),
+        filenameBase: "Material_Consumption",
+        startDate, endDate,
+        emptyMessage: "No orders completed in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   return (
     <div className="glass rounded-2xl p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
-        <h2 className="text-lg font-semibold">Order History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Boxes className="w-5 h-5 text-black" />
+          <h2 className="text-lg font-semibold">Material Consumption — {rangeLabel}</h2>
+        </div>
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
       </div>
-      {daySessions.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No closed orders on this date.</div>
+      {consumption.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono">No orders completed in this date range.</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {consumption.map((c) => (
+            <div key={c.name} className="bg-white/60 rounded-lg p-3 border border-black/8 flex justify-between items-center">
+              <span className="text-sm">{c.name}</span>
+              <span className="font-mono text-sm text-black">{c.qty}{c.unit}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Order History — its own independent date-range picker and PDF export.
+// Every row still opens the full check via ReceiptModal. Admins get a
+// Move icon per row to re-assign a closed order to a different shift
+// (and therefore business day), without dragging up the check details
+// modal at the same time.
+function OrderHistoryPanel({ isAdmin, onViewCheck }: { isAdmin: boolean; onViewCheck: (s: Session) => void }) {
+  const { state } = useStore();
+  const [moveTarget, setMoveTarget] = useState<Session | null>(null);
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRange();
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id)),
+    [state.shifts, from, to],
+  );
+  const rangeSessions = useMemo(() => filterByBusinessDay(state.sessions, rangeShiftIds, from, to), [state.sessions, rangeShiftIds, from, to]);
+  const sortedSessions = useMemo(() => [...rangeSessions].sort((a, b) => b.endedAt - a.endedAt), [rangeSessions]);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Order History",
+        rangeLabel,
+        columns: [
+          { header: "Order ID" }, { header: "Room/Table" }, { header: "Date & Time" }, { header: "Payment" },
+          { header: "Subtotal", align: "right" }, { header: "Discount", align: "right" }, { header: "Total EGP", align: "right" },
+        ],
+        rows: sortedSessions.map((s) => [
+          s.id.slice(0, 12), s.roomName, new Date(s.endedAt).toLocaleString(), s.paymentMethod.replace(/_/g, " "),
+          fmtMoney(s.total + (s.discountAmount || 0)), s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—", fmtMoney(s.total),
+        ]),
+        summaryLines: [
+          { label: "Orders", value: String(sortedSessions.length) },
+          { label: "Total Revenue", value: fmtMoney(sortedSessions.reduce((a, s) => a + s.total, 0)) },
+        ],
+        filenameBase: "Order_History",
+        startDate, endDate,
+        emptyMessage: "No closed orders in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <History className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Order History — {rangeLabel}</h2>
+        </div>
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
+      </div>
+      {sortedSessions.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No closed orders in this date range.</div>
       ) : (
         <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
           <table className="w-full text-sm">
@@ -539,7 +731,7 @@ function OrderHistoryPanel({ selectedReportDate, daySessions, isAdmin, onViewChe
               <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
                 <th className="pb-2 pt-3 pl-3 pr-3">Order ID</th>
                 <th className="pb-2 pt-3 pr-3">Room/Table</th>
-                <th className="pb-2 pt-3 pr-3">Time</th>
+                <th className="pb-2 pt-3 pr-3">Date &amp; Time</th>
                 <th className="pb-2 pt-3 pr-3">Payment</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Subtotal</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Discount</th>
@@ -548,7 +740,7 @@ function OrderHistoryPanel({ selectedReportDate, daySessions, isAdmin, onViewChe
               </tr>
             </thead>
             <tbody>
-              {daySessions.sort((a, b) => b.endedAt - a.endedAt).map((s) => (
+              {sortedSessions.map((s) => (
                 <tr
                   key={s.id}
                   onClick={() => onViewCheck(s)}
@@ -557,7 +749,7 @@ function OrderHistoryPanel({ selectedReportDate, daySessions, isAdmin, onViewChe
                 >
                   <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{s.id.slice(0, 12)}</td>
                   <td className="py-2 pr-3">{s.roomName}</td>
-                  <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
+                  <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleString()}</td>
                   <td className="py-2 pr-3 uppercase">{s.paymentMethod.replace(/_/g, " ")}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmtMoney(s.total + (s.discountAmount || 0))}</td>
                   <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—"}</td>
@@ -665,21 +857,37 @@ const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
 // the entry belongs to an already-closed shift, and refreshing the
 // Ledger here is what makes Selected Day Expenses/Net Profit update
 // instantly without a page reload.
-function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, daySupplierPayments, isAdmin }: { selectedReportDate: string; dayExpenseEntries: LedgerEntry[]; daySupplierPayments: LedgerEntry[]; isAdmin: boolean }) {
-  const { deleteExpense, deleteSupplierPayment } = useStore();
+function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { state, deleteExpense, deleteSupplierPayment } = useStore();
   const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRange();
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id)),
+    [state.shifts, from, to],
+  );
+  const rangeExpenseEntries = useMemo(
+    () => state.ledger.filter(isOperationalExpense).filter((l) => expenseMatchesRange_(l, rangeShiftIds, from, to, startDate, endDate)),
+    [state.ledger, rangeShiftIds, from, to, startDate, endDate],
+  );
+  const rangeSupplierPayments = useMemo(
+    () => state.ledger.filter(isSettledSupplierPayment_).filter((l) => expenseMatchesRange_(l, rangeShiftIds, from, to, startDate, endDate)),
+    [state.ledger, rangeShiftIds, from, to, startDate, endDate],
+  );
+  const rangeLabel = formatRangeLabel(startDate, endDate);
 
   // Settled supplier payments show up here too (Issue 1) so the table
-  // actually reflects what's already counted in Selected Day
-  // Expenses/Net Profit, instead of a total with no rows behind it.
-  // They're not editable (editExpense explicitly rejects this type —
+  // actually reflects what's already counted in Total Revenue by
+  // Date's Expenses/Net Profit, instead of a total with no rows behind
+  // it. They're not editable (editExpense explicitly rejects this type —
   // there's nothing to "amend" about a plain settlement) but they ARE
   // deletable, routed to deleteSupplierPayment instead of deleteExpense
   // since it's a different table (SupplierPayments + its own Ledger row).
-  const allRows = [...dayExpenseEntries, ...daySupplierPayments];
+  const allRows = useMemo(() => [...rangeExpenseEntries, ...rangeSupplierPayments].sort((a, b) => b.ts - a.ts), [rangeExpenseEntries, rangeSupplierPayments]);
   const isPayment = (l: LedgerEntry) => l.type === "supplierPayment";
 
   const confirmDelete = async () => {
@@ -695,14 +903,49 @@ function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, daySuppli
     }
   };
 
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Expenses History",
+        rangeLabel,
+        columns: [
+          { header: "Expense ID" }, { header: "Description / Category" }, { header: "Amount EGP", align: "right" },
+          { header: "Payment Source" }, { header: "Recorded Date & Time" },
+        ],
+        rows: allRows.map((l) => [
+          l.id.slice(0, 12),
+          (l.description || l.category) + (l.backdated ? " (backdated)" : "") + (isPayment(l) ? " (supplier payment)" : ""),
+          fmtMoney(Number(l.amount)), l.paymentSource ?? "—", new Date(l.ts).toLocaleString(),
+        ]),
+        summaryLines: [
+          { label: "Entries", value: String(allRows.length) },
+          { label: "Total", value: fmtMoney(allRows.reduce((a, l) => a + Number(l.amount), 0)) },
+        ],
+        filenameBase: "Expenses_History",
+        startDate, endDate,
+        emptyMessage: "No expenses logged in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div className="glass rounded-2xl p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
-        <h2 className="text-lg font-semibold">Expenses History — {new Date(selectedReportDate + "T00:00:00").toLocaleDateString()}</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
+          <h2 className="text-lg font-semibold">Expenses History — {rangeLabel}</h2>
+        </div>
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
       </div>
       {allRows.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged on this date.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No expenses logged in this date range.</div>
       ) : (
         <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
           <table className="w-full text-sm">
@@ -712,12 +955,12 @@ function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, daySuppli
                 <th className="pb-2 pt-3 pr-3">Description / Category</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
                 <th className="pb-2 pt-3 pr-3">Payment Source</th>
-                <th className="pb-2 pt-3 pr-3">Recorded Time</th>
+                <th className="pb-2 pt-3 pr-3">Recorded Date &amp; Time</th>
                 {isAdmin && <th className="pb-2 pt-3 pr-3 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {allRows.sort((a, b) => b.ts - a.ts).map((l) => (
+              {allRows.map((l) => (
                 <tr key={l.id} className="border-b border-black/5">
                   <td className="py-2 pl-3 pr-3 font-mono text-xs text-muted-foreground">{l.id.slice(0, 12)}</td>
                   <td className="py-2 pr-3">
@@ -727,7 +970,7 @@ function ExpensesHistoryPanel({ selectedReportDate, dayExpenseEntries, daySuppli
                   </td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                   <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
-                  <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
+                  <td className="py-2 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
                   {isAdmin && (
                     <td className="py-2 pr-3">
                       <div className="flex items-center justify-end gap-1.5">
@@ -944,6 +1187,30 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
 
   const entries = useMemo(() => allEntries.filter((e) => e.ts >= range.start && e.ts < range.end).sort((a, b) => b.ts - a.ts), [allEntries, range]);
   const total = entries.reduce((a, e) => a + e.amount, 0);
+  const [generating, setGenerating] = useState(false);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      const startDate = new Date(range.start).toISOString().slice(0, 10);
+      const endDate = new Date(range.end - 1).toISOString().slice(0, 10);
+      await generateSectionReportPdf({
+        sectionTitle: "Wasted / Marketing Expense — Audit Summary",
+        rangeLabel: range.label,
+        columns: [{ header: "Description" }, { header: "Date & Time" }, { header: "Logged By" }, { header: "Cost EGP", align: "right" }],
+        rows: entries.map((e) => [e.description || "Wasted/Marketing item(s)", new Date(e.ts).toLocaleString(), e.staffUsername, fmtMoney(e.amount)]),
+        summaryLines: [
+          { label: "Entries", value: String(entries.length) },
+          { label: "Total (at cost)", value: fmtMoney(total) },
+        ],
+        filenameBase: "Wasted_Marketing_Expense_Audit_Summary",
+        startDate, endDate,
+        emptyMessage: "Nothing logged in this period.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   return (
     <div className="glass rounded-2xl p-6 border border-[oklch(0.62_0.24_25/0.4)]">
@@ -952,20 +1219,29 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
           <Trash2 className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
           <h2 className="text-lg font-semibold">Wasted / Marketing Expense — Audit Summary</h2>
         </div>
-        <div className="flex gap-1.5">
-          {(["day", "week", "month"] as const).map((tf) => (
-            <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${
-                timeframe === tf
-                  ? "bg-[oklch(0.62_0.24_25/0.2)] border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)]"
-                  : "bg-black/5 border-black/10 text-muted-foreground"
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1.5">
+            {(["day", "week", "month"] as const).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${
+                  timeframe === tf
+                    ? "bg-[oklch(0.62_0.24_25/0.2)] border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)]"
+                    : "bg-black/5 border-black/10 text-muted-foreground"
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => void handleGeneratePdf()}
+            disabled={generating}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-50"
+          >
+            <FileDown className="w-3.5 h-3.5" /> {generating ? "Generating..." : "Generate PDF Report"}
+          </button>
         </div>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
@@ -1437,17 +1713,46 @@ function FixedMonthlyCostsLedger() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRangeMonthToDate();
 
-  const entries = useMemo(
+  const allEntries = useMemo(
     () => state.ledger.filter((l) => l.type === "fixedMonthlyCost").sort((a, b) => b.ts - a.ts),
     [state.ledger],
   );
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const entries = useMemo(() => allEntries.filter((l) => l.ts >= from && l.ts <= to), [allEntries, from, to]);
   const total = entries.reduce((a, l) => a + Number(l.amount), 0);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     await deleteFixedMonthlyCost(deleteTarget.id);
     setDeleteTarget(null);
+  };
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Fixed Monthly Costs",
+        sectionTitleAr: "المصاريف الشهرية الثابتة",
+        rangeLabel,
+        columns: [
+          { header: "Date & Time" }, { header: "Expense" }, { header: "Amount EGP", align: "right" },
+          { header: "Category" }, { header: "Logged By" }, { header: "Payment Source" },
+        ],
+        rows: entries.map((l) => [new Date(l.ts).toLocaleString(), l.description, fmtMoney(Number(l.amount)), l.category, l.staffUsername, "Owner Revenue"]),
+        summaryLines: [
+          { label: "Entries", value: String(entries.length) },
+          { label: "Total", value: fmtMoney(total) },
+        ],
+        filenameBase: "Fixed_Monthly_Costs",
+        startDate, endDate,
+        emptyMessage: "No fixed monthly costs logged in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -1457,8 +1762,8 @@ function FixedMonthlyCostsLedger() {
           <Wallet className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
           <h2 className="text-lg font-semibold">Fixed Monthly Costs — المصاريف الشهرية الثابتة</h2>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} all-time</div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} in range</div>
           <button
             onClick={() => { setEditingEntry(null); setFormOpen(true); }}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[oklch(0.62_0.24_25/0.1)] border border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)] hover:bg-[oklch(0.62_0.24_25/0.2)] font-bold"
@@ -1467,12 +1772,19 @@ function FixedMonthlyCostsLedger() {
           </button>
         </div>
       </div>
+      <div className="mb-3">
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
+      </div>
       <p className="text-xs text-muted-foreground mb-4">
         Rent, utilities, internet, subscriptions — paid directly from owner revenue, never from the daily cashier
-        drawer. These never affect a shift's Expected Cash or count toward a drawer discrepancy.
+        drawer. These never affect a shift's Expected Cash or count toward a drawer discrepancy. Showing {rangeLabel}.
       </p>
       {entries.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-8">No fixed monthly costs logged yet.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-8">No fixed monthly costs logged in this date range.</div>
       ) : (
         <div className="overflow-x-auto overflow-y-auto max-h-[28rem] border border-black/8 rounded-xl">
           <table className="w-full text-sm">
@@ -1675,12 +1987,48 @@ function MonthlyExpensesLedger() {
   const { state } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [clearModalOpen, setClearModalOpen] = useState(false);
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRangeMonthToDate();
 
+  // All-time, unaffected by the section's own date-range picker below —
+  // Clear Ledger is a global destructive action on every settlement
+  // ever recorded, not just whatever's currently in view.
   const settlements = useMemo(
     () => state.ledger.filter((l) => l.type === "supplierPayment").sort((a, b) => b.ts - a.ts),
     [state.ledger],
   );
-  const total = settlements.reduce((a, l) => a + Number(l.amount), 0);
+  const allTimeTotal = settlements.reduce((a, l) => a + Number(l.amount), 0);
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeSettlements = useMemo(() => settlements.filter((l) => l.ts >= from && l.ts <= to), [settlements, from, to]);
+  const rangeTotal = rangeSettlements.reduce((a, l) => a + Number(l.amount), 0);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Expenses Ledger",
+        rangeLabel,
+        columns: [
+          { header: "Date & Time" }, { header: "Supplier" }, { header: "Description" },
+          { header: "Amount EGP", align: "right" }, { header: "Payment Source" }, { header: "Settled By" },
+        ],
+        rows: rangeSettlements.map((l) => {
+          const supplier = state.suppliers.find((s) => s.id === l.supplierId);
+          return [new Date(l.ts).toLocaleString(), supplier?.name ?? "—", l.description || "—", fmtMoney(Number(l.amount)), l.paymentSource ?? "—", l.staffUsername];
+        }),
+        summaryLines: [
+          { label: "Settlements", value: String(rangeSettlements.length) },
+          { label: "Total Settled", value: fmtMoney(rangeTotal) },
+        ],
+        filenameBase: "Expenses_Ledger",
+        startDate, endDate,
+        emptyMessage: "No settled supplier payments in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   return (
     <div className="glass rounded-2xl p-6">
@@ -1689,8 +2037,8 @@ function MonthlyExpensesLedger() {
           <Wallet className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
           <h2 className="text-lg font-semibold">Expenses Ledger</h2>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(total)} settled all-time</div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(allTimeTotal)} settled all-time</div>
           {isAdmin && settlements.length > 0 && (
             <button
               onClick={() => setClearModalOpen(true)}
@@ -1701,12 +2049,20 @@ function MonthlyExpensesLedger() {
           )}
         </div>
       </div>
+      <div className="mb-3">
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
+      </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Every deferred/credit supplier invoice or outstanding balance ever settled via Record Payment — logged
-        automatically the instant it's paid. Global — never filtered by the date picker above.
+        Every deferred/credit supplier invoice or outstanding balance settled via Record Payment — logged
+        automatically the instant it's paid. Showing {rangeLabel} ({fmtMoney(rangeTotal)}); Clear Ledger still
+        affects every settlement ever recorded, not just this range.
       </p>
-      {settlements.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settled supplier payments recorded yet.</div>
+      {rangeSettlements.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No settled supplier payments in this date range.</div>
       ) : (
         <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
           <table className="w-full text-sm">
@@ -1721,7 +2077,7 @@ function MonthlyExpensesLedger() {
               </tr>
             </thead>
             <tbody>
-              {settlements.map((l) => {
+              {rangeSettlements.map((l) => {
                 const supplier = state.suppliers.find((s) => s.id === l.supplierId);
                 return (
                   <tr key={l.id} className="border-b border-black/5">
@@ -1739,7 +2095,7 @@ function MonthlyExpensesLedger() {
         </div>
       )}
       {clearModalOpen && (
-        <ClearExpensesLedgerModal count={settlements.length} total={total} onClose={() => setClearModalOpen(false)} />
+        <ClearExpensesLedgerModal count={settlements.length} total={allTimeTotal} onClose={() => setClearModalOpen(false)} />
       )}
     </div>
   );
@@ -1809,19 +2165,20 @@ function ClearExpensesLedgerModal({ count, total, onClose }: { count: number; to
 // system (server/lib/voids.js) computes and stores it that way at the
 // moment the void happens, so this report is a straight read of
 // already-correct data, not a recalculation.
-function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
+function WastedComplimentaryLedger() {
   const { state } = useStore();
-  const { from: dayStart, to: dayEnd } = useMemo(() => businessDayBounds(selectedDate), [selectedDate]);
-  const dayLabel = new Date(dayStart).toLocaleDateString();
-  const dayShiftIds = useMemo(
-    () => new Set(state.shifts.filter((sh) => sh.openedAt >= dayStart && sh.openedAt <= dayEnd).map((sh) => sh.id)),
-    [state.shifts, dayStart, dayEnd],
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRange();
+  const { from: rangeStart, to: rangeEnd } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+  const rangeShiftIds = useMemo(
+    () => new Set(state.shifts.filter((sh) => sh.openedAt >= rangeStart && sh.openedAt <= rangeEnd).map((sh) => sh.id)),
+    [state.shifts, rangeStart, rangeEnd],
   );
 
   const wasteEntries = useMemo(
-    () => filterByBusinessDay(state.ledger.filter((l) => WASTE_LEDGER_CATEGORIES.has(l.category)), dayShiftIds, dayStart, dayEnd)
+    () => filterByBusinessDay(state.ledger.filter((l) => WASTE_LEDGER_CATEGORIES.has(l.category)), rangeShiftIds, rangeStart, rangeEnd)
       .sort((a, b) => b.ts - a.ts),
-    [state.ledger, dayShiftIds, dayStart, dayEnd],
+    [state.ledger, rangeShiftIds, rangeStart, rangeEnd],
   );
   const total = wasteEntries.reduce((a, l) => a + Number(l.amount), 0);
   const byCategory = useMemo(() => {
@@ -1830,6 +2187,28 @@ function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [wasteEntries]);
 
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Wasted & Complimentary Ledger",
+        rangeLabel,
+        columns: [{ header: "Date & Time" }, { header: "Reason" }, { header: "Item" }, { header: "Cost EGP", align: "right" }, { header: "Logged By" }],
+        rows: wasteEntries.map((l) => [new Date(l.ts).toLocaleString(), l.category, l.description || "—", fmtMoney(Number(l.amount)), l.staffUsername]),
+        summaryLines: [
+          { label: "Entries", value: String(wasteEntries.length) },
+          { label: "Total at Cost", value: fmtMoney(total) },
+          ...byCategory.map(([cat, amt]) => ({ label: cat, value: fmtMoney(amt) })),
+        ],
+        filenameBase: "Wasted_Complimentary_Ledger",
+        startDate, endDate,
+        emptyMessage: "No waste or comps logged in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
@@ -1837,10 +2216,17 @@ function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
           <AlertTriangle className="w-5 h-5 text-[oklch(0.62_0.24_25)]" />
           <h2 className="text-lg font-semibold">Wasted &amp; Complimentary Ledger</h2>
         </div>
-        <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} at cost on {dayLabel}</div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(total)} at cost</div>
+      </div>
+      <div className="mb-3">
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Every spilled, rejected, or complimentary item on {dayLabel}, valued at its raw-material cost — never its
+        Every spilled, rejected, or complimentary item in {rangeLabel}, valued at its raw-material cost — never its
         menu price. Never counted as revenue or as an operational expense.
       </p>
 
@@ -1856,7 +2242,7 @@ function WastedComplimentaryLedger({ selectedDate }: { selectedDate: string }) {
       )}
 
       {wasteEntries.length === 0 ? (
-        <div className="text-sm text-muted-foreground font-mono text-center py-6">No waste or comps logged on {dayLabel}.</div>
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No waste or comps logged in this date range.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
