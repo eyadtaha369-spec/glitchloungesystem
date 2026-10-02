@@ -64,11 +64,18 @@ export interface GenerateSectionReportPdfArgs {
   // above the table.
   summaryLines?: { label: string; value: string }[];
   // Pre-slugified section name for the filename, e.g. "Order_History".
-  // Falls back to slugifying sectionTitle if omitted.
+  // Falls back to slugifying sectionTitle if omitted. Ignored when
+  // `filename` is given.
   filenameBase?: string;
-  // YYYY-MM-DD, used in the filename and should match rangeLabel.
+  // YYYY-MM-DD, used in the default filename pattern and should match
+  // rangeLabel. Still required even when `filename` overrides the name,
+  // since callers generally have these on hand anyway for rangeLabel.
   startDate: string;
   endDate: string;
+  // Full override filename (including .pdf) for callers whose naming
+  // doesn't fit the standard "[base]_[start]_to_[end].pdf" pattern —
+  // e.g. a single-month report named "Monthly_Shifts_Report_2026-10.pdf".
+  filename?: string;
   orientation?: "portrait" | "landscape";
   emptyMessage?: string;
 }
@@ -83,6 +90,7 @@ export async function generateSectionReportPdf({
   filenameBase,
   startDate,
   endDate,
+  filename,
   orientation = "landscape",
   emptyMessage,
 }: GenerateSectionReportPdfArgs): Promise<void> {
@@ -158,8 +166,9 @@ export async function generateSectionReportPdf({
   document.body.appendChild(container);
 
   const base = filenameBase || slugifyForFilename(sectionTitle);
+  const outputFilename = filename || `${base}_${startDate}_to_${endDate}.pdf`;
   try {
-    await renderElementToPdf(container, `${base}_${startDate}_to_${endDate}.pdf`, {
+    await renderElementToPdf(container, outputFilename, {
       keepStyleId: FONT_LINK_ID,
       orientation,
     });

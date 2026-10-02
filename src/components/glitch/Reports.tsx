@@ -485,6 +485,7 @@ export function ReportsPage() {
       <MonthlyExpensesLedger />
 
       {/* 9. Shift History */}
+      <MonthlyShiftsExportPanel />
       <ShiftHistoryPanel />
 
       <AttendanceLog />
@@ -2269,6 +2270,146 @@ function WastedComplimentaryLedger() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// Formats a YYYY-MM month string as "October 2026" for the PDF's
+// range label/header, without relying on a parsed Date's own locale
+// timezone (a plain "YYYY-MM-01" Date is parsed as UTC midnight,
+// which could roll back a day in some timezones) — only the
+// month/year are actually needed here, so there's no date-boundary
+// risk in just reading them off the string.
+function formatMonthYearLabel(monthStr: string): string {
+  const [y, m] = monthStr.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+// One Monthly Consolidated Shifts PDF Export, covering every shift
+// (open or closed) whose openedAt falls within the selected calendar
+// month — a single batch report for the whole month rather than
+// per-shift exports, for handing to an owner/accountant in one file.
+function MonthlyShiftsExportPanel() {
+  const { state } = useStore();
+  const [month, setMonth] = useState(() => cairoDateLabel(Date.now()).slice(0, 7));
+  const [generating, setGenerating] = useState(false);
+
+  const { from, to } = useMemo(() => monthBusinessDayBounds(month), [month]);
+
+  // Every shift opened within the month, open or closed — the user
+  // explicitly asked for both, so an in-progress shift still shows up
+  // with "—" placeholders for whatever hasn't been finalized yet.
+  const shiftsInMonth = useMemo(
+    () => state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).sort((a, b) => a.openedAt - b.openedAt),
+    [state.shifts, from, to],
+  );
+
+  const rows = useMemo(() => {
+    return shiftsInMonth.map((shift) => {
+      const sessions = state.sessions.filter((s) => s.shiftId === shift.id);
+      const cashCollected = sessions.reduce((a, s) => a + s.cashAmount, 0);
+      const digitalCollected = sessions.reduce((a, s) => a + s.visaAmount + s.instapayAmount, 0);
+      const shiftLedger = state.ledger.filter((l) => l.shiftId === shift.id && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow");
+      const shiftExpenses = shiftLedger.reduce((a, l) => a + Number(l.amount), 0);
+      const isOpen = !shift.closedAt;
+      const status = isOpen ? "Open" : shift.forced ? "Force Closed" : "Closed";
+      return {
+        shift, cashCollected, digitalCollected, shiftExpenses, status, isOpen,
+      };
+    });
+  }, [shiftsInMonth, state.sessions, state.ledger]);
+
+  const monthlyTotals = useMemo(() => {
+    const totalShifts = rows.length;
+    const aggregateRevenue = rows.reduce((a, r) => a + r.cashCollected + r.digitalCollected, 0);
+    const aggregateExpenses = rows.reduce((a, r) => a + r.shiftExpenses, 0);
+    const netDiscrepancy = rows.reduce((a, r) => a + (r.shift.discrepancy ?? 0), 0);
+    return { totalShifts, aggregateRevenue, aggregateExpenses, netDiscrepancy };
+  }, [rows]);
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      const monthLabel = formatMonthYearLabel(month);
+      const [y, m] = month.split("-").map(Number);
+      const lastDayNum = new Date(y, m, 0).getDate();
+      const startDate = `${month}-01`;
+      const endDate = `${month}-${String(lastDayNum).padStart(2, "0")}`;
+
+      await generateSectionReportPdf({
+        sectionTitle: "Monthly Shifts Summary",
+        rangeLabel: monthLabel,
+        columns: [
+          { header: "Shift ID / Date" },
+          { header: "Opened By" },
+          { header: "Closed By" },
+          { header: "Opening Cash", align: "right" },
+          { header: "Cash Revenue", align: "right" },
+          { header: "Digital/Card Revenue", align: "right" },
+          { header: "Shift Expenses", align: "right" },
+          { header: "Expected Drawer", align: "right" },
+          { header: "Actual Drawer", align: "right" },
+          { header: "Discrepancy", align: "right" },
+          { header: "Status" },
+        ],
+        rows: rows.map(({ shift, cashCollected, digitalCollected, shiftExpenses, status, isOpen }) => [
+          `${shift.id.slice(0, 8)} — ${new Date(shift.openedAt).toLocaleDateString()}`,
+          // This data model has one cashier owning a shift start-to-finish
+          // (no separate opener/closer), so both columns show the same
+          // cashier — kept as two columns to match the requested layout.
+          shift.cashierUsername,
+          isOpen ? "—" : shift.cashierUsername,
+          fmtMoney(shift.openingBalance),
+          fmtMoney(cashCollected),
+          fmtMoney(digitalCollected),
+          fmtMoney(shiftExpenses),
+          shift.expectedCash !== null ? fmtMoney(shift.expectedCash) : "—",
+          shift.closingActualCash !== null ? fmtMoney(shift.closingActualCash) : "—",
+          shift.discrepancy !== null ? `${shift.discrepancy > 0 ? "+" : ""}${fmtMoney(shift.discrepancy)}` : "—",
+          status,
+        ]),
+        summaryLines: [
+          { label: "Total Shifts", value: String(monthlyTotals.totalShifts) },
+          { label: "Aggregate Revenue", value: fmtMoney(monthlyTotals.aggregateRevenue) },
+          { label: "Aggregate Expenses", value: fmtMoney(monthlyTotals.aggregateExpenses) },
+          { label: "Net Discrepancy", value: `${monthlyTotals.netDiscrepancy > 0 ? "+" : ""}${fmtMoney(monthlyTotals.netDiscrepancy)}` },
+        ],
+        startDate,
+        endDate,
+        filename: `Monthly_Shifts_Report_${month}.pdf`,
+        orientation: "landscape",
+        emptyMessage: "No shifts opened in this month.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <CalendarCheck className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
+          <h2 className="text-lg font-semibold">Monthly Consolidated Shifts Export</h2>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input
+            type="month" value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+          />
+          <button
+            onClick={() => void handleGeneratePdf()}
+            disabled={generating}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-50"
+          >
+            <FileDown className="w-3.5 h-3.5" /> {generating ? "Generating..." : "Download Monthly Shifts Summary PDF"}
+          </button>
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground font-mono">
+        {rows.length} shift{rows.length === 1 ? "" : "s"} opened in {formatMonthYearLabel(month)} · Aggregate Revenue {fmtMoney(monthlyTotals.aggregateRevenue)} · Aggregate Expenses {fmtMoney(monthlyTotals.aggregateExpenses)}
+      </div>
     </div>
   );
 }
