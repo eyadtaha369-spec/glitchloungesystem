@@ -2588,6 +2588,25 @@ interface ReopenResolvedAfter {
 // both entries carry in their own `before` snapshot. A reopen with no
 // match yet just means that check hasn't been checked out again since
 // — shown as "Still Open" rather than silently dropped.
+// Three possible states for a reopened check, in increasing order of
+// "how much do we actually know about it":
+// - "resolved": matched to a CHECK_REOPEN_RESOLVED entry — exact old
+//   total, new total, variance, and item-level changes, all real.
+// - "still_open": no resolution entry, AND state.rooms currently has a
+//   room whose live reopenedFrom.originalSessionId matches this check
+//   — i.e. it is, right now, genuinely sitting reopened and uncharged.
+//   This is a direct read of live state, not an inference.
+// - "closed_unrecorded": no resolution entry, and NOT currently open
+//   either — something closed this room since the reopen (a normal
+//   checkout or staff-order close both clear reopenedFrom), so the
+//   check is correctly no longer "open". What changed and what it was
+//   ultimately charged were never captured, because this reopen
+//   predates the CHECK_REOPEN_RESOLVED audit upgrade (or the original
+//   `before` snapshot itself predates even that — see
+//   ReopenedCheckSnapshot's optional fields). Deleted data that was
+//   never stored anywhere can't be recovered by a smarter query.
+type ReopenStatus = "resolved" | "still_open" | "closed_unrecorded";
+
 function ReopenCheckAuditPanel() {
   const { state, refreshActivityLogs } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
@@ -2600,6 +2619,13 @@ function ReopenCheckAuditPanel() {
 
   const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
   const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  // Every originalSessionId currently sitting reopened-and-uncharged on
+  // a live room — the authoritative "still open right now" signal.
+  const liveOpenSessionIds = useMemo(
+    () => new Set(state.rooms.filter((r) => r.reopenedFrom).map((r) => r.reopenedFrom!.originalSessionId)),
+    [state.rooms],
+  );
 
   const rows = useMemo(() => {
     const resolvedByOriginalId = new Map<string, { after: ReopenResolvedAfter; resolvedBy: string; resolvedAt: number }>();
@@ -2615,24 +2641,28 @@ function ReopenCheckAuditPanel() {
       .map((l) => {
         const before = safeJsonParse_<ReopenedCheckSnapshot>(l.before);
         const resolved = before ? resolvedByOriginalId.get(before.sessionId) : undefined;
-        const originalTotal = before?.total ?? 0;
-        const variance = resolved ? resolved.after.variance : null;
+        // Pre-upgrade CHECK_REOPENED entries have no `before` at all
+        // (just a plain-text description) — hasOriginalSnapshot tells
+        // the UI/PDF whether to show a real figure or "Not Recorded".
+        const hasOriginalSnapshot = before != null && typeof before.total === "number";
+        const status: ReopenStatus = resolved ? "resolved" : (before && liveOpenSessionIds.has(before.sessionId)) ? "still_open" : "closed_unrecorded";
         return {
           id: l.id,
-          orderNumber: before?.orderNumber ?? "—",
+          orderNumber: before?.orderNumber ?? null,
           roomName: l.location || "—",
           reopenedBy: l.actorUsername,
           reopenedAt: l.ts,
-          originalTotal,
+          hasOriginalSnapshot,
+          originalTotal: before?.total ?? null,
           updatedTotal: resolved ? resolved.after.total : null,
           newOrderNumber: resolved ? resolved.after.orderNumber : null,
-          variance,
+          variance: resolved ? resolved.after.variance : null,
           changes: resolved ? resolved.after.changes : [],
-          resolved: !!resolved,
+          status,
         };
       })
       .sort((a, b) => b.reopenedAt - a.reopenedAt);
-  }, [state.activityLogs, from, to]);
+  }, [state.activityLogs, from, to, liveOpenSessionIds]);
 
   const handleGeneratePdf = async () => {
     setGenerating(true);
@@ -2649,18 +2679,21 @@ function ReopenCheckAuditPanel() {
           { header: "Detailed Changes" },
         ],
         rows: rows.map((r) => [
-          `#${r.orderNumber} — ${r.roomName}`,
+          `#${r.orderNumber ?? "—"}${r.status === "resolved" && r.newOrderNumber ? ` → #${r.newOrderNumber}` : ""} — ${r.roomName}`,
           `${r.reopenedBy} — ${new Date(r.reopenedAt).toLocaleString()}`,
-          fmtMoney(r.originalTotal),
-          r.resolved ? fmtMoney(r.updatedTotal!) : "Still Open",
-          r.resolved ? `${r.variance! >= 0 ? "+" : ""}${fmtMoney(r.variance!)}` : "—",
-          r.resolved ? (r.changes.length ? r.changes.join("; ") : "No item changes") : "Not yet reclosed",
+          r.hasOriginalSnapshot ? fmtMoney(r.originalTotal!) : "Not Recorded",
+          r.status === "resolved" ? fmtMoney(r.updatedTotal!) : r.status === "still_open" ? "Still Open" : "Closed",
+          r.status === "resolved" ? `${r.variance! >= 0 ? "+" : ""}${fmtMoney(r.variance!)}` : "—",
+          r.status === "resolved" ? (r.changes.length ? r.changes.join("; ") : "No item changes")
+            : r.status === "still_open" ? "Not yet reclosed"
+            : "Closed before the audit upgrade — amounts/items were not captured",
         ]),
         summaryLines: [
           { label: "Reopened Checks", value: String(rows.length) },
-          { label: "Resolved", value: String(rows.filter((r) => r.resolved).length) },
-          { label: "Still Open", value: String(rows.filter((r) => !r.resolved).length) },
-          { label: "Net Variance", value: `${rows.reduce((a, r) => a + (r.variance ?? 0), 0) >= 0 ? "+" : ""}${fmtMoney(rows.reduce((a, r) => a + (r.variance ?? 0), 0))}` },
+          { label: "Resolved", value: String(rows.filter((r) => r.status === "resolved").length) },
+          { label: "Still Open", value: String(rows.filter((r) => r.status === "still_open").length) },
+          { label: "Closed (Unrecorded)", value: String(rows.filter((r) => r.status === "closed_unrecorded").length) },
+          { label: "Net Variance (Resolved)", value: `${rows.reduce((a, r) => a + (r.variance ?? 0), 0) >= 0 ? "+" : ""}${fmtMoney(rows.reduce((a, r) => a + (r.variance ?? 0), 0))}` },
         ],
         filenameBase: "Reopen_Check_Audit",
         startDate, endDate,
@@ -2701,10 +2734,15 @@ function ReopenCheckAuditPanel() {
         <div className="text-sm text-muted-foreground font-mono text-center py-6">No checks were reopened in this date range.</div>
       ) : (
         <>
-          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground mb-3">
+          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground mb-3 flex-wrap">
             <span>{rows.length} reopened</span>
-            <span>{rows.filter((r) => r.resolved).length} resolved</span>
-            <span>{rows.filter((r) => !r.resolved).length} still open</span>
+            <span>{rows.filter((r) => r.status === "resolved").length} resolved</span>
+            <span>{rows.filter((r) => r.status === "still_open").length} still open</span>
+            {rows.some((r) => r.status === "closed_unrecorded") && (
+              <span title="Closed via a reopen that predates the audit upgrade — the original amount and item changes were never captured for these.">
+                {rows.filter((r) => r.status === "closed_unrecorded").length} closed (amounts unrecorded)
+              </span>
+            )}
           </div>
           <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
             <table className="w-full text-sm">
@@ -2722,24 +2760,28 @@ function ReopenCheckAuditPanel() {
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b border-black/5 align-top">
                     <td className="py-2 pl-3 pr-3 font-mono">
-                      #{r.orderNumber}{r.resolved && r.newOrderNumber ? ` → #${r.newOrderNumber}` : ""}
+                      #{r.orderNumber ?? "—"}{r.status === "resolved" && r.newOrderNumber ? ` → #${r.newOrderNumber}` : ""}
                       <div className="text-muted-foreground">{r.roomName}</div>
                     </td>
                     <td className="py-2 pr-3">
                       {r.reopenedBy}
                       <div className="font-mono text-muted-foreground text-xs">{new Date(r.reopenedAt).toLocaleString()}</div>
                     </td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmtMoney(r.originalTotal)}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{r.hasOriginalSnapshot ? fmtMoney(r.originalTotal!) : <span className="text-muted-foreground">Not Recorded</span>}</td>
                     <td className="py-2 pr-3 text-right font-mono">
-                      {r.resolved ? fmtMoney(r.updatedTotal!) : <span className="text-[oklch(0.85_0.18_85)] font-bold">Still Open</span>}
+                      {r.status === "resolved" ? fmtMoney(r.updatedTotal!)
+                        : r.status === "still_open" ? <span className="text-[oklch(0.85_0.18_85)] font-bold">Still Open</span>
+                        : <span className="text-muted-foreground">Closed</span>}
                     </td>
                     <td className={`py-2 pr-3 text-right font-mono font-bold ${
-                      !r.resolved ? "text-muted-foreground" : r.variance! > 0.005 ? "text-[oklch(0.85_0.18_85)]" : r.variance! < -0.005 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"
+                      r.status !== "resolved" ? "text-muted-foreground" : r.variance! > 0.005 ? "text-[oklch(0.85_0.18_85)]" : r.variance! < -0.005 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"
                     }`}>
-                      {r.resolved ? `${r.variance! >= 0 ? "+" : ""}${fmtMoney(r.variance!)}` : "—"}
+                      {r.status === "resolved" ? `${r.variance! >= 0 ? "+" : ""}${fmtMoney(r.variance!)}` : "—"}
                     </td>
                     <td className="py-2 pr-3 text-xs">
-                      {r.resolved ? (r.changes.length ? r.changes.join("; ") : "No item changes") : <span className="text-muted-foreground">Not yet reclosed</span>}
+                      {r.status === "resolved" ? (r.changes.length ? r.changes.join("; ") : "No item changes")
+                        : r.status === "still_open" ? <span className="text-muted-foreground">Not yet reclosed</span>
+                        : <span className="text-muted-foreground">Closed before the audit upgrade — not captured</span>}
                     </td>
                   </tr>
                 ))}

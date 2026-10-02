@@ -177,6 +177,19 @@ export interface Room {
   // priority over the static OWNER_TABLE_AVATARS name-based mapping
   // when present.
   avatarUrl?: string | null;
+  // Set by bizReopenSession_ when this room's check was reopened for
+  // correction — a snapshot of the check exactly as it stood before
+  // reopening, kept until the room is checked out (or closed as a
+  // Staff Order) again, at which point it's cleared back to null. The
+  // Reopen Check Audit report (Reports page) uses its PRESENCE as the
+  // authoritative "is this specific reopen still open right now"
+  // signal — more reliable than inferring from log history, since it
+  // reflects live room state directly.
+  reopenedFrom?: {
+    originalSessionId: string; originalOrderNumber: number;
+    originalTotal: number; originalOrders: OrderLine[];
+    reopenedBy: string; reopenedAt: number;
+  } | null;
 }
 
 export interface Session {
