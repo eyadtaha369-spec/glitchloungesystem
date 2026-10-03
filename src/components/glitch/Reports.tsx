@@ -476,6 +476,10 @@ export function ReportsPage() {
           PDF export, same exclusions as before (no Staff Orders, no voids) */}
       <ExpensesHistoryPanel isAdmin={isAdmin} />
 
+      {/* 5a. Fix Misfiled Expense Dates — admin-only one-time repair for
+          overnight/month-end business-day misfiles (e.g. Sept 29/30) */}
+      <FixExpenseDatesPanel isAdmin={isAdmin} />
+
       {/* 6. Material Consumption — its own independent date-range picker
           and PDF export */}
       <MaterialConsumptionPanel />
@@ -1004,6 +1008,117 @@ const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
   out_of_pocket: "Out of Pocket / من الجيب",
   bank_transfer: "Bank Transfer / Visa / InstaPay",
 };
+
+// Admin-only data-repair tool for the month-end/overnight business-day
+// misfile: an expense logged before the Cairo-timezone fix shipped has
+// its (possibly wrong) expenseDate baked in forever — Reports.tsx trusts
+// a stored expenseDate unconditionally and never recomputes it on its
+// own. This re-derives it for every entry in the picked range using the
+// exact same logic every new submission already gets, and shows exactly
+// what moved. Password-confirmed like Recalculate Closed Shift, since
+// it's a bulk write across historical records.
+function FixExpenseDatesPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { backfillExpenseDates } = useStore();
+  const today = cairoDateLabel(Date.now());
+  const [fromDate, setFromDate] = useState("2026-09-29");
+  const [toDate, setToDate] = useState(today);
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ count: number; corrections: { id: string; description: string; amount: number; shiftId: string | null; from: string | null; to: string }[] } | null>(null);
+
+  if (!isAdmin) return null;
+
+  const canSubmit = confirmText === "FIX DATES" && password.length > 0 && !!fromDate && !!toDate;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const res = await backfillExpenseDates(fromDate, toDate, confirmText, password);
+      if (!res.ok) { setErr(res.error ?? "Could not recalculate expense dates."); return; }
+      setResult({ count: res.count ?? 0, corrections: res.corrections ?? [] });
+      setConfirmText("");
+      setPassword("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.75_0.18_80/0.4)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle className="w-5 h-5 text-[oklch(0.75_0.18_80)]" />
+        <h2 className="text-lg font-semibold">Fix Misfiled Expense Dates</h2>
+      </div>
+      <p className="text-sm text-muted-foreground mb-3">
+        One-time repair for expenses that landed on the wrong business day — the classic case is an
+        overnight or month-end shift (e.g. Sept 29–30). Recalculates each expense's date from the
+        shift it actually belongs to; expenses already correct are left untouched. Never touches
+        supplier invoices, sales, or voids — only operational expenses/purchases.
+      </p>
+
+      <div className="flex items-end gap-3 flex-wrap mb-3">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">From</label>
+          <input type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">To</label>
+          <input type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">Type FIX DATES to confirm</label>
+          <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="FIX DATES" className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">Your admin password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs" />
+        </div>
+        <button
+          onClick={() => void handleSubmit()}
+          disabled={!canSubmit || submitting}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.75_0.18_80)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-bold disabled:opacity-50"
+        >
+          {submitting ? "Recalculating..." : "Recalculate Dates"}
+        </button>
+      </div>
+
+      {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-2">{err}</div>}
+
+      {result && (
+        result.count === 0 ? (
+          <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold">No entries needed correction in this range — dates already match their shifts.</div>
+        ) : (
+          <div>
+            <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold mb-2">Corrected {result.count} entr{result.count === 1 ? "y" : "ies"}:</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead><tr className="text-left text-muted-foreground border-b border-black/10">
+                  <th className="py-1 pr-3">Description</th><th className="py-1 pr-3 text-right">Amount</th>
+                  <th className="py-1 pr-3">From</th><th className="py-1 pr-3">To</th>
+                </tr></thead>
+                <tbody>
+                  {result.corrections.map((c) => (
+                    <tr key={c.id} className="border-b border-black/5">
+                      <td className="py-1 pr-3">{c.description}</td>
+                      <td className="py-1 pr-3 text-right">{fmtMoney(c.amount)}</td>
+                      <td className="py-1 pr-3 text-[oklch(0.62_0.24_25)]">{c.from ?? "(none)"}</td>
+                      <td className="py-1 pr-3 text-[oklch(0.78_0.2_155)]">{c.to}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
 
 // Expenses History — this specific date only (same exclusions as the KPI
 // card above: no Staff Orders, no voids). Admins get Edit/Delete on every

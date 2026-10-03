@@ -1660,6 +1660,33 @@ function expenseDateForShift_(shiftId, ts) {
   return businessDayLabelForTs_(ts);
 }
 
+// One-time data-repair tool, NOT part of normal expense submission (that
+// path -- handleSubmitExpense_/handleSubmitPurchase_/backdated expenses --
+// already calls expenseDateForShift_ correctly on every new entry). This
+// exists because expenseDate is written ONCE at creation and never
+// recomputed: any entry created before the Cairo-timezone fix shipped
+// carries whatever (possibly wrong) label the OLD logic gave it, forever,
+// since Reports.tsx trusts a stored expenseDate unconditionally. A
+// month-end/overnight shift is exactly the case that old logic got wrong
+// (see businessDayLabelForTs_ above), so this re-derives the correct
+// label for existing rows using the SAME function current submissions
+// use, and persists the correction. Only touches ledger types that are
+// actually shift-business-day-dated in the first place -- never a
+// supplier invoice (admin picks its own invoice date on purpose), a sale,
+// a void/waste adjustment, a fixed monthly cost, or a settled supplier
+// payment (all of those are intentionally NOT governed by
+// expenseDateForShift_ semantics; see isOperationalExpense/
+// isSettledSupplierPayment_ in Reports.tsx for why).
+const SHIFT_DATED_LEDGER_TYPES_ = ["midShiftPurchase", "stockedBatch", "dailyFresh"];
+function recomputeExpenseDate_(entry, shiftsById) {
+  if (SHIFT_DATED_LEDGER_TYPES_.indexOf(entry.type) === -1) return entry.expenseDate || null;
+  if (entry.shiftId) {
+    const shift = shiftsById[entry.shiftId];
+    if (shift) return businessDayLabelForTs_(shift.openedAt);
+  }
+  return businessDayLabelForTs_(entry.ts);
+}
+
 // Scoped to the calendar day, not the currently active shift — a
 // Scoped to the ACTIVE SHIFT, not the calendar day — per explicit
 // confirmed decision, a "Business Day" here is defined strictly by a
@@ -3236,6 +3263,53 @@ function doPost(e) {
           });
         }
         return json_({ ok: delExpOk, recalculated: delExpRecalculated });
+      }
+
+      // Admin-only, password-confirmed data repair: recomputes
+      // expenseDate for every Ledger entry whose CURRENT label (stored,
+      // or derived from ts if never set) or CORRECTED label falls inside
+      // [fromDate, toDate] -- the union catches both "sitting in the
+      // wrong place and needs to move out" and "belongs here but is
+      // mislabeled elsewhere" without having to scan the entire ledger
+      // history on every run. See recomputeExpenseDate_ above for which
+      // entry types are actually in scope.
+      case "backfillExpenseDates": {
+        requireRole_(body.username, ["admin"]);
+        if (body.confirmText !== "FIX DATES") return json_({ ok: false, error: 'Type FIX DATES exactly to confirm.' });
+        const bfAuth = login_(body.username, body.password);
+        if (!bfAuth.ok || bfAuth.role !== "admin") return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(body.toDate)) {
+          return json_({ ok: false, error: "Pick a valid date range." });
+        }
+        const bfFrom = body.fromDate <= body.toDate ? body.fromDate : body.toDate;
+        const bfTo = body.fromDate <= body.toDate ? body.toDate : body.fromDate;
+        const bfShiftsById = {};
+        readObjects_("Shifts").forEach(function (sh) { bfShiftsById[sh.id] = sh; });
+        const corrections = [];
+        readObjects_("Ledger").forEach(function (entry) {
+          const currentLabel = entry.expenseDate || businessDayLabelForTs_(entry.ts);
+          const corrected = recomputeExpenseDate_(entry, bfShiftsById);
+          const currentInRange = currentLabel >= bfFrom && currentLabel <= bfTo;
+          const correctedInRange = corrected && corrected >= bfFrom && corrected <= bfTo;
+          if (!currentInRange && !correctedInRange) return;
+          if (corrected && corrected !== entry.expenseDate) {
+            updateObjectById_("Ledger", entry.id, { expenseDate: corrected });
+            corrections.push({
+              id: entry.id, description: entry.description, amount: entry.amount,
+              shiftId: entry.shiftId || null, from: entry.expenseDate || null, to: corrected,
+            });
+          }
+        });
+        if (corrections.length) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DATES_BACKFILLED",
+            description: "Admin " + body.username + " recalculated expense dates for " + corrections.length +
+              " entr" + (corrections.length === 1 ? "y" : "ies") + " between " + bfFrom + " and " + bfTo,
+            before: { fromDate: bfFrom, toDate: bfTo },
+            after: { count: corrections.length, corrections: corrections },
+          });
+        }
+        return json_({ ok: true, count: corrections.length, corrections: corrections });
       }
 
       case "forceEndShift": {

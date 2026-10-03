@@ -360,6 +360,27 @@ export const editExpenseFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; entry?: LedgerEntry; recalculated?: { expectedCash: number; discrepancy: number } | null }>("editExpense", { ...data, username: user.username });
   });
 
+// Admin-only, password-confirmed data repair: re-derives expenseDate for
+// every Ledger entry whose current OR corrected business-day label falls
+// in [fromDate, toDate], using the exact same Cairo-timezone logic every
+// new expense already gets at creation (expenseDateForShift_). For
+// entries that already carry the right label, nothing changes. Built
+// specifically for retroactively correcting entries logged before that
+// Cairo-timezone fix shipped — e.g. the Sept 29/30 month-end boundary —
+// without touching unrelated history or supplier invoices (which use an
+// explicit admin-picked invoice date on purpose).
+export const backfillExpenseDatesFn = createServerFn({ method: "POST" })
+  .validator((d: { fromDate: string; toDate: string; confirmText: string; password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{
+      ok: boolean;
+      error?: string;
+      count?: number;
+      corrections?: { id: string; description: string; amount: number; shiftId: string | null; from: string | null; to: string }[];
+    }>("backfillExpenseDates", { ...data, username: user.username });
+  });
+
 // Admin-only: permanently delete an already-recorded expense (normal or
 // backdated). Same shift-recalculation behavior as editExpenseFn.
 export const deleteExpenseFn = createServerFn({ method: "POST" })

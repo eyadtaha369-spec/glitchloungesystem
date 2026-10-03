@@ -85,7 +85,7 @@ import {
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
   logRecurringExpensePaymentFn,
   submitPurchaseFn,
-  submitExpenseFn, submitBackdatedExpenseFn, editExpenseFn, deleteExpenseFn, getUnpaidExpensesFn, settleExpenseFn,
+  submitExpenseFn, submitBackdatedExpenseFn, editExpenseFn, deleteExpenseFn, backfillExpenseDatesFn, getUnpaidExpensesFn, settleExpenseFn,
   submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
   deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, clearExpensesLedgerFn, addFixedMonthlyCostFn, updateFixedMonthlyCostFn, deleteFixedMonthlyCostFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
@@ -272,6 +272,14 @@ interface StoreContextValue {
   // the owning shift's expected cash/discrepancy if it's already closed.
   editExpense: (id: string, patch: { amount?: number; category?: string; description?: string; paymentSource?: PaymentSource; expenseDate?: string }) => Promise<{ ok: boolean; error?: string }>;
   deleteExpense: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  // Admin-only, password-confirmed data repair: re-derives expenseDate
+  // for existing Ledger entries in a date range using the same
+  // Cairo-timezone logic every new expense gets at creation. For fixing
+  // historical entries logged before that fix shipped (e.g. a month-end
+  // boundary misfile) — never touches new submissions.
+  backfillExpenseDates: (
+    fromDate: string, toDate: string, confirmText: string, password: string,
+  ) => Promise<{ ok: boolean; error?: string; count?: number; corrections?: { id: string; description: string; amount: number; shiftId: string | null; from: string | null; to: string }[] }>;
   unpaidExpenses: LedgerEntry[];
   refreshUnpaidExpenses: () => Promise<void>;
   settleExpense: (ledgerId: string, paymentSource: PaymentSource) => Promise<{ ok: boolean; error?: string }>;
@@ -1183,6 +1191,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error };
     });
   };
+  const backfillExpenseDates: StoreContextValue["backfillExpenseDates"] = async (fromDate, toDate, confirmText, password) => {
+    return withPending("backfillExpenseDates", async () => {
+      try {
+        const res = await backfillExpenseDatesFn({ data: { fromDate, toDate, confirmText, password } });
+        if (res.ok) await refreshLedger();
+        return { ok: res.ok, error: res.error, count: res.count, corrections: res.corrections };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not recalculate expense dates." };
+      }
+    });
+  };
   const refreshUnpaidExpenses: StoreContextValue["refreshUnpaidExpenses"] = async () => {
     setUnpaidExpenses(await getUnpaidExpensesFn());
   };
@@ -1651,7 +1670,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, submitBackdatedExpense, editExpense, deleteExpense, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, clearExpensesLedger, addFixedMonthlyCost, updateFixedMonthlyCost, deleteFixedMonthlyCost, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, submitBackdatedExpense, editExpense, deleteExpense, backfillExpenseDates, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, clearExpensesLedger, addFixedMonthlyCost, updateFixedMonthlyCost, deleteFixedMonthlyCost, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders, refreshStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember,
     refreshEventBookings, addEventBooking, updateEventBooking, deleteEventBooking,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,
