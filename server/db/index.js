@@ -62,6 +62,9 @@ addColumnIfMissing_("PurchaseInvoices", "referenceNumber", "TEXT");
 addColumnIfMissing_("Ledger", "backdated", "INTEGER");
 addColumnIfMissing_("Ledger", "expenseDate", "TEXT");
 addColumnIfMissing_("Ledger", "expenseScope", "TEXT");
+addColumnIfMissing_("Ledger", "linkedPaymentId", "TEXT");
+addColumnIfMissing_("Ledger", "invoiceId", "TEXT");
+addColumnIfMissing_("SupplierPayments", "invoiceId", "TEXT");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",

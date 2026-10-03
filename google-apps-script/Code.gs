@@ -175,10 +175,10 @@ function sheetObjectHeaders_(name) {
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source", "invoiceId", "ledgerId"],
-    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated", "expenseDate", "expenseScope"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated", "expenseDate", "expenseScope", "linkedPaymentId", "invoiceId"],
     PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource", "referenceNumber"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
-    SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId"],
+    SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId", "invoiceId"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
     Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId", "rateSegments"],
@@ -3312,6 +3312,54 @@ function doPost(e) {
         return json_({ ok: true, count: corrections.length, corrections: corrections });
       }
 
+      // One-time data-repair tool for supplier debt payments recorded
+      // before this fix shipped — those Ledger entries exist (payments
+      // have always created one, since the earlier deferred-payments
+      // fix) but may be missing expenseDate (so they don't show up
+      // under Reports -> Expenses History for the exact day they were
+      // paid), may still carry an old-format category ("Supplier
+      // Payment" / "Monthly Procurement Payment"), and may be missing
+      // the linkedPaymentId back-reference (needed so Purchase History
+      // routes its delete button to deleteSupplierPayment instead of
+      // deletePurchase). Re-derives each from the same logic new
+      // payments use and persists the correction. Never touches amount,
+      // supplier, or anything that would change WHAT was paid — only
+      // how it's filed.
+      case "resyncSupplierPaymentExpenses": {
+        requireRole_(body.username, ["admin"]);
+        if (body.confirmText !== "RESYNC PAYMENTS") return json_({ ok: false, error: "Type RESYNC PAYMENTS exactly to confirm." });
+        const resyncAuth = login_(body.username, body.password);
+        if (!resyncAuth.ok || resyncAuth.role !== "admin") return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+        const paymentsByLedgerId = {};
+        readObjects_("SupplierPayments").forEach(function (p) { if (p.ledgerEntryId) paymentsByLedgerId[p.ledgerEntryId] = p; });
+        const resyncCorrections = [];
+        readObjects_("Ledger").forEach(function (entry) {
+          if (entry.type !== "supplierPayment") return;
+          const patch = {};
+          const correctDate = expenseDateForShift_(entry.shiftId || null, entry.ts);
+          if (entry.expenseDate !== correctDate) patch.expenseDate = correctDate;
+          if (entry.category !== SUPPLIER_DEBT_PAYMENT_CATEGORY_) patch.category = SUPPLIER_DEBT_PAYMENT_CATEGORY_;
+          const linkedPayment = paymentsByLedgerId[entry.id];
+          if (linkedPayment && entry.linkedPaymentId !== linkedPayment.id) patch.linkedPaymentId = linkedPayment.id;
+          if (Object.keys(patch).length === 0) return;
+          updateObjectById_("Ledger", entry.id, patch);
+          resyncCorrections.push({
+            id: entry.id, description: entry.description, amount: entry.amount,
+            fromExpenseDate: entry.expenseDate || null, toExpenseDate: patch.expenseDate || entry.expenseDate || null,
+            fromCategory: entry.category, toCategory: patch.category || entry.category,
+          });
+        });
+        if (resyncCorrections.length) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DATES_BACKFILLED",
+            description: "Admin " + body.username + " resynced " + resyncCorrections.length +
+              " supplier debt payment entr" + (resyncCorrections.length === 1 ? "y" : "ies") + " (expense date / category / linked payment)",
+            after: { count: resyncCorrections.length, corrections: resyncCorrections },
+          });
+        }
+        return json_({ ok: true, count: resyncCorrections.length, corrections: resyncCorrections });
+      }
+
       case "forceEndShift": {
         requireRole_(body.username, ["admin"]);
         const state = getState_();
@@ -4843,6 +4891,28 @@ function recordStaffAdvance_(body) {
 //      ts-based matching on the frontend, independent of shiftId).
 // Defaults to "daily_shift" if omitted, for backward compatibility
 // with any already-queued request from before this field existed.
+//
+// category is now ALWAYS the fixed bilingual string below, regardless
+// of expenseScope -- expenseScope (daily_shift vs monthly) already
+// carries the "which cash" distinction as its own field/column, so the
+// category no longer needs to double up as that signal too. This also
+// gives every settled debt payment a single, searchable category for
+// Reports.tsx's Expenses History, matching the exact wording asked for.
+//
+// expenseDate is now ALWAYS set explicitly at creation (previously left
+// unset, relying entirely on the ts-based fallback branch of
+// expenseMatchesRange_/expenseMatchesMonth_ in Reports.tsx) -- bound to
+// whichever shift was actually active at the moment of payment via
+// expenseDateForShift_, which is what makes the payment immediately
+// show up under Reports -> Expenses History for that exact business
+// day instead of "No expenses logged on this date". Deliberately uses
+// the RAW incoming body.shiftId for this date computation (not
+// resolvedShiftId, which is nulled for "monthly" scope purely to keep
+// that payment out of the shift's OWN drawer reconciliation) -- the
+// business-date label should reflect reality (which shift was open)
+// independently of whether this payment also counts against that
+// shift's drawer.
+const SUPPLIER_DEBT_PAYMENT_CATEGORY_ = "Supplier Debt Payment / سداد فاتورة آجل";
 function recordSupplierPayment_(body) {
   if (!body.supplierId || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Select a supplier and enter a valid amount." };
@@ -4854,6 +4924,14 @@ function recordSupplierPayment_(body) {
   const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
   const supplier = readObjects_("Suppliers").find(function (s) { return s.id === body.supplierId; });
   const supplierName = supplier ? supplier.name : "Supplier";
+  // Optional — the admin may pick a specific outstanding deferred
+  // invoice this payment is settling, purely for the paper trail
+  // (folded into the description + stored on both rows); the
+  // supplier's running balance itself stays undifferentiated.
+  const invoice = body.invoiceId
+    ? readObjects_("PurchaseInvoices").find(function (i) { return i.id === body.invoiceId && i.supplierId === body.supplierId; })
+    : null;
+  const invoiceRef = invoice ? (invoice.referenceNumber || ("#" + invoice.id.slice(-6))) : null;
   const now = Date.now();
   const paymentId = newId_("spay");
   const ledgerEntryId = newId_("ledg");
@@ -4870,15 +4948,19 @@ function recordSupplierPayment_(body) {
     // Stored so a future delete can find and remove exactly this
     // expense entry, rather than guessing by matching fields.
     ledgerEntryId: ledgerEntryId,
+    invoiceId: body.invoiceId || null,
   });
   appendObject_("Ledger", {
     id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
-    category: expenseScope === "monthly" ? "Monthly Procurement Payment" : "Supplier Payment",
-    description: "سداد فاتورة آجلة - " + supplierName + (body.note ? " — " + body.note : ""),
+    category: SUPPLIER_DEBT_PAYMENT_CATEGORY_,
+    description: "سداد فاتورة آجلة - " + supplierName + (invoiceRef ? " — Invoice " + invoiceRef : "") + (body.note ? " — " + body.note : ""),
     supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
     paidFromDrawer: paidFromDrawer, shiftId: resolvedShiftId, materialId: null,
     qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
     expenseScope: expenseScope,
+    expenseDate: expenseDateForShift_(body.shiftId || null, now),
+    linkedPaymentId: paymentId,
+    invoiceId: body.invoiceId || null,
   });
   return { ok: true, paymentId: paymentId, ledgerEntryId: ledgerEntryId, shiftId: resolvedShiftId };
 }
@@ -4958,6 +5040,7 @@ function getSupplierLedger_(supplierId) {
     entries.push({
       ts: Number(p.ts), type: "payment", description: "سداد فاتورة آجلة" + (p.note ? " — " + p.note : ""),
       amount: Number(p.amount), debit: 0, credit: Number(p.amount), paymentType: null, id: p.id,
+      invoiceId: p.invoiceId || null,
     });
   });
   entries.sort(function (a, b) { return a.ts - b.ts; });

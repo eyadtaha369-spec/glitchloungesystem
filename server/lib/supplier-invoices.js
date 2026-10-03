@@ -115,9 +115,13 @@ function bizSubmitPurchaseInvoice_(deps, body) {
 //      ts-based matching on the frontend, independent of shiftId).
 // Defaults to "daily_shift" if omitted, for backward compatibility
 // with any already-queued request from before this field existed.
-// Mirrors Code.gs's recordSupplierPayment_ exactly.
+// Mirrors Code.gs's recordSupplierPayment_ exactly, including the
+// fixed category and explicit expenseDate added alongside the
+// "critical accounting mismatch" fix (see Code.gs for the full
+// reasoning on both).
+const SUPPLIER_DEBT_PAYMENT_CATEGORY_ = "Supplier Debt Payment / سداد فاتورة آجل";
 function bizRecordSupplierPayment_(deps, body) {
-  const { readObjects_, appendObject_, newId_ } = deps;
+  const { readObjects_, appendObject_, newId_, expenseDateForShift_ } = deps;
   if (!body.supplierId || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Select a supplier and enter a valid amount." };
   }
@@ -128,6 +132,14 @@ function bizRecordSupplierPayment_(deps, body) {
   const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
   const supplier = readObjects_("Suppliers").find((s) => s.id === body.supplierId);
   const supplierName = supplier ? supplier.name : "Supplier";
+  // Optional — the admin may pick a specific outstanding deferred
+  // invoice this payment is settling, purely for the paper trail
+  // (folded into the description + stored on both rows); the
+  // supplier's running balance itself stays undifferentiated.
+  const invoice = body.invoiceId
+    ? readObjects_("PurchaseInvoices").find((i) => i.id === body.invoiceId && i.supplierId === body.supplierId)
+    : null;
+  const invoiceRef = invoice ? (invoice.referenceNumber || ("#" + invoice.id.slice(-6))) : null;
   const now = Date.now();
   const paymentId = newId_("spay");
   const ledgerEntryId = newId_("ledg");
@@ -139,15 +151,25 @@ function bizRecordSupplierPayment_(deps, body) {
     // Stored so a future delete can find and remove exactly this
     // expense entry, rather than guessing by matching fields.
     ledgerEntryId,
+    invoiceId: body.invoiceId || null,
   });
   appendObject_("Ledger", {
     id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
-    category: expenseScope === "monthly" ? "Monthly Procurement Payment" : "Supplier Payment",
-    description: "سداد فاتورة آجلة - " + supplierName + (body.note ? " — " + body.note : ""),
+    category: SUPPLIER_DEBT_PAYMENT_CATEGORY_,
+    description: "سداد فاتورة آجلة - " + supplierName + (invoiceRef ? " — Invoice " + invoiceRef : "") + (body.note ? " — " + body.note : ""),
     supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
     paidFromDrawer, shiftId: resolvedShiftId, materialId: null,
     qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
     expenseScope,
+    // Bound to whichever shift was ACTUALLY active at the moment of
+    // payment (raw body.shiftId, not resolvedShiftId, which is nulled
+    // for "monthly" scope purely to keep this out of that shift's own
+    // drawer reconciliation) -- this is what makes the payment
+    // immediately show up under Reports -> Expenses History for the
+    // right business day instead of "No expenses logged on this date".
+    expenseDate: expenseDateForShift_(body.shiftId || null, now),
+    linkedPaymentId: paymentId,
+    invoiceId: body.invoiceId || null,
   });
   return { ok: true, paymentId, ledgerEntryId, shiftId: resolvedShiftId };
 }
@@ -203,6 +225,7 @@ function bizGetSupplierLedger_(deps, supplierId) {
     entries.push({
       ts: Number(p.ts), type: "payment", description: "سداد فاتورة آجلة" + (p.note ? " — " + p.note : ""),
       amount: Number(p.amount), debit: 0, credit: Number(p.amount), paymentType: null, id: p.id,
+      invoiceId: p.invoiceId || null,
     });
   });
   entries.sort((a, b) => a.ts - b.ts);
@@ -256,4 +279,34 @@ function bizClearExpensesLedger_(deps) {
   return { ok: true, count: ledgerEntries.length, totalCleared, clearedRecords: ledgerEntries };
 }
 
-module.exports = { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_, bizGetSupplierBalances_, bizGetSupplierLedger_ };
+// One-time data-repair tool for supplier debt payments recorded before
+// this fix shipped — mirrors Code.gs's "resyncSupplierPaymentExpenses"
+// case exactly. See that case's comment for the full reasoning.
+function bizResyncSupplierPaymentExpenses_(deps) {
+  const { readObjects_, updateObjectById_ } = deps;
+  const paymentsByLedgerId = {};
+  readObjects_("SupplierPayments").forEach((p) => { if (p.ledgerEntryId) paymentsByLedgerId[p.ledgerEntryId] = p; });
+  const corrections = [];
+  readObjects_("Ledger").forEach((entry) => {
+    if (entry.type !== "supplierPayment") return;
+    const patch = {};
+    const correctDate = deps.expenseDateForShift_(entry.shiftId || null, entry.ts);
+    if (entry.expenseDate !== correctDate) patch.expenseDate = correctDate;
+    if (entry.category !== SUPPLIER_DEBT_PAYMENT_CATEGORY_) patch.category = SUPPLIER_DEBT_PAYMENT_CATEGORY_;
+    const linkedPayment = paymentsByLedgerId[entry.id];
+    if (linkedPayment && entry.linkedPaymentId !== linkedPayment.id) patch.linkedPaymentId = linkedPayment.id;
+    if (Object.keys(patch).length === 0) return;
+    updateObjectById_("Ledger", entry.id, patch);
+    corrections.push({
+      id: entry.id, description: entry.description, amount: entry.amount,
+      fromExpenseDate: entry.expenseDate || null, toExpenseDate: patch.expenseDate || entry.expenseDate || null,
+      fromCategory: entry.category, toCategory: patch.category || entry.category,
+    });
+  });
+  return { ok: true, count: corrections.length, corrections };
+}
+
+module.exports = {
+  bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_,
+  bizGetSupplierBalances_, bizGetSupplierLedger_, bizResyncSupplierPaymentExpenses_,
+};

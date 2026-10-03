@@ -22,7 +22,11 @@ const PAYMENT_SOURCE_ICONS: Record<PaymentSource, typeof Wallet> = {
   out_of_pocket: HandCoins,
   bank_transfer: Landmark,
 };
-const PROCUREMENT_TYPES = new Set(["stockedBatch", "dailyFresh", "midShiftPurchase"]);
+// "supplierPayment" included so a settled deferred invoice (سداد فاتورة
+// آجلة) shows up in Purchase History alongside direct cash purchases,
+// not just in the Expenses History report — see PurchaseRowActions and
+// ReportModal below for the type-specific handling this requires.
+const PROCUREMENT_TYPES = new Set(["stockedBatch", "dailyFresh", "midShiftPurchase", "supplierPayment"]);
 
 export function ProcurementPage() {
   const { state, refreshLedger } = useStore();
@@ -1032,6 +1036,7 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
         {showPayForm && (
           <RecordSupplierPaymentForm
             supplierId={supplierId}
+            outstandingInvoices={entries.filter((e) => e.type === "invoice" && e.paymentType === "deferred")}
             onDone={async () => {
               setShowPayForm(false);
               await load();
@@ -1421,11 +1426,23 @@ const EXPENSE_SCOPE_OPTIONS: { value: "daily_shift" | "monthly"; labelAr: string
   },
 ];
 
-function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierId: string; onDone: () => void; onCancel: () => void }) {
+function RecordSupplierPaymentForm({ supplierId, outstandingInvoices, onDone, onCancel }: {
+  supplierId: string;
+  // Deferred invoices for this supplier, so the admin can optionally
+  // say which specific invoice this payment is settling — purely for
+  // the paper trail (folded into the description); see
+  // recordSupplierPayment_ in Code.gs. Undefined where the caller
+  // hasn't loaded the supplier's ledger (the dropdown is simply
+  // omitted then).
+  outstandingInvoices?: SupplierLedgerEntry[];
+  onDone: () => void;
+  onCancel: () => void;
+}) {
   const { recordSupplierPayment } = useStore();
   const [amount, setAmount] = useState("");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
   const [expenseScope, setExpenseScope] = useState<"daily_shift" | "monthly" | "">("");
+  const [invoiceId, setInvoiceId] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1437,7 +1454,7 @@ function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierI
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, expenseScope, note: note || undefined });
+      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, expenseScope, note: note || undefined, invoiceId: invoiceId || undefined });
       if (!res.ok) { setErr(res.error ?? "Failed to record payment"); return; }
       onDone();
     } catch (e) {
@@ -1459,6 +1476,20 @@ function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierI
           <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
+
+      {outstandingInvoices && outstandingInvoices.length > 0 && (
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Settling which invoice? (optional)</label>
+          <select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm">
+            <option value="">— Not tied to a specific invoice —</option>
+            {outstandingInvoices.map((inv) => (
+              <option key={inv.id} value={inv.id}>
+                {new Date(inv.ts).toLocaleDateString()} — {inv.referenceNumber ? `#${inv.referenceNumber}` : `#${inv.id.slice(-6)}`} — {fmtMoney(inv.amount)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2">
         {(Object.keys(PAYMENT_SOURCE_LABELS) as PaymentSource[]).map((src) => {
           const Icon = PAYMENT_SOURCE_ICONS[src];
@@ -1679,18 +1710,34 @@ function PurchaseHistory() {
 }
 
 function PurchaseRowActions({ entry }: { entry: LedgerEntry }) {
-  const { state, deletePurchase } = useStore();
+  const { state, deletePurchase, deleteSupplierPayment } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
   const [showEdit, setShowEdit] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // A "supplierPayment" row's balance actually lives in the SEPARATE
+  // SupplierPayments running-balance table, not just this Ledger entry
+  // -- deletePurchase (deletePurchase_/bizDeletePurchase_) has no type
+  // guard and would happily delete ONLY this Ledger row, silently
+  // leaving the SupplierPayments row (and the supplier's balance)
+  // behind, desynced. deleteSupplierPayment removes both together.
+  // linkedPaymentId is the SupplierPayments.id this Ledger entry
+  // mirrors (set at creation by recordSupplierPayment_); an older
+  // payment recorded before that field existed won't have it yet — use
+  // the "Resync Supplier Payments" admin tool in Reports to backfill it.
+  const isSupplierPayment = entry.type === "supplierPayment";
+
   const doDelete = async () => {
     setDeleting(true);
     setErr(null);
     try {
-      const res = await deletePurchase(entry.id);
+      const res = isSupplierPayment
+        ? entry.linkedPaymentId
+          ? await deleteSupplierPayment(entry.linkedPaymentId)
+          : { ok: false, error: "This older payment is missing its link to the supplier balance record — run \"Resync Supplier Payments\" in Reports first, then try deleting again." }
+        : await deletePurchase(entry.id);
       if (!res.ok) { setErr(res.error ?? "Delete failed"); return; }
       setShowConfirmDelete(false);
     } catch (e) {
@@ -1718,8 +1765,10 @@ function PurchaseRowActions({ entry }: { entry: LedgerEntry }) {
           <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-bold mb-2">Delete this expense of {fmtMoney(entry.amount)}?</h3>
             <p className="text-sm text-muted-foreground mb-3">
-              {entry.description || entry.category}. If any of this stock has already been
-              used in a sale, this will be blocked automatically.
+              {entry.description || entry.category}.{" "}
+              {isSupplierPayment
+                ? "This will also remove it from the supplier's running balance."
+                : "If any of this stock has already been used in a sale, this will be blocked automatically."}
             </p>
             {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{err}</div>}
             <div className="flex justify-end gap-2">
@@ -1872,12 +1921,16 @@ function ReportModal({ entries, materials, onClose }: {
   <thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>Unit Price</th><th>Payment Source</th><th>Staff</th><th>Total Price</th></tr></thead>
   <tbody>
     ${filtered.map((e) => {
+      // A "supplierPayment" row has no materialId/qty/unitCost (it's a
+      // debt settlement, not a material purchase) — fall back to its
+      // description (already names the supplier) and show "—" instead
+      // of a misleading "0.00 EGP" unit price.
       const m = materials.find((mm) => mm.id === e.materialId);
       return `<tr>
         <td>${new Date(e.ts).toLocaleString()}</td>
-        <td>${m?.name ?? e.materialId ?? ""}</td>
-        <td>${e.qty ?? ""} ${m?.unit ?? ""}</td>
-        <td>${(e.unitCost ?? 0).toFixed(2)} EGP</td>
+        <td>${m?.name ?? e.materialId ?? e.description ?? e.category ?? ""}</td>
+        <td>${e.qty != null ? `${e.qty} ${m?.unit ?? ""}` : "—"}</td>
+        <td>${e.unitCost != null ? e.unitCost.toFixed(2) + " EGP" : "—"}</td>
         <td>${e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource as PaymentSource] : "—"}</td>
         <td>${e.staffUsername}</td>
         <td>${e.amount.toFixed(2)} EGP</td>
@@ -1895,7 +1948,8 @@ function ReportModal({ entries, materials, onClose }: {
     const rows = filtered.map((e) => {
       const m = materials.find((mm) => mm.id === e.materialId);
       return [
-        new Date(e.ts).toLocaleString(), m?.name ?? e.materialId ?? "", e.qty ?? "", (e.unitCost ?? 0).toFixed(2),
+        new Date(e.ts).toLocaleString(), m?.name ?? e.materialId ?? e.description ?? e.category ?? "", e.qty ?? "",
+        e.unitCost != null ? e.unitCost.toFixed(2) : "",
         e.paymentSource ? PAYMENT_SOURCE_LABELS[e.paymentSource as PaymentSource] : "", e.staffUsername, e.amount.toFixed(2),
       ];
     });

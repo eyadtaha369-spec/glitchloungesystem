@@ -514,6 +514,7 @@ export function ReportsPage() {
       {/* 5a. Fix Misfiled Expense Dates — admin-only one-time repair for
           overnight/month-end business-day misfiles (e.g. Sept 29/30) */}
       <FixExpenseDatesPanel isAdmin={isAdmin} />
+      <ResyncSupplierPaymentsPanel isAdmin={isAdmin} />
 
       {/* 6. Material Consumption — its own independent date-range picker
           and PDF export */}
@@ -1163,6 +1164,112 @@ function FixExpenseDatesPanel({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+// One-time data-repair tool for supplier debt payments recorded before
+// the "critical accounting mismatch" fix shipped (payments already
+// created a Ledger entry, from the earlier deferred-payments fix, but
+// may be missing expenseDate -- so they don't show up under Expenses
+// History for the exact day they were paid -- an old-format category,
+// or the linkedPaymentId back-reference Purchase History's delete
+// action needs). Mirrors FixExpenseDatesPanel's shape exactly.
+function ResyncSupplierPaymentsPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { resyncSupplierPaymentExpenses } = useStore();
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ count: number; corrections: { id: string; description: string; amount: number; fromExpenseDate: string | null; toExpenseDate: string | null; fromCategory: string; toCategory: string }[] } | null>(null);
+
+  if (!isAdmin) return null;
+
+  const canSubmit = confirmText === "RESYNC PAYMENTS" && password.length > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const res = await resyncSupplierPaymentExpenses(confirmText, password);
+      if (!res.ok) { setErr(res.error ?? "Could not resync supplier payments."); return; }
+      setResult({ count: res.count ?? 0, corrections: res.corrections ?? [] });
+      setConfirmText("");
+      setPassword("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.75_0.18_80/0.4)]">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle className="w-5 h-5 text-[oklch(0.75_0.18_80)]" />
+        <h2 className="text-lg font-semibold">Resync Supplier Payments</h2>
+      </div>
+      <p className="text-sm text-muted-foreground mb-3">
+        One-time repair for supplier debt payments recorded before this fix shipped — backfills each
+        one's expense date (so it shows up under Expenses History for the day it was actually paid),
+        relabels any old category to the current "Supplier Debt Payment / سداد فاتورة آجل", and
+        reconnects it to its supplier-balance record so it can be deleted safely from Purchase
+        History. Never touches the amount, supplier, or payment source — only how it's filed.
+      </p>
+
+      <div className="flex items-end gap-3 flex-wrap mb-3">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">Type RESYNC PAYMENTS to confirm</label>
+          <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESYNC PAYMENTS" className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">Your admin password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs" />
+        </div>
+        <button
+          onClick={() => void handleSubmit()}
+          disabled={!canSubmit || submitting}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.75_0.18_80)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-bold disabled:opacity-50"
+        >
+          {submitting ? "Resyncing..." : "Resync Payments"}
+        </button>
+      </div>
+
+      {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-2">{err}</div>}
+
+      {result && (
+        result.count === 0 ? (
+          <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold">No supplier debt payments needed correction — all already match.</div>
+        ) : (
+          <div>
+            <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold mb-2">
+              Successfully resynced {result.count} supplier debt payment {result.count === 1 ? "entry" : "entries"}.
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead><tr className="text-left text-muted-foreground border-b border-black/10">
+                  <th className="py-1 pr-3">Description</th><th className="py-1 pr-3 text-right">Amount</th>
+                  <th className="py-1 pr-3">Date Fixed</th><th className="py-1 pr-3">Category Fixed</th>
+                </tr></thead>
+                <tbody>
+                  {result.corrections.map((c) => (
+                    <tr key={c.id} className="border-b border-black/5">
+                      <td className="py-1 pr-3">{c.description}</td>
+                      <td className="py-1 pr-3 text-right">{fmtMoney(c.amount)}</td>
+                      <td className="py-1 pr-3">
+                        {c.fromExpenseDate !== c.toExpenseDate ? (
+                          <><span className="text-[oklch(0.62_0.24_25)]">{c.fromExpenseDate ?? "(none)"}</span> → <span className="text-[oklch(0.78_0.2_155)]">{c.toExpenseDate}</span></>
+                        ) : "—"}
+                      </td>
+                      <td className="py-1 pr-3">{c.fromCategory !== c.toCategory ? "✓" : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 // Expenses History — this specific date only (same exclusions as the KPI
 // card above: no Staff Orders, no voids). Admins get Edit/Delete on every
 // row; both immediately trigger a shift recalculation on the backend if
@@ -1207,7 +1314,16 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
     setDeleting(true);
     setDeleteErr(null);
     try {
-      const res = isPayment(deleteTarget) ? await deleteSupplierPayment(deleteTarget.id) : await deleteExpense(deleteTarget.id);
+      // deleteSupplierPayment is keyed by SupplierPayments.id, NOT this
+      // Ledger row's own id -- linkedPaymentId (set at creation by
+      // recordSupplierPayment_) is the bridge between the two. A
+      // payment recorded before that field existed won't have it yet;
+      // the "Resync Supplier Payments" tool above backfills it.
+      const res = isPayment(deleteTarget)
+        ? deleteTarget.linkedPaymentId
+          ? await deleteSupplierPayment(deleteTarget.linkedPaymentId)
+          : { ok: false, error: "This older payment is missing its link to the supplier balance record — run \"Resync Supplier Payments\" above first, then try deleting again." }
+        : await deleteExpense(deleteTarget.id);
       if (!res.ok) { setDeleteErr(res.error ?? "Could not delete this entry."); return; }
       setDeleteTarget(null);
     } finally {

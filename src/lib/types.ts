@@ -532,6 +532,21 @@ export interface LedgerEntry {
   // Absent on every other ledger type, and on supplierPayment entries
   // recorded before this field existed (those behave as "daily_shift").
   expenseScope?: "daily_shift" | "monthly";
+  // Only set on type "supplierPayment" entries — the SupplierPayments.id
+  // row this Ledger entry is the cash-side mirror of (the reverse of
+  // SupplierPayments.ledgerEntryId, which points the other way). Lets
+  // Purchase History's delete action route to deleteSupplierPayment
+  // (which removes BOTH rows together and keeps the supplier's running
+  // balance in sync) instead of deletePurchase (which would delete only
+  // this Ledger row and silently desync the balance). See
+  // recordSupplierPayment_ in Code.gs.
+  linkedPaymentId?: string | null;
+  // Only set on type "supplierPayment" entries when the admin picked a
+  // specific outstanding deferred invoice to settle — the
+  // PurchaseInvoices.id being paid down. Purely informational (folded
+  // into the description too); the supplier's balance itself stays an
+  // undifferentiated running total, not per-invoice.
+  invoiceId?: string | null;
 }
 
 // A supplier account's transaction history — invoices (debit, only when

@@ -34,7 +34,7 @@ const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
 const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
 const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_, bizForceDeleteSupplierInvoice_, bizUpdateSupplierInvoice_ } = require("./lib/procurement-edit");
-const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_, bizGetSupplierBalances_, bizGetSupplierLedger_ } = require("./lib/supplier-invoices");
+const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_, bizGetSupplierBalances_, bizGetSupplierLedger_, bizResyncSupplierPaymentExpenses_ } = require("./lib/supplier-invoices");
 const { bizSubmitStaffOrder_, bizCloseBusinessDay_ } = require("./lib/staff-business");
 const { scheduleBackups, BACKUP_DIR } = require("./lib/backup");
 const { scheduleCloudSync, getLastSyncStatus } = require("./lib/cloud-sync");
@@ -989,7 +989,7 @@ Object.assign(handlers, {
   },
   recordSupplierPayment(body) {
     requireRole_(body.username, ["admin", "cashier"]);
-    const deps = { readObjects_, appendObject_, newId_ };
+    const deps = { readObjects_, appendObject_, newId_, expenseDateForShift_ };
     const result = bizRecordSupplierPayment_(deps, body);
     if (!result.ok) return result;
     logActivity_({
@@ -1528,6 +1528,26 @@ Object.assign(handlers, {
       });
     }
     return { ok: true, count: corrections.length, corrections };
+  },
+  // Admin-only, password-confirmed data repair for supplier debt
+  // payments recorded before the "critical accounting mismatch" fix
+  // shipped -- mirrors Code.gs's resyncSupplierPaymentExpenses case
+  // exactly (see that case's comment for the full reasoning).
+  resyncSupplierPaymentExpenses(body) {
+    requireRole_(body.username, ["admin"]);
+    if (body.confirmText !== "RESYNC PAYMENTS") return { ok: false, error: "Type RESYNC PAYMENTS exactly to confirm." };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing was changed." };
+    const result = bizResyncSupplierPaymentExpenses_({ readObjects_, updateObjectById_, expenseDateForShift_ });
+    if (result.count) {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DATES_BACKFILLED",
+        description: "Admin " + body.username + " resynced " + result.count +
+          " supplier debt payment entr" + (result.count === 1 ? "y" : "ies") + " (expense date / category / linked payment)",
+        after: { count: result.count, corrections: result.corrections },
+      });
+    }
+    return result;
   },
   getUnpaidExpenses(body) {
     requireRole_(body.username, ["admin", "cashier"]);

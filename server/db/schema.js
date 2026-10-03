@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS PurchaseInvoiceItems (
 CREATE TABLE IF NOT EXISTS SupplierPayments (
   id TEXT PRIMARY KEY,
   supplierId TEXT, ts INTEGER, amount REAL, paymentSource TEXT, note TEXT, recordedBy TEXT,
-  ledgerEntryId TEXT
+  ledgerEntryId TEXT, invoiceId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS Suppliers (
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS Ledger (
   description TEXT, supplierId TEXT, staffUsername TEXT, status TEXT,
   receiptUrl TEXT, paidFromDrawer INTEGER, shiftId TEXT, materialId TEXT,
   qty REAL, unitCost REAL, paymentSource TEXT, paymentStatus TEXT, backdated INTEGER, expenseDate TEXT,
-  expenseScope TEXT
+  expenseScope TEXT, linkedPaymentId TEXT, invoiceId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS VoidRequests (

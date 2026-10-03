@@ -272,6 +272,9 @@ export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
     expenseScope: "daily_shift" | "monthly";
     note?: string;
     shiftId?: string | null;
+    // Optional — a specific outstanding deferred invoice this payment
+    // is settling, folded into the description for the paper trail.
+    invoiceId?: string | null;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
@@ -393,6 +396,25 @@ export const backfillExpenseDatesFn = createServerFn({ method: "POST" })
       count?: number;
       corrections?: { id: string; description: string; amount: number; shiftId: string | null; from: string | null; to: string }[];
     }>("backfillExpenseDates", { ...data, username: user.username });
+  });
+
+// Admin-only, password-confirmed data repair for supplier debt payments
+// recorded before the "critical accounting mismatch" fix shipped —
+// backfills a missing expenseDate, relabels any old-format category to
+// the current fixed "Supplier Debt Payment / سداد فاتورة آجل" string,
+// and backfills the linkedPaymentId back-reference Purchase History's
+// delete action relies on. See resyncSupplierPaymentExpenses_ in
+// Code.gs for the full reasoning.
+export const resyncSupplierPaymentExpensesFn = createServerFn({ method: "POST" })
+  .validator((d: { confirmText: string; password: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{
+      ok: boolean;
+      error?: string;
+      count?: number;
+      corrections?: { id: string; description: string; amount: number; fromExpenseDate: string | null; toExpenseDate: string | null; fromCategory: string; toCategory: string }[];
+    }>("resyncSupplierPaymentExpenses", { ...data, username: user.username });
   });
 
 // Admin-only: permanently delete an already-recorded expense (normal or
