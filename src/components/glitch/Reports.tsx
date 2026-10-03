@@ -1107,7 +1107,9 @@ function FixExpenseDatesPanel({ isAdmin }: { isAdmin: boolean }) {
           <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold">No entries needed correction in this range — dates already match their shifts.</div>
         ) : (
           <div>
-            <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold mb-2">Corrected {result.count} entr{result.count === 1 ? "y" : "ies"}:</div>
+            <div className="text-sm text-[oklch(0.78_0.2_155)] font-semibold mb-2">
+              Successfully recalculated expense dates for {result.count} {result.count === 1 ? "entry" : "entries"}.
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs font-mono">
                 <thead><tr className="text-left text-muted-foreground border-b border-black/10">

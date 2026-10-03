@@ -1133,12 +1133,10 @@ Object.assign(handlers, {
     // materialRemaining_ — the discrepancy would have been recorded,
     // but the system's own stock figure would keep silently drifting
     // from reality exactly as before.
-    let cost = 0;
     const touchedBatchIds = [];
     let newBatch = null;
     if (variance < -1e-9) {
       const res = consumeFifo_(batches, body.materialId, Math.abs(variance));
-      cost = res.cost;
       touchedBatchIds.push(...res.touched);
     } else if (variance > 1e-9) {
       const res = restoreFifo_(batches, body.materialId, variance, Number(material.unitCost) || 0, Date.now(), "auditAdjustment");
@@ -1152,26 +1150,25 @@ Object.assign(handlers, {
 
     updateObjectById_("RawMaterials", body.materialId, { actualStock: actual, actualStockUpdatedAt: Date.now(), actualStockUpdatedBy: body.username });
 
-    // A deficit is a genuine financial loss (ingredient cost with no
-    // corresponding sale) — logged as an expense exactly like the
-    // void system already does for spilled/rejected/comped items, so
-    // shrinkage found during an audit shows up in the books the same
-    // way shrinkage found any other way does.
-    if (variance < -1e-9 && cost > 0) {
-      appendObject_("Ledger", {
-        id: newId_("ledg"), ts: Date.now(), amount: cost, direction: "outflow", type: "manualAdjustment",
-        category: "Inventory Audit Write-off (" + reasonLabels[body.reason] + ")",
-        description: Math.abs(variance) + " " + material.unit + " of " + material.name + " written off — " + reasonLabels[body.reason],
-        supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-        paidFromDrawer: false, shiftId: null, materialId: body.materialId, qty: Math.abs(variance), unitCost: material.unitCost, paymentSource: null,
-      });
-    }
+    // Variance from a stock audit is NOT posted as an expense/Ledger
+    // write-off (that double-counted cost already reflected via normal
+    // consumption/waste, and polluted expense totals) — it's recorded
+    // purely as an audit trail entry below, surfaced in the dedicated
+    // Stock Variance & Audit Report instead. Mirrors the same fix on
+    // the Google Apps Script backend (setActualStock case).
+    const unitCost = Number(material.unitCost) || 0;
+    const varianceValue = Math.round(Math.abs(variance) * unitCost * 100) / 100;
 
     logActivity_({
       actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ACTUAL_STOCK_SET",
       description: material.name + ": Actual Stock set to " + actual + " " + material.unit
         + (Math.abs(variance) > 1e-9 ? " (variance " + variance + ", reason: " + reasonLabels[body.reason] + ")" : " (no variance)"),
-      before: { systemRemaining: remaining }, after: { actualStock: actual, variance, reason: body.reason || null },
+      before: { systemRemaining: remaining },
+      after: {
+        materialId: body.materialId, materialName: material.name, unit: material.unit,
+        expectedStock: remaining, actualStock: actual, variance, unitCost, varianceValue,
+        reason: body.reason || null,
+      },
     });
     return { ok: true, variance, state: withStockView_(getState_()) };
   },
@@ -1444,6 +1441,57 @@ Object.assign(handlers, {
       });
     }
     return { ok, recalculated };
+  },
+  // Admin-only, password-confirmed data repair: recomputes expenseDate
+  // for every Ledger entry whose CURRENT label (stored, or derived from
+  // ts if never set) or CORRECTED label falls inside [fromDate, toDate]
+  // -- mirrors the Google Apps Script version exactly (Code.gs's
+  // backfillExpenseDates case / recomputeExpenseDate_). Needed because
+  // expenseDate is written once at creation and never recomputed on its
+  // own: an entry logged before the Cairo-timezone fix (expenseDateForShift_
+  // above) shipped keeps whatever (possibly wrong) label it got, forever.
+  backfillExpenseDates(body) {
+    requireRole_(body.username, ["admin"]);
+    if (body.confirmText !== "FIX DATES") return { ok: false, error: "Type FIX DATES exactly to confirm." };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing was changed." };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(body.toDate)) {
+      return { ok: false, error: "Pick a valid date range." };
+    }
+    const from = body.fromDate <= body.toDate ? body.fromDate : body.toDate;
+    const to = body.fromDate <= body.toDate ? body.toDate : body.fromDate;
+    const shiftsById = {};
+    readObjects_("Shifts").forEach((sh) => { shiftsById[sh.id] = sh; });
+    const SHIFT_DATED_LEDGER_TYPES = ["midShiftPurchase", "stockedBatch", "dailyFresh"];
+    const recompute = (entry) => {
+      if (SHIFT_DATED_LEDGER_TYPES.indexOf(entry.type) === -1) return entry.expenseDate || null;
+      if (entry.shiftId) {
+        const shift = shiftsById[entry.shiftId];
+        if (shift) return businessDayLabelForTs_(shift.openedAt);
+      }
+      return businessDayLabelForTs_(entry.ts);
+    };
+    const corrections = [];
+    readObjects_("Ledger").forEach((entry) => {
+      const currentLabel = entry.expenseDate || businessDayLabelForTs_(entry.ts);
+      const corrected = recompute(entry);
+      const currentInRange = currentLabel >= from && currentLabel <= to;
+      const correctedInRange = corrected && corrected >= from && corrected <= to;
+      if (!currentInRange && !correctedInRange) return;
+      if (corrected && corrected !== entry.expenseDate) {
+        updateObjectById_("Ledger", entry.id, { expenseDate: corrected });
+        corrections.push({ id: entry.id, description: entry.description, amount: entry.amount, shiftId: entry.shiftId || null, from: entry.expenseDate || null, to: corrected });
+      }
+    });
+    if (corrections.length) {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_DATES_BACKFILLED",
+        description: "Admin " + body.username + " recalculated expense dates for " + corrections.length +
+          " entr" + (corrections.length === 1 ? "y" : "ies") + " between " + from + " and " + to,
+        before: { fromDate: from, toDate: to }, after: { count: corrections.length, corrections },
+      });
+    }
+    return { ok: true, count: corrections.length, corrections };
   },
   getUnpaidExpenses(body) {
     requireRole_(body.username, ["admin", "cashier"]);
