@@ -521,6 +521,13 @@ export interface LedgerEntry {
   // to fall. Older entries logged before this field existed won't have
   // it; those still fall back to the previous shift-based grouping.
   expenseDate?: string;
+  // Only set on type "supplierPayment" entries — خيارات طريقة الخصم:
+  // "daily_shift" (bound to the shift active when paid; reduces that
+  // shift's Expected Drawer Cash if paid in cash) or "monthly" (never
+  // tied to a shift or drawer, counted only against the month's P&L).
+  // Absent on every other ledger type, and on supplierPayment entries
+  // recorded before this field existed (those behave as "daily_shift").
+  expenseScope?: "daily_shift" | "monthly";
 }
 
 // A supplier account's transaction history — invoices (debit, only when

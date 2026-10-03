@@ -175,7 +175,7 @@ function sheetObjectHeaders_(name) {
     Suppliers: ["id", "name", "contact", "category"],
     RecurringExpenses: ["id", "name", "amount", "active"],
     Batches: ["id", "materialId", "supplierId", "qtyPurchased", "qtyRemaining", "unitCost", "purchasedAt", "source", "invoiceId", "ledgerId"],
-    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated", "expenseDate"],
+    Ledger: ["id", "ts", "amount", "direction", "type", "category", "description", "supplierId", "staffUsername", "status", "receiptUrl", "paidFromDrawer", "shiftId", "materialId", "qty", "unitCost", "paymentSource", "paymentStatus", "backdated", "expenseDate", "expenseScope"],
     PurchaseInvoices: ["id", "supplierId", "supplierName", "invoiceDate", "paymentType", "totalAmount", "createdAt", "createdBy", "paymentSource", "referenceNumber"],
     PurchaseInvoiceItems: ["id", "invoiceId", "materialId", "materialName", "qty", "unitPrice", "subtotal"],
     SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId"],
@@ -4364,8 +4364,10 @@ function doPost(e) {
         const payResult = recordSupplierPayment_(body);
         if (!payResult.ok) return json_(payResult);
         logActivity_({
-          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED", shiftId: body.shiftId || null,
-          description: body.username + " recorded a payment of " + Number(body.amount).toFixed(2) + " EGP to a supplier via " + body.paymentSource,
+          actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+          shiftId: payResult.shiftId || null,
+          description: body.username + " recorded a payment of " + Number(body.amount).toFixed(2) + " EGP to a supplier via " + body.paymentSource
+            + " (" + (body.expenseScope === "monthly" ? "Monthly Consolidated Expense" : "Daily Shift Expense") + ")",
         });
         return json_({ ok: true, paymentId: payResult.paymentId });
       }
@@ -4778,6 +4780,21 @@ function submitPurchaseInvoice_(body) {
   return { ok: true, invoiceId: invoiceId, totalAmount: totalAmount, itemCount: preparedItems.length, paymentType: paymentType, ledgerEntryId: ledgerEntryId };
 }
 
+// Settling a deferred ("آجل") supplier invoice — خيارات طريقة الخصم
+// (expenseScope) decides WHOSE cash this comes out of:
+//   "daily_shift"  — خصم من إيراد اليوم (شيفت حالي): comes out of
+//      today's active shift, same as any other same-day expense. If
+//      paid in cash, it reduces that shift's Expected Drawer Cash
+//      exactly like a normal drawer expense would.
+//   "monthly"      — خصم من إيراد/أرباح الشهر: deliberately NOT tied
+//      to any shift and NEVER reduces a shift's Expected Drawer —
+//      the cashier closing today's till shouldn't see a discrepancy
+//      for money that came out of the business's monthly cash, not
+//      their drawer. It still fully counts against this month's
+//      P&L/Net Revenue (via isSettledSupplierPayment_'s cash-basis,
+//      ts-based matching on the frontend, independent of shiftId).
+// Defaults to "daily_shift" if omitted, for backward compatibility
+// with any already-queued request from before this field existed.
 function recordSupplierPayment_(body) {
   if (!body.supplierId || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Select a supplier and enter a valid amount." };
@@ -4786,9 +4803,19 @@ function recordSupplierPayment_(body) {
   if (validSources.indexOf(body.paymentSource) === -1) {
     return { ok: false, error: "Select a payment source." };
   }
+  const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
+  const supplier = readObjects_("Suppliers").find(function (s) { return s.id === body.supplierId; });
+  const supplierName = supplier ? supplier.name : "Supplier";
   const now = Date.now();
   const paymentId = newId_("spay");
   const ledgerEntryId = newId_("ledg");
+  // Daily Shift Expense binds to whichever shift is actually active right
+  // now (passed up from the client's current state) and, if paid in cash,
+  // deducts from that shift's drawer. Monthly Consolidated Expense is
+  // deliberately untied from any shift and never touches drawer math,
+  // however it was paid.
+  const resolvedShiftId = expenseScope === "monthly" ? null : (body.shiftId || null);
+  const paidFromDrawer = expenseScope === "monthly" ? false : body.paymentSource === "cash_drawer";
   appendObject_("SupplierPayments", {
     id: paymentId, supplierId: body.supplierId, ts: now, amount: Number(body.amount),
     paymentSource: body.paymentSource, note: body.note || "", recordedBy: body.username,
@@ -4798,12 +4825,14 @@ function recordSupplierPayment_(body) {
   });
   appendObject_("Ledger", {
     id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
-    category: "Supplier Payment", description: "Payment to supplier" + (body.note ? " — " + body.note : ""),
+    category: expenseScope === "monthly" ? "Monthly Procurement Payment" : "Supplier Payment",
+    description: "سداد فاتورة آجلة - " + supplierName + (body.note ? " — " + body.note : ""),
     supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
-    paidFromDrawer: body.paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
+    paidFromDrawer: paidFromDrawer, shiftId: resolvedShiftId, materialId: null,
     qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
+    expenseScope: expenseScope,
   });
-  return { ok: true, paymentId: paymentId, ledgerEntryId: ledgerEntryId };
+  return { ok: true, paymentId: paymentId, ledgerEntryId: ledgerEntryId, shiftId: resolvedShiftId };
 }
 
 // A payment is a pure cash transaction reducing the supplier's debt —
@@ -4879,7 +4908,7 @@ function getSupplierLedger_(supplierId) {
   });
   payments.forEach(function (p) {
     entries.push({
-      ts: Number(p.ts), type: "payment", description: "Payment" + (p.note ? " — " + p.note : ""),
+      ts: Number(p.ts), type: "payment", description: "سداد فاتورة آجلة" + (p.note ? " — " + p.note : ""),
       amount: Number(p.amount), debit: 0, credit: Number(p.amount), paymentType: null, id: p.id,
     });
   });

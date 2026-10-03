@@ -955,12 +955,14 @@ Object.assign(handlers, {
   },
   recordSupplierPayment(body) {
     requireRole_(body.username, ["admin", "cashier"]);
-    const deps = { appendObject_, newId_ };
+    const deps = { readObjects_, appendObject_, newId_ };
     const result = bizRecordSupplierPayment_(deps, body);
     if (!result.ok) return result;
     logActivity_({
-      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED", shiftId: body.shiftId || null,
-      description: body.username + " recorded a payment of " + Number(body.amount).toFixed(2) + " EGP to a supplier via " + body.paymentSource,
+      actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "EXPENSE_LOGGED",
+      shiftId: result.shiftId || null,
+      description: body.username + " recorded a payment of " + Number(body.amount).toFixed(2) + " EGP to a supplier via " + body.paymentSource
+        + " (" + (body.expenseScope === "monthly" ? "Monthly Consolidated Expense" : "Daily Shift Expense") + ")",
     });
     return { ok: true, paymentId: result.paymentId };
   },

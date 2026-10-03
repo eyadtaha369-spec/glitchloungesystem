@@ -295,6 +295,8 @@ interface StoreContextValue {
     supplierId: string;
     amount: number;
     paymentSource: PaymentSource;
+    // خصم من إيراد اليوم (شيفت حالي) vs خصم من إيراد/أرباح الشهر
+    expenseScope: "daily_shift" | "monthly";
     note?: string;
   }) => Promise<{ ok: boolean; error?: string; paymentId?: string }>;
   supplierBalances: Record<string, number>;
@@ -1234,6 +1236,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const res = await recordSupplierPaymentFn({ data: { ...p, shiftId: appState.activeShiftId } });
       if (res.ok) {
         try { await refreshSupplierBalances(); } catch (e) { console.error("refreshSupplierBalances failed:", e); }
+        // So Reports (Daily/Monthly Expense totals, Net Profit) and the
+        // Shift Reconciliation drawer figure reflect this payment right
+        // away, without the admin needing to leave and come back.
+        try { await refreshLedger(); } catch (e) { console.error("refreshLedger failed:", e); }
       }
       return { ok: res.ok, error: res.error, paymentId: res.paymentId };
     });

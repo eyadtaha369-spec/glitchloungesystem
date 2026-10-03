@@ -100,8 +100,24 @@ function bizSubmitPurchaseInvoice_(deps, body) {
   return { ok: true, invoiceId, totalAmount, itemCount: preparedItems.length, paymentType, ledgerEntryId };
 }
 
+// Settling a deferred ("آجل") supplier invoice — خيارات طريقة الخصم
+// (expenseScope) decides WHOSE cash this comes out of:
+//   "daily_shift"  — خصم من إيراد اليوم (شيفت حالي): comes out of
+//      today's active shift, same as any other same-day expense. If
+//      paid in cash, it reduces that shift's Expected Drawer Cash
+//      exactly like a normal drawer expense would.
+//   "monthly"      — خصم من إيراد/أرباح الشهر: deliberately NOT tied
+//      to any shift and NEVER reduces a shift's Expected Drawer —
+//      the cashier closing today's till shouldn't see a discrepancy
+//      for money that came out of the business's monthly cash, not
+//      their drawer. It still fully counts against this month's
+//      P&L/Net Revenue (via isSettledSupplierPayment_'s cash-basis,
+//      ts-based matching on the frontend, independent of shiftId).
+// Defaults to "daily_shift" if omitted, for backward compatibility
+// with any already-queued request from before this field existed.
+// Mirrors Code.gs's recordSupplierPayment_ exactly.
 function bizRecordSupplierPayment_(deps, body) {
-  const { appendObject_, newId_ } = deps;
+  const { readObjects_, appendObject_, newId_ } = deps;
   if (!body.supplierId || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Select a supplier and enter a valid amount." };
   }
@@ -109,9 +125,14 @@ function bizRecordSupplierPayment_(deps, body) {
   if (validSources.indexOf(body.paymentSource) === -1) {
     return { ok: false, error: "Select a payment source." };
   }
+  const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
+  const supplier = readObjects_("Suppliers").find((s) => s.id === body.supplierId);
+  const supplierName = supplier ? supplier.name : "Supplier";
   const now = Date.now();
   const paymentId = newId_("spay");
   const ledgerEntryId = newId_("ledg");
+  const resolvedShiftId = expenseScope === "monthly" ? null : (body.shiftId || null);
+  const paidFromDrawer = expenseScope === "monthly" ? false : body.paymentSource === "cash_drawer";
   appendObject_("SupplierPayments", {
     id: paymentId, supplierId: body.supplierId, ts: now, amount: Number(body.amount),
     paymentSource: body.paymentSource, note: body.note || "", recordedBy: body.username,
@@ -121,12 +142,14 @@ function bizRecordSupplierPayment_(deps, body) {
   });
   appendObject_("Ledger", {
     id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
-    category: "Supplier Payment", description: "Payment to supplier" + (body.note ? " — " + body.note : ""),
+    category: expenseScope === "monthly" ? "Monthly Procurement Payment" : "Supplier Payment",
+    description: "سداد فاتورة آجلة - " + supplierName + (body.note ? " — " + body.note : ""),
     supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
-    paidFromDrawer: body.paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
+    paidFromDrawer, shiftId: resolvedShiftId, materialId: null,
     qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
+    expenseScope,
   });
-  return { ok: true, paymentId, ledgerEntryId };
+  return { ok: true, paymentId, ledgerEntryId, shiftId: resolvedShiftId };
 }
 
 // A supplier's balance = sum of deferred invoice totals - sum of
@@ -178,7 +201,7 @@ function bizGetSupplierLedger_(deps, supplierId) {
   });
   payments.forEach((p) => {
     entries.push({
-      ts: Number(p.ts), type: "payment", description: "Payment" + (p.note ? " — " + p.note : ""),
+      ts: Number(p.ts), type: "payment", description: "سداد فاتورة آجلة" + (p.note ? " — " + p.note : ""),
       amount: Number(p.amount), debit: 0, credit: Number(p.amount), paymentType: null, id: p.id,
     });
   });

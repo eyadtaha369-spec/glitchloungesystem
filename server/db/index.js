@@ -61,6 +61,7 @@ addColumnIfMissing_("EventBookings", "totalPackagePrice", "REAL");
 addColumnIfMissing_("PurchaseInvoices", "referenceNumber", "TEXT");
 addColumnIfMissing_("Ledger", "backdated", "INTEGER");
 addColumnIfMissing_("Ledger", "expenseDate", "TEXT");
+addColumnIfMissing_("Ledger", "expenseScope", "TEXT");
 
 const KNOWN_TABLES = [
   "RawMaterials", "Suppliers", "RecurringExpenses", "Batches", "Ledger",

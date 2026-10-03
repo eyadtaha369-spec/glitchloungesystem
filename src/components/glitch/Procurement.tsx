@@ -1305,10 +1305,29 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
   );
 }
 
+// خيارات طريقة الخصم — required choice of whose cash a deferred
+// ("آجل") supplier payment comes out of. See recordSupplierPayment_ in
+// Code.gs for the full accounting reasoning behind each option.
+const EXPENSE_SCOPE_OPTIONS: { value: "daily_shift" | "monthly"; labelAr: string; labelEn: string; hint: string }[] = [
+  {
+    value: "daily_shift",
+    labelAr: "خصم من إيراد اليوم (شيفت حالي)",
+    labelEn: "Daily Shift Expense",
+    hint: "Comes out of today's active shift — if paid in cash, reduces today's Expected Drawer Cash.",
+  },
+  {
+    value: "monthly",
+    labelAr: "خصم من إيراد/أرباح الشهر",
+    labelEn: "Monthly Consolidated Expense",
+    hint: "Doesn't touch today's shift or drawer reconciliation — deducted from this month's P&L / Net Revenue instead.",
+  },
+];
+
 function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierId: string; onDone: () => void; onCancel: () => void }) {
   const { recordSupplierPayment } = useStore();
   const [amount, setAmount] = useState("");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
+  const [expenseScope, setExpenseScope] = useState<"daily_shift" | "monthly" | "">("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1316,10 +1335,11 @@ function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierI
   const submit = async () => {
     if (!(parseFloat(amount) > 0)) { setErr("Enter a valid amount."); return; }
     if (!paymentSource) { setErr("Select a payment source."); return; }
+    if (!expenseScope) { setErr("Select how this payment should be deducted (خيارات طريقة الخصم)."); return; }
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, note: note || undefined });
+      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, expenseScope, note: note || undefined });
       if (!res.ok) { setErr(res.error ?? "Failed to record payment"); return; }
       onDone();
     } catch (e) {
@@ -1360,6 +1380,29 @@ function RecordSupplierPaymentForm({ supplierId, onDone, onCancel }: { supplierI
           );
         })}
       </div>
+
+      <div>
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">خيارات طريقة الخصم — Deduct this payment from</label>
+        <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {EXPENSE_SCOPE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setExpenseScope(opt.value)}
+              title={opt.hint}
+              className={`text-left py-2 px-3 rounded-lg border transition ${
+                expenseScope === opt.value
+                  ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]"
+                  : "bg-white/70 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              <div className="text-sm font-bold" dir="rtl">{opt.labelAr}</div>
+              <div className="text-[10px] uppercase tracking-widest mt-0.5">{opt.labelEn}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} disabled={submitting} className="px-3 py-1.5 rounded-lg text-xs bg-white/70 border border-black/10">Cancel</button>

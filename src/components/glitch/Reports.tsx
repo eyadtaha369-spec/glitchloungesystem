@@ -1250,7 +1250,11 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
                   <td className="py-2 pr-3">
                     {l.description || l.category}
                     {l.backdated ? <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.62_0.24_25)]">(backdated)</span> : null}
-                    {isPayment(l) ? <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)]">(supplier payment)</span> : null}
+                    {isPayment(l) ? (
+                      <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)]">
+                        ({l.expenseScope === "monthly" ? "monthly consolidated" : "daily shift"} payment)
+                      </span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                   <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
@@ -2295,11 +2299,14 @@ function MonthlyExpensesLedger() {
         rangeLabel,
         columns: [
           { header: "Date & Time" }, { header: "Supplier" }, { header: "Description" },
-          { header: "Amount EGP", align: "right" }, { header: "Payment Source" }, { header: "Settled By" },
+          { header: "Amount EGP", align: "right" }, { header: "Payment Source" }, { header: "Deducted From" }, { header: "Settled By" },
         ],
         rows: rangeSettlements.map((l) => {
           const supplier = state.suppliers.find((s) => s.id === l.supplierId);
-          return [new Date(l.ts).toLocaleString(), supplier?.name ?? "—", l.description || "—", fmtMoney(Number(l.amount)), l.paymentSource ?? "—", l.staffUsername];
+          return [
+            new Date(l.ts).toLocaleString(), supplier?.name ?? "—", l.description || "—", fmtMoney(Number(l.amount)),
+            l.paymentSource ?? "—", l.expenseScope === "monthly" ? "Monthly" : "Daily Shift", l.staffUsername,
+          ];
         }),
         summaryLines: [
           { label: "Settlements", value: String(rangeSettlements.length) },
@@ -2357,6 +2364,7 @@ function MonthlyExpensesLedger() {
                 <th className="pb-2 pt-3 pr-3">Description</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
                 <th className="pb-2 pt-3 pr-3">Payment Source</th>
+                <th className="pb-2 pt-3 pr-3">Deducted From</th>
                 <th className="pb-2 pt-3">Settled By</th>
               </tr>
             </thead>
@@ -2370,6 +2378,9 @@ function MonthlyExpensesLedger() {
                     <td className="py-2 pr-3">{l.description || "—"}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(Number(l.amount))}</td>
                     <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
+                    <td className="py-2 pr-3 text-xs uppercase tracking-widest">
+                      {l.expenseScope === "monthly" ? "Monthly" : "Daily Shift"}
+                    </td>
                     <td className="py-2 pr-3">{l.staffUsername}</td>
                   </tr>
                 );

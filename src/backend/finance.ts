@@ -267,6 +267,9 @@ export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
     supplierId: string;
     amount: number;
     paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    // خصم من إيراد اليوم (شيفت حالي) vs خصم من إيراد/أرباح الشهر —
+    // see recordSupplierPayment_ in Code.gs for the full reasoning.
+    expenseScope: "daily_shift" | "monthly";
     note?: string;
     shiftId?: string | null;
   }) => d)
