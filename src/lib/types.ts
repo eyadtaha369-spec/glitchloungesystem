@@ -476,7 +476,11 @@ export type LedgerType =
   | "manualAdjustment"
   | "supplierInvoice"
   | "supplierPayment"
-  | "fixedMonthlyCost";
+  | "fixedMonthlyCost"
+  // سُلفة / سداد مقدم — a staff/supplier advance or monthly loan. Never
+  // tied to a shift or drawer; deducted only from the Monthly P&L at
+  // month-end. See recordStaffAdvance_ in Code.gs.
+  | "staffAdvance";
 export type LedgerStatus = "approved" | "pending" | "rejected";
 export type LedgerDirection = "inflow" | "outflow";
 

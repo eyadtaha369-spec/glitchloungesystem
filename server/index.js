@@ -953,6 +953,40 @@ Object.assign(handlers, {
     });
     return { ok: true, invoiceId: result.invoiceId, totalAmount: result.totalAmount, itemCount: result.itemCount, state: withStockView_(getState_()) };
   },
+  // السلف والخصومات الشهرية — a staff/supplier advance or monthly loan
+  // (سُلفة / سداد مقدم). Simplest possible record: a single Ledger
+  // entry, no running-balance table. Always shiftId: null,
+  // paidFromDrawer: false (مستقلة تماماً عن إيراد اليوم — never tied to
+  // a shift/drawer) and expenseScope: "monthly" (excluded from
+  // isOperationalExpense/Daily Expenses on the frontend; counted only
+  // in computeMonthFinancials' "إجمالي السلف والخصومات الشهرية" line,
+  // subtracted from Net Profit at month-end). Mirrors Code.gs's
+  // recordStaffAdvance_ exactly.
+  recordStaffAdvance(body) {
+    requireRole_(body.username, ["admin"]);
+    if (!body.recipientName || !(Number(body.amount) > 0)) {
+      return { ok: false, error: "Enter a recipient name and a valid amount." };
+    }
+    const ts = body.date ? new Date(body.date + "T00:00:00").getTime() : Date.now();
+    if (Number.isNaN(ts)) return { ok: false, error: "Invalid date." };
+    const entry = {
+      id: newId_("ledg"), ts, amount: Number(body.amount), direction: "outflow", type: "staffAdvance",
+      category: "Staff/Supplier Advance (سلفة)",
+      description: "سلفة - " + body.recipientName + (body.reason ? " — " + body.reason : ""),
+      supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+      paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
+      paymentSource: null, paymentStatus: "paid",
+      expenseDate: formatDateLabel_(ts),
+      expenseScope: "monthly",
+    };
+    appendObject_("Ledger", entry);
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED",
+      description: body.username + " logged an advance of " + Number(body.amount).toFixed(2) + " EGP to " + body.recipientName
+        + " (السلف والخصومات الشهرية — deducted only from Monthly P&L at month-end)",
+    });
+    return { ok: true, ledgerId: entry.id };
+  },
   recordSupplierPayment(body) {
     requireRole_(body.username, ["admin", "cashier"]);
     const deps = { readObjects_, appendObject_, newId_ };

@@ -86,7 +86,7 @@ import {
   logRecurringExpensePaymentFn,
   submitPurchaseFn,
   submitExpenseFn, submitBackdatedExpenseFn, editExpenseFn, deleteExpenseFn, backfillExpenseDatesFn, getUnpaidExpensesFn, settleExpenseFn,
-  submitPurchaseInvoiceFn, recordSupplierPaymentFn, getSupplierBalancesFn, getSupplierLedgerFn,
+  submitPurchaseInvoiceFn, recordSupplierPaymentFn, recordStaffAdvanceFn, getSupplierBalancesFn, getSupplierLedgerFn,
   deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, clearExpensesLedgerFn, addFixedMonthlyCostFn, updateFixedMonthlyCostFn, deleteFixedMonthlyCostFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
   getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
@@ -299,6 +299,13 @@ interface StoreContextValue {
     expenseScope: "daily_shift" | "monthly";
     note?: string;
   }) => Promise<{ ok: boolean; error?: string; paymentId?: string }>;
+  // السلف والخصومات الشهرية — admin-only, never tied to a shift/drawer.
+  recordStaffAdvance: (p: {
+    recipientName: string;
+    amount: number;
+    reason?: string;
+    date?: string;
+  }) => Promise<{ ok: boolean; error?: string; ledgerId?: string }>;
   supplierBalances: Record<string, number>;
   refreshSupplierBalances: () => Promise<void>;
   getSupplierLedger: (supplierId: string) => Promise<{ ok: boolean; error?: string; ledger?: { entries: SupplierLedgerEntry[]; currentBalance: number } }>;
@@ -1244,6 +1251,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: res.ok, error: res.error, paymentId: res.paymentId };
     });
   };
+  const recordStaffAdvance: StoreContextValue["recordStaffAdvance"] = async (p) => {
+    return withPending("recordStaffAdvance", async () => {
+      const res = await recordStaffAdvanceFn({ data: p });
+      if (res.ok) {
+        try { await refreshLedger(); } catch (e) { console.error("refreshLedger failed:", e); }
+      }
+      return { ok: res.ok, error: res.error, ledgerId: res.ledgerId };
+    });
+  };
   const refreshSupplierBalances: StoreContextValue["refreshSupplierBalances"] = async () => {
     setSupplierBalances(await getSupplierBalancesFn());
   };
@@ -1676,7 +1692,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
-    submitPurchase, submitExpense, submitBackdatedExpense, editExpense, deleteExpense, backfillExpenseDates, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, clearExpensesLedger, addFixedMonthlyCost, updateFixedMonthlyCost, deleteFixedMonthlyCost, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
+    submitPurchase, submitExpense, submitBackdatedExpense, editExpense, deleteExpense, backfillExpenseDates, unpaidExpenses, refreshUnpaidExpenses, settleExpense, submitPurchaseInvoice, recordSupplierPayment, recordStaffAdvance, supplierBalances, refreshSupplierBalances, getSupplierLedger, deletePurchase, updatePurchase, deleteSupplierInvoice, forceDeleteSupplierInvoice, clearExpensesLedger, addFixedMonthlyCost, updateFixedMonthlyCost, deleteFixedMonthlyCost, updateSupplierInvoice, deleteSupplierPayment, migrateToCloud, approvePurchase, rejectPurchase, refreshLedger,
     requestVoid, verifyAdminAuth, approveVoid, denyVoid, reconcileUnapprovedVoid, setFraudThreshold, setGeofenceConfig, submitStaffOrder, endRoomAsStaffOrder, refreshStaffOrders, refreshStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember,
     refreshEventBookings, addEventBooking, updateEventBooking, deleteEventBooking,
     transferZone, openSplitInterface, splitBill, refreshActivityLogs, refreshVoidRequests,

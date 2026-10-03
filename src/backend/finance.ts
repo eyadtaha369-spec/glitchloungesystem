@@ -278,6 +278,17 @@ export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; paymentId?: string }>("recordSupplierPayment", { ...data, username: user.username });
   });
 
+// السلف والخصومات الشهرية — a staff/supplier advance or monthly loan.
+// Admin-only (money given out directly, not a routine purchase) and
+// deliberately independent of any shift/drawer — see
+// recordStaffAdvance_ in Code.gs for the full reasoning.
+export const recordStaffAdvanceFn = createServerFn({ method: "POST" })
+  .validator((d: { recipientName: string; amount: number; reason?: string; date?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; ledgerId?: string }>("recordStaffAdvance", { ...data, username: user.username });
+  });
+
 export const getSupplierBalancesFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
   const res = await callAppsScript<{ balances: Record<string, number> }>("getSupplierBalances", { username: user.username });

@@ -4359,6 +4359,18 @@ function doPost(e) {
         return json_({ ok: true, invoiceId: invResult.invoiceId, totalAmount: invResult.totalAmount, itemCount: invResult.itemCount, state: withStockView_(getState_()) });
       }
 
+      case "recordStaffAdvance": {
+        requireRole_(body.username, ["admin"]);
+        const advResult = recordStaffAdvance_(body);
+        if (!advResult.ok) return json_(advResult);
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED",
+          description: body.username + " logged an advance of " + Number(body.amount).toFixed(2) + " EGP to " + body.recipientName
+            + " (السلف والخصومات الشهرية — deducted only from Monthly P&L at month-end)",
+        });
+        return json_({ ok: true, ledgerId: advResult.entry.id });
+      }
+
       case "recordSupplierPayment": {
         requireRole_(body.username, ["admin", "cashier"]);
         const payResult = recordSupplierPayment_(body);
@@ -4778,6 +4790,42 @@ function submitPurchaseInvoice_(body) {
   }
 
   return { ok: true, invoiceId: invoiceId, totalAmount: totalAmount, itemCount: preparedItems.length, paymentType: paymentType, ledgerEntryId: ledgerEntryId };
+}
+
+// السلف والخصومات الشهرية — a staff/supplier advance or monthly loan
+// (سُلفة / سداد مقدم). Deliberately the simplest possible record (a
+// single Ledger entry, no running-balance table like SupplierPayments
+// has) -- there's no "settling" step; the advance IS the transaction.
+// Always:
+//   - shiftId: null, paidFromDrawer: false -- NEVER tied to a shift or
+//     drawer. مستقلة تماماً عن إيراد اليوم: giving a staff advance must
+//     never show up as a discrepancy on whoever's shift happens to be
+//     open at the time.
+//   - expenseScope: "monthly" -- excluded from isOperationalExpense
+//     (Reports.tsx) entirely, and from Daily Expenses. Counted only in
+//     computeMonthFinancials' "إجمالي السلف والخصومات الشهرية" line,
+//     subtracted from Net Profit at month-end.
+// body.date (plain YYYY-MM-DD, no time-of-day) lets an admin log an
+// advance for an earlier date within the same open month; defaults to
+// today when omitted.
+function recordStaffAdvance_(body) {
+  if (!body.recipientName || !(Number(body.amount) > 0)) {
+    return { ok: false, error: "Enter a recipient name and a valid amount." };
+  }
+  const ts = body.date ? new Date(body.date + "T00:00:00").getTime() : Date.now();
+  if (isNaN(ts)) return { ok: false, error: "Invalid date." };
+  const entry = {
+    id: newId_("ledg"), ts: ts, amount: Number(body.amount), direction: "outflow", type: "staffAdvance",
+    category: "Staff/Supplier Advance (سلفة)",
+    description: "سلفة - " + body.recipientName + (body.reason ? " — " + body.reason : ""),
+    supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
+    paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
+    paymentSource: null, paymentStatus: "paid",
+    expenseDate: formatDateLabel_(ts),
+    expenseScope: "monthly",
+  };
+  appendObject_("Ledger", entry);
+  return { ok: true, entry: entry };
 }
 
 // Settling a deferred ("آجل") supplier invoice — خيارات طريقة الخصم

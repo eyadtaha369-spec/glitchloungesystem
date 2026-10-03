@@ -12,6 +12,11 @@ export interface MonthlyAuditFinancials {
   monthLabel: string; // "August 2026"
   revenue: number;
   expenses: number;
+  // إجمالي السلف والخصومات الشهرية — staff/supplier advances settled
+  // this month. Already subtracted out of netProfit below; kept as its
+  // own field purely so it can be shown as its own line, separate from
+  // "expenses" (which never includes it).
+  monthlyAdvances: number;
   netProfit: number;
 }
 
@@ -99,6 +104,10 @@ export async function generateMonthlyAuditReportPdf({ financials, items, totalRe
         <div style="flex:1;background:#f5f5f7;border-radius:10px;padding:12px 16px;">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#666;">Expenses &amp; Purchases · المصاريف والمشتريات</div>
           <div style="font-size:18px;font-weight:700;font-family:ui-monospace,monospace;margin-top:4px;color:#dc2626;">${fmtMoney(financials.expenses)}</div>
+        </div>
+        <div style="flex:1;background:#f5f5f7;border-radius:10px;padding:12px 16px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#666;">Monthly Advances &amp; Deductions · إجمالي السلف والخصومات الشهرية</div>
+          <div style="font-size:18px;font-weight:700;font-family:ui-monospace,monospace;margin-top:4px;color:#dc2626;">${fmtMoney(financials.monthlyAdvances)}</div>
         </div>
         <div style="flex:1;background:#f5f5f7;border-radius:10px;padding:12px 16px;border:1px solid ${profitColor};">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#666;">Net Profit · صافي الربح</div>

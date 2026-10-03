@@ -4,7 +4,7 @@ import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
 import { generateMonthlyAuditReportPdf, type MonthlyAuditFinancials, type MonthlyAuditItemRow } from "@/lib/monthly-audit-report-pdf";
 import { generateSectionReportPdf } from "@/lib/section-report-pdf";
 import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-store";
-import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft } from "lucide-react";
+import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft, HandCoins } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
 
 // What counts as a real, same-day operational expense — used
@@ -55,12 +55,27 @@ function isOperationalExpense(l: LedgerEntry): boolean {
     l.type !== "sale" &&
     l.type !== "supplierPayment" &&
     l.type !== "fixedMonthlyCost" &&
+    // سُلفة / سداد مقدم (staff/supplier advances) -- مستقلة تماماً عن
+    // إيراد اليوم: never counted as a same-day/month-to-date expense at
+    // all. Only computeMonthFinancials' own "إجمالي السلف والخصومات
+    // الشهرية" line subtracts these, and only from the FULL month's
+    // Net Profit at month-end -- see isMonthlyAdvance_ below.
+    l.type !== "staffAdvance" &&
     l.category !== "Staff Consumption Expense" &&
     l.status === "approved" &&
     l.paymentStatus !== "unpaid" &&
     !WASTE_LEDGER_CATEGORIES.has(l.category) &&
     !isInventoryAuditWriteOff_(l)
   );
+}
+
+// السلف والخصومات الشهرية — a settled staff/supplier advance. Deducted
+// ONLY from the Monthly P&L (computeMonthFinancials/
+// MonthlyReconciliationDashboard's "Monthly Advances & Deductions"
+// line), never from Daily Expenses/Net Profit and never from any
+// shift's drawer reconciliation -- see recordStaffAdvance_ in Code.gs.
+function isMonthlyAdvance_(l: LedgerEntry): boolean {
+  return l.type === "staffAdvance";
 }
 
 // A settled supplier-account payment (deferred invoice being paid off)
@@ -284,8 +299,15 @@ function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], mon
     state.ledger.filter((l) => l.type === "fixedMonthlyCost" && l.status === "approved"),
     monthShiftIds, from, to,
   ).reduce((a, l) => a + Number(l.amount), 0);
+  // إجمالي السلف والخصومات الشهرية — deducted here, at month-end, and
+  // ONLY here: never part of "expenses" above (which feeds Daily
+  // Expenses too), so an advance never touches any day's own totals.
+  const monthlyAdvances = state.ledger
+    .filter(isMonthlyAdvance_)
+    .filter((l) => expenseMatchesMonth_(l, monthShiftIds, from, to, monthStr))
+    .reduce((a, l) => a + Number(l.amount), 0);
   const expenses = operationalAndSupplier + fixedCosts;
-  return { monthStr, monthLabel, revenue, expenses, netProfit: revenue - expenses };
+  return { monthStr, monthLabel, revenue, expenses, monthlyAdvances, netProfit: revenue - expenses - monthlyAdvances };
 }
 
 // Per-item sales aggregated across every session closed in the given
@@ -504,6 +526,12 @@ export function ReportsPage() {
       {/* 8. Expenses Ledger — settled supplier payments, now with its own
           independent date-range picker and PDF export */}
       <MonthlyExpensesLedger />
+
+      {/* 8b. Advances & Monthly Loans — السلف والخصومات الشهرية.
+          Deliberately separate from Expenses Ledger above: these never
+          touch Daily Expenses or any shift's drawer, and are only ever
+          deducted from Net Profit at month-end (see isMonthlyAdvance_). */}
+      <AdvancesLedgerPanel />
 
       {/* 8a. Reopen Check Audit & Modifications Report — admin-only,
           reads the structured CHECK_REOPENED / CHECK_REOPEN_RESOLVED
@@ -1773,7 +1801,15 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   );
   const totalFixedExpenses = useMemo(() => monthFixedCosts.reduce((a, l) => a + Number(l.amount), 0), [monthFixedCosts]);
 
-  const netProfit = totalRevenue - (totalExpenses + totalFixedExpenses);
+  // إجمالي السلف والخصومات الشهرية — staff/supplier advances, deducted
+  // ONLY here (never part of totalExpenses, so never touches any single
+  // day's own Expenses/Net Profit) and only for the month they fall in.
+  const totalMonthlyAdvances = useMemo(
+    () => state.ledger.filter(isMonthlyAdvance_).filter((l) => expenseMatchesMonth_(l, monthShiftIds, monthStart, monthEnd, selectedMonth)).reduce((a, l) => a + Number(l.amount), 0),
+    [state.ledger, monthShiftIds, monthStart, monthEnd, selectedMonth],
+  );
+
+  const netProfit = totalRevenue - (totalExpenses + totalFixedExpenses + totalMonthlyAdvances);
   const isProfit = netProfit >= 0;
 
   return (
@@ -1791,7 +1827,7 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
       </div>
       <p className="text-xs text-muted-foreground mb-4">{monthLabel} — Day 1 through the last day, by each shift's own start time</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white/60 rounded-xl p-5 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue</div>
           <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.78_0.2_155)]">{fmtMoney(totalRevenue)}</div>
@@ -1803,6 +1839,12 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
         <div className="bg-white/60 rounded-xl p-5 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Fixed Monthly Costs</div>
           <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalFixedExpenses)}</div>
+        </div>
+        <div className="bg-white/60 rounded-xl p-5 border border-black/8">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Monthly Advances &amp; Deductions<br /><span dir="rtl" className="normal-case font-normal opacity-70">إجمالي السلف والخصومات الشهرية</span>
+          </div>
+          <div className="text-2xl font-mono font-bold mt-2 text-[oklch(0.62_0.24_25)]">{fmtMoney(totalMonthlyAdvances)}</div>
         </div>
         <div
           className={`rounded-xl p-5 border-2 shadow-lg ${
@@ -1868,7 +1910,7 @@ function MonthlyFinancialAuditReport() {
   const financialCard = (f: MonthlyAuditFinancials, highlighted: boolean) => (
     <div key={f.monthStr} className={`rounded-xl p-5 border ${highlighted ? "border-[oklch(0.7_0.19_260/0.6)] bg-[oklch(0.7_0.19_260/0.06)]" : "border-black/8 bg-white/60"}`}>
       <div className="text-xs uppercase tracking-widest text-muted-foreground mb-3">{f.monthLabel}</div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue<br /><span dir="rtl" className="normal-case font-normal opacity-70">الإيرادات</span></div>
           <div className="text-lg font-mono font-bold text-[oklch(0.78_0.2_155)]">{fmtMoney(f.revenue)}</div>
@@ -1876,6 +1918,10 @@ function MonthlyFinancialAuditReport() {
         <div>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Expenses &amp; Purchases<br /><span dir="rtl" className="normal-case font-normal opacity-70">المصاريف والمشتريات</span></div>
           <div className="text-lg font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(f.expenses)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Monthly Advances<br /><span dir="rtl" className="normal-case font-normal opacity-70">السلف والخصومات الشهرية</span></div>
+          <div className="text-lg font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(f.monthlyAdvances)}</div>
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Profit<br /><span dir="rtl" className="normal-case font-normal opacity-70">صافي الربح</span></div>
@@ -2391,6 +2437,154 @@ function MonthlyExpensesLedger() {
       )}
       {clearModalOpen && (
         <ClearExpensesLedgerModal count={settlements.length} total={allTimeTotal} onClose={() => setClearModalOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+// السلف والخصومات الشهرية — Advances & Monthly Loans. Admin-only: logs
+// a new staff/supplier advance, and shows every advance logged,
+// GLOBAL and unaffected by the date picker below for the same reason
+// MonthlyExpensesLedger is — a loan given out in a past month still
+// belongs here permanently. The date picker only scopes the PDF export
+// and the "this range" total. Deliberately never shown in Daily
+// Expenses or any shift's drawer -- see isMonthlyAdvance_.
+function AdvancesLedgerPanel() {
+  const { state, deleteExpense } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRangeMonthToDate();
+
+  const advances = useMemo(
+    () => state.ledger.filter(isMonthlyAdvance_).sort((a, b) => b.ts - a.ts),
+    [state.ledger],
+  );
+  const allTimeTotal = advances.reduce((a, l) => a + Number(l.amount), 0);
+
+  const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
+  const rangeAdvances = useMemo(() => advances.filter((l) => l.ts >= from && l.ts <= to), [advances, from, to]);
+  const rangeTotal = rangeAdvances.reduce((a, l) => a + Number(l.amount), 0);
+  const rangeLabel = formatRangeLabel(startDate, endDate);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      const res = await deleteExpense(deleteTarget.id);
+      if (!res.ok) { setDeleteErr(res.error ?? "Could not delete this entry."); return; }
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Advances & Monthly Loans",
+        rangeLabel,
+        columns: [
+          { header: "Date" }, { header: "Recipient" }, { header: "Description" },
+          { header: "Amount EGP", align: "right" }, { header: "Logged By" },
+        ],
+        rows: rangeAdvances.map((l) => [new Date(l.ts).toLocaleDateString(), l.description?.split(" - ")[1]?.split(" — ")[0] ?? "—", l.description || "—", fmtMoney(Number(l.amount)), l.staffUsername]),
+        summaryLines: [
+          { label: "Advances", value: String(rangeAdvances.length) },
+          { label: "Total", value: fmtMoney(rangeTotal) },
+        ],
+        filenameBase: "Advances_Monthly_Loans",
+        startDate, endDate,
+        emptyMessage: "No advances logged in this date range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (!isAdmin) return null;
+
+  return (
+    <div className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <HandCoins className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
+          <div>
+            <h2 className="text-lg font-semibold">Advances &amp; Monthly Loans</h2>
+            <p className="text-xs text-muted-foreground" dir="rtl">السلف والخصومات الشهرية</p>
+          </div>
+        </div>
+        <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(allTimeTotal)} all-time</div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        مستقلة تماماً عن إيراد اليوم — never deducted from today's shift cash drawer or Daily Net Sales. Deducted
+        only from Monthly Gross Revenue / Net Profit, at the end of the month, under "إجمالي السلف والخصومات الشهرية".
+        Logged from the <strong>Procurement</strong> page, under the "السلف والخصومات الشهرية" tab.
+      </p>
+
+      <div className="mb-3">
+        <SectionDateRangeToolbar
+          startDate={startDate} endDate={endDate}
+          onStartDateChange={setStartDate} onEndDateChange={setEndDate}
+          onGeneratePdf={() => void handleGeneratePdf()} generating={generating} maxDate={today}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Showing {rangeLabel} ({fmtMoney(rangeTotal)}); the all-time total above always covers every advance ever logged.
+      </p>
+
+      {rangeAdvances.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No advances logged in this date range.</div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem] border border-black/8 rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+              <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-black/10">
+                <th className="pb-2 pt-3 pl-3 pr-3">Date</th>
+                <th className="pb-2 pt-3 pr-3">Description</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
+                <th className="pb-2 pt-3 pr-3">Logged By</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rangeAdvances.map((l) => (
+                <tr key={l.id} className="border-b border-black/5">
+                  <td className="py-2 pl-3 pr-3 font-mono">{new Date(l.ts).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3" dir="auto">{l.description || "—"}</td>
+                  <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(Number(l.amount))}</td>
+                  <td className="py-2 pr-3">{l.staffUsername}</td>
+                  <td className="py-2 pr-3 text-right">
+                    <button onClick={() => { setDeleteTarget(l); setDeleteErr(null); }} title="Delete" className="w-7 h-7 inline-flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this advance?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently removes <strong>{deleteTarget.description || deleteTarget.category}</strong> ({fmtMoney(Number(deleteTarget.amount))}) from this month's Advances &amp; Deductions total. This can't be undone.
+            </p>
+            {deleteErr && <div className="text-sm text-[oklch(0.62_0.24_25)] mb-3">{deleteErr}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+              <button onClick={() => void confirmDelete()} disabled={deleting} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white disabled:opacity-50">
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

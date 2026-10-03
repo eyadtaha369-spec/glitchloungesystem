@@ -5,6 +5,9 @@ import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, H
 
 const TYPE_LABEL: Record<string, string> = {
   stockedBatch: "Stocked Batch (bulk delivery)",
+  // Historical label only — kept so already-logged Daily Fresh Sheet
+  // purchases (from before this tab was replaced by Advances & Monthly
+  // Loans) still display correctly in Purchase History.
   dailyFresh: "Daily Fresh Sheet (perishables)",
   midShiftPurchase: "Expenses",
 };
@@ -60,7 +63,7 @@ export function ProcurementPage() {
 }
 
 function SubmitPurchaseForm() {
-  const [tab, setTab] = useState<"dailyFresh" | "stockedBatch" | "expenses" | "supplierInvoice">("dailyFresh");
+  const [tab, setTab] = useState<"stockedBatch" | "expenses" | "supplierInvoice" | "advances">("stockedBatch");
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-4">
@@ -69,10 +72,16 @@ function SubmitPurchaseForm() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-        {([["dailyFresh", TYPE_LABEL.dailyFresh], ["stockedBatch", TYPE_LABEL.stockedBatch], ["expenses", "Expenses"], ["supplierInvoice", "Supplier Invoice"]] as const).map(([t, label]) => (
+        {([
+          ["stockedBatch", TYPE_LABEL.stockedBatch],
+          ["expenses", "Expenses"],
+          ["supplierInvoice", "Supplier Invoice"],
+          ["advances", "السلف والخصومات الشهرية"],
+        ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
+            dir={t === "advances" ? "rtl" : "ltr"}
             className={`text-xs py-2.5 px-3 rounded-lg border transition ${
               tab === t
                 ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.5)] text-[#2b2416]"
@@ -84,7 +93,7 @@ function SubmitPurchaseForm() {
         ))}
       </div>
 
-      {tab === "expenses" ? <ExpenseSubmitForm /> : tab === "supplierInvoice" ? <SupplierInvoiceForm /> : <MaterialPurchaseForm purchaseType={tab} />}
+      {tab === "expenses" ? <ExpenseSubmitForm /> : tab === "supplierInvoice" ? <SupplierInvoiceForm /> : tab === "advances" ? <AdvancesForm /> : <MaterialPurchaseForm purchaseType={tab} />}
     </div>
   );
 }
@@ -623,6 +632,95 @@ function ExpenseSubmitForm() {
         className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
       >
         {submitting ? "Submitting..." : isAdmin && targetMode === "past" ? "Add to Closed Shift" : isAdmin ? "Submit & Approve" : "Submit for Approval"}
+      </button>
+    </div>
+  );
+}
+
+// This café's local date, Africa/Cairo -- same reasoning as every
+// other date default/picker-bound in this app (Reports.tsx's
+// cairoDateLabel): the browser's own timezone shouldn't decide which
+// calendar day "today" defaults to.
+const CAIRO_TZ_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
+function cairoDateLabel(ts: number): string {
+  return CAIRO_TZ_FORMATTER.format(new Date(ts));
+}
+
+// السلف والخصومات الشهرية — Advances & Monthly Loans. Admin-only,
+// deliberately the simplest form in this file: a single free-text
+// recipient name (not tied to a Staff Member record, since suppliers
+// can receive advances too) and a plain calendar date, no shift
+// binding at all -- recordStaffAdvance_ never touches a shift's drawer
+// or Daily Net Sales, so there's nothing here to pick a payment source
+// or shift for. Shows up afterward in Reports' Advances & Monthly
+// Loans panel, and is deducted from Net Profit only at month-end.
+function AdvancesForm() {
+  const { recordStaffAdvance } = useStore();
+  const [recipientName, setRecipientName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [date, setDate] = useState(() => cairoDateLabel(Date.now()));
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const reset = () => {
+    setRecipientName(""); setAmount(""); setReason(""); setDate(cairoDateLabel(Date.now()));
+  };
+
+  const submit = async () => {
+    setResult(null);
+    if (!recipientName.trim()) { setResult({ kind: "err", text: "Enter the employee/recipient's name." }); return; }
+    if (!(parseFloat(amount) > 0)) { setResult({ kind: "err", text: "Enter a valid advance amount." }); return; }
+    setSubmitting(true);
+    try {
+      const res = await recordStaffAdvance({ recipientName: recipientName.trim(), amount: parseFloat(amount), reason: reason.trim() || undefined, date });
+      if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Could not log this advance." }); return; }
+      setResult({ kind: "ok", text: `Logged — ${fmtMoney(parseFloat(amount))} to ${recipientName.trim()}. Deducted only from Monthly Net Profit at month-end, never from today's shift.` });
+      reset();
+    } catch (e) {
+      setResult({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong — please try again." });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4 text-xs text-muted-foreground bg-black/5 border border-black/8 rounded-lg p-3" dir="rtl">
+        مستقلة تماماً عن إيراد اليوم — لا يتم خصمها من درج النقدية الخاص بالشيفت الحالي أو من صافي المبيعات اليومية.
+        تُخصم فقط من الإيرادات/الأرباح الشهرية في نهاية الشهر.
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Employee / Recipient Name — اسم الموظف / المستلم</label>
+          <input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} dir="auto" className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Advance Amount EGP — مبلغ السلفة</label>
+          <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Date — تاريخ الحركة</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={cairoDateLabel(Date.now())} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Notes / Reason — السبب / البيان (optional)</label>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} dir="auto" className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+
+      {result && (
+        <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
+          {result.text}
+        </div>
+      )}
+
+      <button
+        onClick={() => void submit()}
+        disabled={submitting}
+        className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
+      >
+        {submitting ? "Saving..." : "Log Advance / تسجيل السلفة"}
       </button>
     </div>
   );
