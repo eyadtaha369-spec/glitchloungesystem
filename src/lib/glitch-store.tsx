@@ -286,7 +286,9 @@ interface StoreContextValue {
   submitPurchaseInvoice: (p: {
     supplierId: string;
     supplierName: string;
-    invoiceDate?: number;
+    // Plain "YYYY-MM-DD" (preferred — anchored at Cairo noon server-side)
+    // or a legacy numeric epoch ms, for backward compatibility.
+    invoiceDate?: string | number;
     paymentType: "cash" | "deferred";
     paymentSource?: PaymentSource;
     items: { materialId: string; qty: number; unitPrice: number }[];
@@ -329,7 +331,8 @@ interface StoreContextValue {
   deleteFixedMonthlyCost: (id: string) => Promise<{ ok: boolean; error?: string }>;
   updateSupplierInvoice: (params: {
     invoiceId: string; items?: { id: string; qty: number; unitPrice: number }[];
-    invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
+    // Plain "YYYY-MM-DD" (preferred) or a legacy numeric epoch ms.
+    invoiceDate?: string | number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
     supplierId?: string; supplierName?: string; referenceNumber?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   deleteSupplierPayment: (paymentId: string) => Promise<{ ok: boolean; error?: string }>;

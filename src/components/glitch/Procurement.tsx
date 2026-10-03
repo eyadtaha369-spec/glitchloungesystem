@@ -736,7 +736,12 @@ function SupplierInvoiceForm() {
   const { state, activeShift, submitPurchaseInvoice } = useStore();
 
   const [supplierId, setSupplierId] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // cairoDateLabel(Date.now()), NOT new Date().toISOString().slice(0,10)
+  // -- toISOString() reads off the UTC calendar date, which is still
+  // YESTERDAY from midnight to 2:59 AM Cairo time (UTC+3 in summer,
+  // +2 in winter) -- this defaulted the picker to the wrong day for
+  // anyone opening this form in the small hours.
+  const [invoiceDate, setInvoiceDate] = useState(() => cairoDateLabel(Date.now()));
   const [paymentType, setPaymentType] = useState<"cash" | "deferred">("cash");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
   const [items, setItems] = useState<InvoiceLineItem[]>([{ materialId: "", qty: "", unitPrice: "" }]);
@@ -753,7 +758,7 @@ function SupplierInvoiceForm() {
   const removeLine = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
 
   const reset = () => {
-    setSupplierId(""); setInvoiceDate(new Date().toISOString().slice(0, 10)); setPaymentType("cash"); setPaymentSource("");
+    setSupplierId(""); setInvoiceDate(cairoDateLabel(Date.now())); setPaymentType("cash"); setPaymentSource("");
     setItems([{ materialId: "", qty: "", unitPrice: "" }]);
   };
 
@@ -768,7 +773,13 @@ function SupplierInvoiceForm() {
       const res = await submitPurchaseInvoice({
         supplierId,
         supplierName: supplier?.name || "",
-        invoiceDate: new Date(invoiceDate).getTime(),
+        // Send the plain "YYYY-MM-DD" string as-is -- NOT
+        // new Date(invoiceDate).getTime() -- so the backend (which
+        // anchors it at Cairo noon via resolveDateInput_/
+        // cairoMiddayTimestamp_) is the only place a timestamp gets
+        // constructed, instead of also doing it here where the result
+        // would depend on this browser's own system timezone.
+        invoiceDate,
         paymentType,
         paymentSource: paymentType === "cash" ? (paymentSource as PaymentSource) : undefined,
         items: validItems.map((it) => ({ materialId: it.materialId, qty: parseFloat(it.qty), unitPrice: parseFloat(it.unitPrice) || 0 })),
@@ -1287,7 +1298,12 @@ function EditInvoiceButton({ entry, onSaved }: { entry: SupplierLedgerEntry; onS
 function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEntry; onClose: () => void; onSaved: () => void }) {
   const { state, updateSupplierInvoice } = useStore();
   const [items, setItems] = useState(() => (entry.items ?? []).map((it) => ({ ...it })));
-  const [invoiceDateInput, setInvoiceDateInput] = useState(() => new Date(entry.invoiceDate ?? entry.ts).toISOString().slice(0, 10));
+  // cairoDateLabel, NOT new Date(...).toISOString().slice(0,10) -- see
+  // the matching comment on SupplierInvoiceForm's invoiceDate above;
+  // reopening this modal on an entry whose stored moment falls between
+  // midnight and ~3 AM Cairo time would otherwise show the day BEFORE
+  // the one actually on file.
+  const [invoiceDateInput, setInvoiceDateInput] = useState(() => cairoDateLabel(entry.invoiceDate ?? entry.ts));
   const [paymentType, setPaymentType] = useState<"cash" | "deferred">(entry.paymentType ?? "deferred");
   const [supplierId, setSupplierId] = useState(entry.supplierId ?? "");
   const [referenceNumber, setReferenceNumber] = useState(entry.referenceNumber ?? "");
@@ -1304,7 +1320,9 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
       const res = await updateSupplierInvoice({
         invoiceId: entry.id,
         items: items.map((it) => ({ id: it.id, qty: it.qty, unitPrice: it.unitPrice })),
-        invoiceDate: new Date(invoiceDateInput + "T00:00:00").getTime(),
+        // Plain string, not new Date(invoiceDateInput + "T00:00:00").getTime()
+        // -- see submit() in SupplierInvoiceForm for why that's the bug.
+        invoiceDate: invoiceDateInput,
         paymentType,
         supplierId: supplierId || undefined,
         supplierName: chosenSupplier?.name,

@@ -10,7 +10,7 @@
 // Same reasoning as supplier-invoices.js: invoiceDate is a plain
 // calendar date, not a real timestamp, so use the direct Cairo-pinned
 // read, not the grace-window-shifted one.
-const { formatDateLabel_ } = require("./shifts");
+const { formatDateLabel_, resolveDateInput_ } = require("./shifts");
 
 function findLinkedBatch(readObjects_, ledgerId) {
   return readObjects_("Batches").find((b) => b.ledgerId === ledgerId) || null;
@@ -181,8 +181,15 @@ function bizUpdateSupplierInvoice_(deps, body) {
     }
   });
 
+  // body.invoiceDate is either a plain "yyyy-MM-dd" string (the normal
+  // case) or a legacy numeric epoch -- resolveDateInput_ (in ./shifts)
+  // anchors a date string at Cairo noon rather than trusting it (or a
+  // naive local-midnight parse) directly, which is what let a corrected
+  // invoice date silently shift a day backward.
+  const updatedInvoiceTs = body.invoiceDate !== undefined ? resolveDateInput_(body.invoiceDate, Date.now()) : undefined;
+
   const invoicePatch = { totalAmount };
-  if (body.invoiceDate !== undefined) invoicePatch.invoiceDate = body.invoiceDate;
+  if (updatedInvoiceTs !== undefined) invoicePatch.invoiceDate = updatedInvoiceTs;
   if (body.paymentType !== undefined) invoicePatch.paymentType = body.paymentType;
   if (body.paymentSource !== undefined) invoicePatch.paymentSource = body.paymentSource;
   if (body.supplierId !== undefined) invoicePatch.supplierId = body.supplierId;
@@ -193,13 +200,13 @@ function bizUpdateSupplierInvoice_(deps, body) {
   const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
   if (linkedLedgerId) {
     const ledgerPatch = { amount: totalAmount };
-    if (body.invoiceDate !== undefined) {
-      ledgerPatch.ts = body.invoiceDate;
+    if (updatedInvoiceTs !== undefined) {
+      ledgerPatch.ts = updatedInvoiceTs;
       // Keep expenseDate in lockstep with ts -- otherwise Reports.tsx's
       // day/month matching (which prefers expenseDate over ts whenever
       // it's set) would keep showing this under the OLD date even after
       // the invoice date was corrected here.
-      ledgerPatch.expenseDate = formatDateLabel_(body.invoiceDate);
+      ledgerPatch.expenseDate = formatDateLabel_(updatedInvoiceTs);
     }
     if (body.description !== undefined) ledgerPatch.description = body.description;
     if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;

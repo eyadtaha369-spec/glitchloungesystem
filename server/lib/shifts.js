@@ -36,6 +36,52 @@ function businessDayLabelForTs_(ts) {
   return formatDateLabel_(ts - BUSINESS_DAY_GRACE_MS);
 }
 
+// The parsing-direction counterpart to formatDateLabel_ above: turns a
+// plain "yyyy-MM-dd" date string an admin typed/picked (a Backdated
+// Expense date, a Supplier Invoice date, an Advance date) into a real
+// timestamp, anchored at NOON in Africa/Cairo rather than midnight.
+//
+// This fixes a real date-shifting bug: `new Date(dateStr + "T00:00:00")`
+// (what this used to be) parses that string as midnight in whatever
+// timezone the HOST PROCESS happens to be running in -- commonly UTC on
+// a cloud server, which sits BEHIND Cairo. Midnight Cairo computed that
+// way lands at 21:00 the PREVIOUS UTC day, so "2026-09-25" silently
+// became "2026-09-24T21:00:00.000Z". Node has no Utilities.parseDate
+// (Apps Script's IANA-aware parser -- see Code.gs's identical helper),
+// so this reconstructs the same guarantee from Intl: read what Cairo's
+// wall clock says for a trial UTC instant, measure the gap, and shift by
+// that gap. This stays correct across Egypt's DST transitions without
+// hardcoding its offset. Anchoring at midday instead of midnight adds a
+// second layer of safety: even if the measured offset were off by a few
+// hours, a noon instant still couldn't cross a calendar-day boundary
+// when read back in Cairo time.
+function cairoOffsetMsAt_(utcMs) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: CAFE_TIMEZONE, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const parts = {};
+  dtf.formatToParts(new Date(utcMs)).forEach((p) => { if (p.type !== "literal") parts[p.type] = p.value; });
+  const asIfUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+  return asIfUtc - utcMs;
+}
+function cairoMiddayTimestamp_(dateStr) {
+  const trialUtcMs = new Date(dateStr + "T12:00:00.000Z").getTime();
+  return trialUtcMs - cairoOffsetMsAt_(trialUtcMs);
+}
+
+// Accepts either a plain "yyyy-MM-dd" date string (the only form the
+// frontend should send now) or a legacy numeric epoch ms (still
+// accepted so an older client build, or a value already round-tripped
+// through one, keeps working). Falls back to fallbackTs when input is
+// missing/blank/unparseable.
+function resolveDateInput_(input, fallbackTs) {
+  if (input === undefined || input === null || input === "") return fallbackTs;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(input))) return cairoMiddayTimestamp_(String(input));
+  const n = Number(input);
+  return isNaN(n) ? fallbackTs : n;
+}
+
 // Finds every completed session and every drawer expense that was
 // recorded with no shift attached at all (shiftId null/undefined) --
 // this can only happen when a checkout or expense was submitted while
@@ -144,4 +190,4 @@ function bizRecalculateClosedShift_(sessions, ledger, shift) {
   };
 }
 
-module.exports = { formatDateLabel_, businessDayLabelForTs_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ };
+module.exports = { formatDateLabel_, businessDayLabelForTs_, cairoMiddayTimestamp_, resolveDateInput_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ };

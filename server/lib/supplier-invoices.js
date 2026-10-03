@@ -16,7 +16,7 @@
 // applying the grace-window shift would push a plain midnight value
 // back onto the PREVIOUS calendar day, one off from what was actually
 // selected.
-const { formatDateLabel_ } = require("./shifts");
+const { formatDateLabel_, resolveDateInput_ } = require("./shifts");
 
 function bizSubmitPurchaseInvoice_(deps, body) {
   const { readObjects_, appendObject_, updateObjectById_, newId_ } = deps;
@@ -52,10 +52,16 @@ function bizSubmitPurchaseInvoice_(deps, body) {
   const invoiceId = newId_("pinv");
   const paymentType = body.paymentType === "cash" ? "cash" : "deferred";
   const paymentSource = paymentType === "cash" ? body.paymentSource : null;
+  // body.invoiceDate is either a plain "yyyy-MM-dd" string (the normal
+  // case -- the admin picks a date, never a raw timestamp) or a legacy
+  // numeric epoch from an older client build. resolveDateInput_ handles
+  // both, anchoring a date string at Cairo noon rather than parsing it
+  // as local midnight in whatever timezone the host process runs in.
+  const invoiceTs = resolveDateInput_(body.invoiceDate, now);
 
   appendObject_("PurchaseInvoices", {
     id: invoiceId, supplierId: body.supplierId, supplierName: body.supplierName || "",
-    invoiceDate: body.invoiceDate || now, paymentType, totalAmount, createdAt: now,
+    invoiceDate: invoiceTs, paymentType, totalAmount, createdAt: now,
     createdBy: body.username, paymentSource,
   });
 
@@ -93,7 +99,7 @@ function bizSubmitPurchaseInvoice_(deps, body) {
       // shift's day. Before this field existed, a backdated cash invoice
       // silently reported under today regardless of the date the admin
       // actually picked.
-      expenseDate: formatDateLabel_(Number(body.invoiceDate) || now),
+      expenseDate: formatDateLabel_(invoiceTs),
     });
   }
 

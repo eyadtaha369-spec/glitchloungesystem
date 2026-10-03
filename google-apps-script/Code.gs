@@ -1660,6 +1660,44 @@ function expenseDateForShift_(shiftId, ts) {
   return businessDayLabelForTs_(ts);
 }
 
+// The parsing-direction counterpart to formatDateLabel_ above: turns a
+// plain "yyyy-MM-dd" date string an admin typed/picked (a Backdated
+// Expense date, a Supplier Invoice date, an Advance date) into a real
+// timestamp, anchored at NOON in Africa/Cairo rather than midnight.
+//
+// This fixes a real date-shifting bug: `new Date(dateStr + "T00:00:00")`
+// (what this used to be -- see recordStaffAdvance_/submitPurchaseInvoice_
+// in earlier versions of this file) parses that string as midnight in
+// whatever timezone the CODE EXECUTING IT happens to be running in --
+// the Apps Script project's own Script Timezone setting here, which has
+// no guarantee of actually being Africa/Cairo (it's whatever was picked
+// when the project was created). If that execution timezone sits even
+// slightly behind Cairo, midnight Cairo gets computed as a UTC/local
+// instant that still falls on the PREVIOUS calendar day -- e.g. "Sept
+// 25" silently becoming "Sept 24 21:00:00". Utilities.parseDate takes an
+// explicit IANA zone argument exactly like Utilities.formatDate does, so
+// this is correct regardless of the script's own timezone setting.
+// Anchoring at midday instead of midnight adds a second layer of safety
+// on top of that: even a full day's worth of unexpected drift (a stale
+// cache, a mis-set system clock, Egypt's DST transition day itself)
+// would have to be completely implausible to push a noon instant across
+// a calendar-day boundary when it's read back in Cairo time.
+function cairoMiddayTimestamp_(dateStr) {
+  return Utilities.parseDate(dateStr + " 12:00:00", CAFE_TIMEZONE, "yyyy-MM-dd HH:mm:ss").getTime();
+}
+
+// Accepts either a plain "yyyy-MM-dd" date string (the only form the
+// frontend should send now -- see cairoMiddayTimestamp_ above) or a
+// legacy numeric epoch ms (still accepted so an older client build, or
+// a value already round-tripped through one, keeps working). Falls
+// back to fallbackTs when input is missing/blank/unparseable.
+function resolveDateInput_(input, fallbackTs) {
+  if (input === undefined || input === null || input === "") return fallbackTs;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(input))) return cairoMiddayTimestamp_(String(input));
+  const n = Number(input);
+  return isNaN(n) ? fallbackTs : n;
+}
+
 // One-time data-repair tool, NOT part of normal expense submission (that
 // path -- handleSubmitExpense_/handleSubmitPurchase_/backdated expenses --
 // already calls expenseDateForShift_ correctly on every new entry). This
@@ -4798,10 +4836,16 @@ function submitPurchaseInvoice_(body) {
   const invoiceId = newId_("pinv");
   const paymentType = body.paymentType === "cash" ? "cash" : "deferred";
   const paymentSource = paymentType === "cash" ? body.paymentSource : null;
+  // body.invoiceDate is either a plain "yyyy-MM-dd" string (the normal
+  // case -- the admin picks a date, never a raw timestamp) or a legacy
+  // numeric epoch from an older client build. resolveDateInput_ handles
+  // both, anchoring a date string at Cairo noon rather than parsing it
+  // as local midnight in whatever timezone happens to execute this.
+  const invoiceTs = resolveDateInput_(body.invoiceDate, now);
 
   appendObject_("PurchaseInvoices", {
     id: invoiceId, supplierId: body.supplierId, supplierName: body.supplierName || "",
-    invoiceDate: body.invoiceDate || now, paymentType: paymentType, totalAmount: totalAmount, createdAt: now,
+    invoiceDate: invoiceTs, paymentType: paymentType, totalAmount: totalAmount, createdAt: now,
     createdBy: body.username, paymentSource: paymentSource,
   });
 
@@ -4833,7 +4877,7 @@ function submitPurchaseInvoice_(body) {
       // (any past date, not just "today") -- that's the authoritative
       // source of which business day this expense belongs to, used
       // directly here instead of "now"/the active shift's day.
-      expenseDate: formatDateLabel_(Number(body.invoiceDate) || now),
+      expenseDate: formatDateLabel_(invoiceTs),
     });
   }
 
@@ -4860,7 +4904,10 @@ function recordStaffAdvance_(body) {
   if (!body.recipientName || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Enter a recipient name and a valid amount." };
   }
-  const ts = body.date ? new Date(body.date + "T00:00:00").getTime() : Date.now();
+  if (body.date && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return { ok: false, error: "Invalid date." };
+  // cairoMiddayTimestamp_, not new Date(body.date + "T00:00:00") -- see
+  // that helper's comment for the date-shifting bug this avoids.
+  const ts = body.date ? cairoMiddayTimestamp_(body.date) : Date.now();
   if (isNaN(ts)) return { ok: false, error: "Invalid date." };
   const entry = {
     id: newId_("ledg"), ts: ts, amount: Number(body.amount), direction: "outflow", type: "staffAdvance",
@@ -5338,8 +5385,13 @@ function updateSupplierInvoice_(body) {
     }
   });
 
+  // body.invoiceDate is either a plain "yyyy-MM-dd" string (the normal
+  // case) or a legacy numeric epoch -- see resolveDateInput_ above for
+  // why this is needed instead of trusting the raw value directly.
+  const updatedInvoiceTs = body.invoiceDate !== undefined ? resolveDateInput_(body.invoiceDate, Date.now()) : undefined;
+
   const invoicePatch = { totalAmount: totalAmount };
-  if (body.invoiceDate !== undefined) invoicePatch.invoiceDate = body.invoiceDate;
+  if (updatedInvoiceTs !== undefined) invoicePatch.invoiceDate = updatedInvoiceTs;
   if (body.paymentType !== undefined) invoicePatch.paymentType = body.paymentType;
   if (body.paymentSource !== undefined) invoicePatch.paymentSource = body.paymentSource;
   if (body.supplierId !== undefined) invoicePatch.supplierId = body.supplierId;
@@ -5350,11 +5402,11 @@ function updateSupplierInvoice_(body) {
   const linkedLedgerId = batches.length > 0 ? batches[0].ledgerId : null;
   if (linkedLedgerId) {
     const ledgerPatch = { amount: totalAmount };
-    if (body.invoiceDate !== undefined) {
-      ledgerPatch.ts = body.invoiceDate;
+    if (updatedInvoiceTs !== undefined) {
+      ledgerPatch.ts = updatedInvoiceTs;
       // Keep expenseDate in lockstep with ts -- see the matching
       // comment on the local server's version of this function.
-      ledgerPatch.expenseDate = formatDateLabel_(body.invoiceDate);
+      ledgerPatch.expenseDate = formatDateLabel_(updatedInvoiceTs);
     }
     if (body.description !== undefined) ledgerPatch.description = body.description;
     if (body.supplierId !== undefined) ledgerPatch.supplierId = body.supplierId;

@@ -249,7 +249,10 @@ export const submitPurchaseInvoiceFn = createServerFn({ method: "POST" })
   .validator((d: {
     supplierId: string;
     supplierName: string;
-    invoiceDate?: number;
+    // Plain "YYYY-MM-DD" (preferred — anchored at Cairo noon server-side
+    // via resolveDateInput_/cairoMiddayTimestamp_) or a legacy numeric
+    // epoch ms, for backward compatibility.
+    invoiceDate?: string | number;
     paymentType: "cash" | "deferred";
     paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
     items: { materialId: string; qty: number; unitPrice: number }[];
@@ -430,7 +433,8 @@ export const updateSupplierInvoiceFn = createServerFn({ method: "POST" })
   .validator((d: {
     invoiceId: string;
     items?: { id: string; qty: number; unitPrice: number }[];
-    invoiceDate?: number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
+    // Plain "YYYY-MM-DD" (preferred) or a legacy numeric epoch ms.
+    invoiceDate?: string | number; paymentType?: "cash" | "deferred"; paymentSource?: string; description?: string;
     supplierId?: string; supplierName?: string; referenceNumber?: string;
   }) => d)
   .handler(async ({ data }) => {

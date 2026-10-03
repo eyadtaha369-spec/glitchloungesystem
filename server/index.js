@@ -27,7 +27,7 @@ const {
   bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
-const { formatDateLabel_, businessDayLabelForTs_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
+const { formatDateLabel_, businessDayLabelForTs_, cairoMiddayTimestamp_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
@@ -967,7 +967,10 @@ Object.assign(handlers, {
     if (!body.recipientName || !(Number(body.amount) > 0)) {
       return { ok: false, error: "Enter a recipient name and a valid amount." };
     }
-    const ts = body.date ? new Date(body.date + "T00:00:00").getTime() : Date.now();
+    if (body.date && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return { ok: false, error: "Invalid date." };
+    // cairoMiddayTimestamp_, not new Date(body.date + "T00:00:00") -- see
+    // that helper (in ./lib/shifts) for the date-shifting bug this avoids.
+    const ts = body.date ? cairoMiddayTimestamp_(body.date) : Date.now();
     if (Number.isNaN(ts)) return { ok: false, error: "Invalid date." };
     const entry = {
       id: newId_("ledg"), ts, amount: Number(body.amount), direction: "outflow", type: "staffAdvance",
