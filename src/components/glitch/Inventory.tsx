@@ -3,6 +3,7 @@ import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WAS
 import { printSmart } from "@/lib/print";
 import { generateInventoryAuditReportPdf } from "@/lib/inventory-audit-pdf";
 import { generateSectionReportPdf } from "@/lib/section-report-pdf";
+import { generateBaristaRecipePdf } from "@/lib/barista-recipe-pdf";
 import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, AlertTriangle, History, FileBarChart, FileDown, Search, Printer } from "lucide-react";
 
 // This café operates in Africa/Cairo local time regardless of the
@@ -1358,6 +1359,9 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [ings, setIngs] = useState<{ stockId: string; qty: number }[]>([]);
   const [staffAllowanceRole, setStaffAllowanceRole] = useState<"" | "tea" | "coffee">("");
   const [modifierGroupId, setModifierGroupId] = useState<string>("");
+  const [nameAr, setNameAr] = useState("");
+  const [servingVessel, setServingVessel] = useState("");
+  const [prepNotes, setPrepNotes] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -1366,7 +1370,20 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
   const [editIngs, setEditIngs] = useState<{ stockId: string; qty: number }[]>([]);
   const [editStaffAllowanceRole, setEditStaffAllowanceRole] = useState<"" | "tea" | "coffee">("");
   const [editModifierGroupId, setEditModifierGroupId] = useState<string>("");
+  const [editNameAr, setEditNameAr] = useState("");
+  const [editServingVessel, setEditServingVessel] = useState("");
+  const [editPrepNotes, setEditPrepNotes] = useState("");
   const [editErr, setEditErr] = useState<string | null>(null);
+  const [generatingRecipePdf, setGeneratingRecipePdf] = useState(false);
+
+  const handleGenerateBaristaPdf = async () => {
+    setGeneratingRecipePdf(true);
+    try {
+      await generateBaristaRecipePdf({ menu: state.menu, stock: state.stock, categoryOrder: MENU_CATEGORIES });
+    } finally {
+      setGeneratingRecipePdf(false);
+    }
+  };
 
   // Only one menu item at a time can hold each role — assigning it
   // here means clearing it from whichever OTHER item currently has it
@@ -1386,8 +1403,17 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     }
     setEditErr(null);
     if (staffAllowanceRole) clearRoleFromOtherItems(staffAllowanceRole);
-    onAdd({ id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: staffAllowanceRole || null, modifierGroupId: modifierGroupId || null });
-    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setStaffAllowanceRole(""); setModifierGroupId(""); setShowForm(false);
+    onAdd({
+      id, name, price, category, ingredients: ings.filter((i) => i.stockId && i.qty > 0),
+      staffAllowanceRole: staffAllowanceRole || null, modifierGroupId: modifierGroupId || null,
+      // Always sent explicitly (even "") rather than falling back to
+      // undefined — undefined keys get stripped by JSON.stringify
+      // before reaching the backend, which would silently make
+      // clearing one of these fields back to blank a no-op.
+      nameAr, servingVessel, prepNotes,
+    });
+    setId(""); setName(""); setPrice(0); setCategory(MENU_CATEGORIES[0]); setIngs([]); setStaffAllowanceRole(""); setModifierGroupId("");
+    setNameAr(""); setServingVessel(""); setPrepNotes(""); setShowForm(false);
   };
 
   const beginEdit = (m: MenuItem) => {
@@ -1398,6 +1424,9 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     setEditIngs(m.ingredients.map((i) => ({ ...i })));
     setEditStaffAllowanceRole(m.staffAllowanceRole ?? "");
     setEditModifierGroupId(m.modifierGroupId ?? "");
+    setEditNameAr(m.nameAr ?? "");
+    setEditServingVessel(m.servingVessel ?? "");
+    setEditPrepNotes(m.prepNotes ?? "");
     setEditErr(null);
   };
   const saveEdit = () => {
@@ -1414,17 +1443,31 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
     }
     setEditErr(null);
     if (editStaffAllowanceRole) clearRoleFromOtherItems(editStaffAllowanceRole, editingId);
-    onUpdate(editingId, { name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0), staffAllowanceRole: editStaffAllowanceRole || null, modifierGroupId: editModifierGroupId || null });
+    onUpdate(editingId, {
+      name: editName, price: editPrice, category: editCategory, ingredients: editIngs.filter((i) => i.stockId && i.qty > 0),
+      staffAllowanceRole: editStaffAllowanceRole || null, modifierGroupId: editModifierGroupId || null,
+      // Always sent explicitly, same reasoning as the Add form above.
+      nameAr: editNameAr, servingVessel: editServingVessel, prepNotes: editPrepNotes,
+    });
     setEditingId(null);
   };
 
   return (
     <div className="glass rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="text-lg font-semibold">Menu &amp; Recipes</h2>
-        <button onClick={() => setShowForm((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
-          <Plus className="w-4 h-4" /> Add Menu Item
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => void handleGenerateBaristaPdf()}
+            disabled={generatingRecipePdf}
+            className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-bold disabled:opacity-50"
+          >
+            <FileBarChart className="w-4 h-4" /> {generatingRecipePdf ? "Generating..." : "Download Barista SOP PDF"} <span dir="rtl" className="opacity-80">/ تنزيل دليل الوصفات</span>
+          </button>
+          <button onClick={() => setShowForm((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-black/5 border border-black/10 hover:bg-black/8">
+            <Plus className="w-4 h-4" /> Add Menu Item
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -1453,6 +1496,11 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
               <option value="">POS Modifier Prompt: None</option>
               {Object.values(MODIFIER_GROUPS).map((g) => <option key={g.id} value={g.id}>POS Modifier Prompt: {g.name}</option>)}
             </select>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input dir="rtl" placeholder="Arabic Name / الاسم بالعربي" value={nameAr} onChange={(e) => setNameAr(e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+            <input placeholder="Serving Vessel (e.g. 12oz Glass)" value={servingVessel} onChange={(e) => setServingVessel(e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
+            <input placeholder="Prep Notes / Barista Steps" value={prepNotes} onChange={(e) => setPrepNotes(e.target.value)} className="bg-white/70 rounded px-3 py-2 text-sm border border-black/10" />
           </div>
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Ingredients</div>
@@ -1504,6 +1552,9 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                   <option value="">POS Modifier Prompt: None</option>
                   {Object.values(MODIFIER_GROUPS).map((g) => <option key={g.id} value={g.id}>POS Modifier Prompt: {g.name}</option>)}
                 </select>
+                <input dir="rtl" placeholder="Arabic Name / الاسم بالعربي" value={editNameAr} onChange={(e) => setEditNameAr(e.target.value)} className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10" />
+                <input placeholder="Serving Vessel" value={editServingVessel} onChange={(e) => setEditServingVessel(e.target.value)} className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10" />
+                <input placeholder="Prep Notes / Barista Steps" value={editPrepNotes} onChange={(e) => setEditPrepNotes(e.target.value)} className="w-full bg-white/70 rounded px-2 py-1.5 text-xs border border-black/10" />
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Ingredients</div>
                   {editIngs.map((ing, idx) => {

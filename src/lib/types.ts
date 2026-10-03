@@ -70,6 +70,11 @@ export interface MenuItem {
   // or reorganize its menu however it wants, so this is what actually
   // decides which prompt shows, not the item's name.
   modifierGroupId?: string | null;
+  // Barista SOP fields — all optional, purely for the Barista Recipe
+  // Manual PDF (Inventory page). Never touched by the POS/order flow.
+  nameAr?: string; // Arabic display name, e.g. "سبانيش لاتيه"
+  servingVessel?: string; // e.g. "12oz Glass", "Mojito Glass"
+  prepNotes?: string; // short prep steps / barista notes
 }
 
 // Fixed, built-in modifier groups (content exactly as specified) —
