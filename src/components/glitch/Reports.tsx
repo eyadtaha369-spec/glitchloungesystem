@@ -37,6 +37,18 @@ const WASTE_LEDGER_CATEGORIES = new Set([
   "Unapproved Void — Pending Reconciliation",
 ]);
 
+// Historical entries only — setActualStock (Inventory.tsx's Actual
+// Stock audit) no longer posts these at all, but any already sitting in
+// the Ledger from before that change still carry this category prefix
+// (the exact reason label varies: "... (Unrecorded Wastage)", "...
+// (Entry Error)", etc.) and would otherwise keep inflating Expenses/Net
+// Profit for a physical stock count that never involved any cash
+// leaving the business. Tracked instead in the Stock Variance & Audit
+// Report (Inventory page), sourced from ActivityLogs, not the Ledger.
+function isInventoryAuditWriteOff_(l: LedgerEntry): boolean {
+  return l.category.indexOf("Inventory Audit Write-off") === 0;
+}
+
 function isOperationalExpense(l: LedgerEntry): boolean {
   return (
     l.direction === "outflow" &&
@@ -46,7 +58,8 @@ function isOperationalExpense(l: LedgerEntry): boolean {
     l.category !== "Staff Consumption Expense" &&
     l.status === "approved" &&
     l.paymentStatus !== "unpaid" &&
-    !WASTE_LEDGER_CATEGORIES.has(l.category)
+    !WASTE_LEDGER_CATEGORIES.has(l.category) &&
+    !isInventoryAuditWriteOff_(l)
   );
 }
 

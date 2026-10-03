@@ -3579,24 +3579,33 @@ function doPost(e) {
           actualStock: actual, actualStockUpdatedAt: now, actualStockUpdatedBy: body.username,
         });
 
-        if (variance < -1e-9 && cost > 0) {
-          appendObject_("Ledger", {
-            id: newId_("ledg"), ts: now, amount: cost, direction: "outflow", type: "manualAdjustment",
-            category: "Inventory Audit Write-off (" + reasonLabels[body.reason] + ")",
-            description: Math.abs(variance) + " " + material.unit + " of " + material.name + " written off — " + reasonLabels[body.reason],
-            supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-            paidFromDrawer: false, shiftId: null, materialId: body.materialId, qty: Math.abs(variance), unitCost: material.unitCost, paymentSource: null,
-          });
-        }
+        // Deliberately NOT posted to the Ledger as a monetary expense —
+        // a stock count variance is an operational/physical discrepancy
+        // (عجز الجرد), not cash leaving the business, and posting it as
+        // an "expense" was double-counting against Reports' Expenses
+        // figures for something that never involved a payment. The FIFO
+        // write-off above still happens (system stock has to match the
+        // physical count either way) — only the Ledger/expense side is
+        // skipped. The full audit trail — item, expected vs actual,
+        // variance, unit cost, and the resulting value — lives entirely
+        // in this ActivityLogs entry's `after` field, which the Stock
+        // Variance & Audit Report (Inventory page) reads directly.
+        const stockAuditUnitCost = Number(material.unitCost) || 0;
+        const stockAuditVarianceValue = Math.round(Math.abs(variance) * stockAuditUnitCost * 100) / 100;
 
         logActivity_({
           actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ACTUAL_STOCK_SET",
           description: material.name + ": Actual Stock set to " + actual + " " + material.unit +
             " (system showed " + remaining + " " + material.unit + ") — " +
             (variance < 0 ? "DEFICIT of " + Math.abs(variance) : variance > 0 ? "SURPLUS of " + variance : "no variance") + " " + material.unit +
-            (Math.abs(variance) > 1e-9 ? " [" + reasonLabels[body.reason] + "]" : ""),
+            (Math.abs(variance) > 1e-9 ? " [" + reasonLabels[body.reason] + "] — " + stockAuditVarianceValue.toFixed(2) + " EGP" : ""),
           before: { systemRemaining: remaining },
-          after: { actualStock: actual, variance: variance, reason: body.reason || null },
+          after: {
+            materialId: body.materialId, materialName: material.name, unit: material.unit,
+            expectedStock: remaining, actualStock: actual, variance: variance,
+            unitCost: stockAuditUnitCost, varianceValue: stockAuditVarianceValue,
+            reason: body.reason || null,
+          },
         });
         return json_({ ok: true, variance: variance, state: withStockView_(getState_()) });
       }

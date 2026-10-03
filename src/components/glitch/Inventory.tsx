@@ -2,7 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, STOCK_AUDIT_VARIANCE_REASON_LABELS, MODIFIER_GROUPS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot, type StockAuditVarianceReason } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
 import { generateInventoryAuditReportPdf } from "@/lib/inventory-audit-pdf";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, History, FileBarChart, Search, Printer } from "lucide-react";
+import { generateSectionReportPdf } from "@/lib/section-report-pdf";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, AlertTriangle, History, FileBarChart, FileDown, Search, Printer } from "lucide-react";
+
+// This café operates in Africa/Cairo local time regardless of the
+// viewing browser/SSR's own timezone — same reasoning and
+// implementation as Reports.tsx's cairoDateLabel, duplicated here
+// rather than cross-imported since Reports.tsx doesn't export it.
+const CAIRO_TZ_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+});
+function cairoDateLabel(ts: number): string {
+  return CAIRO_TZ_FORMATTER.format(new Date(ts));
+}
 
 export function InventoryPage() {
   const {
@@ -124,6 +136,12 @@ export function InventoryPage() {
       {/* Stock inventory */}
       <InventoryAuditReportButton expected={expectedToday} actual={state.actualCashInput} discrepancy={discrepancy} />
       <InventorySection />
+
+      {/* Stock Variance & Audit Report — admin-only, reads the
+          structured ACTUAL_STOCK_SET audit log entries directly; never
+          posted to the Ledger as an expense */}
+      <StockVarianceAuditPanel />
+
       <InventoryResetPanel />
 
       {/* Recipes / Menu */}
@@ -416,6 +434,187 @@ function InventorySection() {
         <StockTable />
       ) : (
         <ArchiveStockTable month={selectedMonth} label={monthLabel(selectedMonth)} rows={archiveRows} loading={archiveLoading} />
+      )}
+    </div>
+  );
+}
+
+// Admin-only. Every committed Actual Stock count (setActualStock) logs a
+// structured ACTUAL_STOCK_SET ActivityLogs entry — item, expected vs
+// actual, variance, unit cost, and the resulting value — specifically so
+// this report can read it directly, with NO dependency on the Ledger
+// (see isInventoryAuditWriteOff_ in Reports.tsx / the removed Ledger
+// write in Code.gs's setActualStock: a stock variance is an operational
+// discrepancy, never a monetary expense). Zero-variance counts (a clean
+// match) are excluded — this is a discrepancy report, not a log of every
+// audit performed.
+interface StockAuditLogRow {
+  id: string; ts: number; materialName: string; unit: string;
+  expectedStock: number; actualStock: number; variance: number;
+  unitCost: number; varianceValue: number; reason: string | null; actorUsername: string;
+}
+function StockVarianceAuditPanel() {
+  const { state, refreshActivityLogs } = useStore();
+  const isAdmin = state.currentUser?.role === "admin";
+  const today = cairoDateLabel(Date.now());
+  const [startDate, setStartDate] = useState(today.slice(0, 8) + "01"); // 1st of this month
+  const [endDate, setEndDate] = useState(today);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => { if (isAdmin) void refreshActivityLogs(); }, [isAdmin, refreshActivityLogs]);
+
+  const rows = useMemo<StockAuditLogRow[]>(() => {
+    return state.activityLogs
+      .filter((l) => l.actionType === "ACTUAL_STOCK_SET")
+      .map((l) => {
+        let after: Partial<StockAuditLogRow> = {};
+        try { after = JSON.parse(l.after || "{}"); } catch { /* legacy/unparseable entry, skip below */ }
+        return { id: l.id, ts: l.ts, actorUsername: l.actorUsername, ...after } as StockAuditLogRow;
+      })
+      // Legacy entries logged before this field set existed, or with no
+      // actual variance (a clean count), don't belong in a discrepancy report.
+      .filter((r) => typeof r.variance === "number" && Math.abs(r.variance) > 1e-9 && r.materialName)
+      .filter((r) => {
+        const label = cairoDateLabel(r.ts);
+        return label >= startDate && label <= endDate;
+      })
+      .sort((a, b) => b.ts - a.ts);
+  }, [state.activityLogs, startDate, endDate]);
+
+  const totals = useMemo(() => {
+    const netValue = rows.reduce((a, r) => a + (r.variance < 0 ? -r.varianceValue : r.varianceValue), 0);
+    const deficitCount = rows.filter((r) => r.variance < 0).length;
+    const surplusCount = rows.filter((r) => r.variance > 0).length;
+    return { count: rows.length, deficitCount, surplusCount, netValue: Math.round(netValue * 100) / 100 };
+  }, [rows]);
+
+  const reasonLabel = (r: string | null) => (r && STOCK_AUDIT_VARIANCE_REASON_LABELS[r as StockAuditVarianceReason]) || "—";
+
+  const handleGeneratePdf = async () => {
+    setGenerating(true);
+    try {
+      await generateSectionReportPdf({
+        sectionTitle: "Stock Variance & Audit Report",
+        sectionTitleAr: "تقرير عجز وقيمة الجرد",
+        rangeLabel: `${startDate} – ${endDate}`,
+        columns: [
+          { header: "Item Name & Unit / اسم الصنف والوحدة" },
+          { header: "Expected Stock / الكمية الدفترية", align: "right" },
+          { header: "Actual Stock / الكمية الفعلية", align: "right" },
+          { header: "Variance Qty / عجز الكمية", align: "right" },
+          { header: "Unit Cost (EGP) / سعر الوحدة", align: "right" },
+          { header: "Variance Value (EGP) / قيمة العجز", align: "right" },
+          { header: "Reason" },
+        ],
+        rows: rows.map((r) => [
+          `${r.materialName} (${r.unit})`,
+          r.expectedStock, r.actualStock,
+          (r.variance > 0 ? "+" : "") + r.variance,
+          fmtMoney(r.unitCost), (r.variance < 0 ? "-" : "+") + fmtMoney(r.varianceValue).replace(" EGP", ""),
+          reasonLabel(r.reason),
+        ]),
+        summaryLines: [
+          { label: "Total Discrepancy Count / عدد الأصناف اللي فيها عجز", value: String(totals.count) },
+          { label: "Deficits / Surpluses", value: `${totals.deficitCount} / ${totals.surplusCount}` },
+          { label: "NET TOTAL INVENTORY VARIANCE VALUE / إجمالي قيمة العجز الكلي", value: fmtMoney(totals.netValue) },
+        ],
+        startDate, endDate,
+        filenameBase: "Inventory_Variance_Audit",
+        emptyMessage: "No stock discrepancies recorded in this range.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (!isAdmin) return null;
+
+  return (
+    <div className="glass rounded-2xl p-6 border border-[oklch(0.75_0.18_80/0.4)]">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-[oklch(0.75_0.18_80)]" />
+          <h2 className="text-lg font-semibold">
+            Stock Variance &amp; Audit Report <span dir="rtl" className="opacity-70 text-base">· تقرير عجز وقيمة الجرد</span>
+          </h2>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input type="date" value={startDate} max={endDate} onChange={(e) => setStartDate(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono" />
+          <span className="text-xs text-muted-foreground">to</span>
+          <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} className="bg-white/70 border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-mono" />
+          <button
+            onClick={() => void handleGeneratePdf()}
+            disabled={generating}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-[oklch(0.75_0.18_80)] to-[oklch(0.7_0.19_260)] text-[#2b2416] font-bold disabled:opacity-50"
+          >
+            <FileDown className="w-3.5 h-3.5" /> {generating ? "Generating..." : "Download Inventory Variance Audit PDF"}
+          </button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Operational audit only — these discrepancies are never posted as expenses.
+      </p>
+
+      {rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground font-mono text-center py-6">No stock discrepancies recorded in this range.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <div className="bg-white/60 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Discrepancy Count <span dir="rtl" className="opacity-70">· عدد الأصناف</span></div>
+              <div className="text-xl font-mono font-bold mt-0.5">{totals.count}</div>
+            </div>
+            <div className="bg-white/60 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Deficits / Surpluses</div>
+              <div className="text-xl font-mono font-bold mt-0.5">
+                <span className="text-[oklch(0.62_0.24_25)]">{totals.deficitCount}</span>
+                {" / "}
+                <span className="text-[oklch(0.78_0.2_155)]">{totals.surplusCount}</span>
+              </div>
+            </div>
+            <div className="bg-white/60 rounded-lg p-3 border border-black/8">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net Total Variance Value <span dir="rtl" className="opacity-70">· إجمالي قيمة العجز الكلي</span></div>
+              <div className={`text-xl font-mono font-bold mt-0.5 ${totals.netValue < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                {totals.netValue < 0 ? "" : "+"}{fmtMoney(totals.netValue)}
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs font-mono">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b border-black/10">
+                  <th className="py-1.5 pr-3">Item / الصنف</th>
+                  <th className="py-1.5 pr-3 text-right">Expected / الدفترية</th>
+                  <th className="py-1.5 pr-3 text-right">Actual / الفعلية</th>
+                  <th className="py-1.5 pr-3 text-right">Variance / العجز</th>
+                  <th className="py-1.5 pr-3 text-right">Unit Cost</th>
+                  <th className="py-1.5 pr-3 text-right">Value / القيمة</th>
+                  <th className="py-1.5 pr-3">Reason</th>
+                  <th className="py-1.5 pr-3">By / When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b border-black/5">
+                    <td className="py-1.5 pr-3">{r.materialName} <span className="text-muted-foreground">({r.unit})</span></td>
+                    <td className="py-1.5 pr-3 text-right">{r.expectedStock}</td>
+                    <td className="py-1.5 pr-3 text-right">{r.actualStock}</td>
+                    <td className={`py-1.5 pr-3 text-right font-bold ${r.variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                      {r.variance > 0 ? "+" : ""}{r.variance}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right">{fmtMoney(r.unitCost)}</td>
+                    <td className={`py-1.5 pr-3 text-right font-bold ${r.variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
+                      {r.variance < 0 ? "-" : "+"}{fmtMoney(r.varianceValue)}
+                    </td>
+                    <td className="py-1.5 pr-3">{reasonLabel(r.reason)}</td>
+                    <td className="py-1.5 pr-3 text-muted-foreground">{r.actorUsername} — {new Date(r.ts).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
@@ -964,7 +1163,7 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                 <>
                   <p className={`text-sm font-bold ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
                     This will record a {variance < 0 ? "deficit" : "surplus"} of {Math.abs(variance)} {target.unit}
-                    {variance < 0 ? " and adjust stock down to match (logged as a write-off expense)." : " and adjust stock up to match."}
+                    {variance < 0 ? " and adjust stock down to match (logged in the Stock Variance & Audit Report — not posted as an expense)." : " and adjust stock up to match."}
                   </p>
                   <p className="text-xs text-muted-foreground">Reason: {STOCK_AUDIT_VARIANCE_REASON_LABELS[reason as StockAuditVarianceReason]}</p>
                 </>
