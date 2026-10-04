@@ -278,12 +278,12 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
                 <option value="">Select a closed shift...</option>
                 {closedShifts.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {new Date(s.closedAt ?? 0).toLocaleString()} — {s.cashierUsername} (Shift #{s.id})
+                    {businessDayLabelForTs(s.openedAt)} — {s.cashierUsername}, opened {new Date(s.openedAt).toLocaleString()} (Shift #{s.id})
                   </option>
                 ))}
               </select>
               <p className="text-[11px] text-black mt-1.5">
-                Stock still arrives now, but this expense reports under that shift's day, and its expected cash/discrepancy is recalculated immediately.
+                Stock still arrives now, but this expense reports under that shift's day (shown above), and its expected cash/discrepancy is recalculated immediately.
               </p>
             </div>
           )}
@@ -523,12 +523,12 @@ function ExpenseSubmitForm() {
                 <option value="">Select a closed shift...</option>
                 {closedShifts.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {new Date(s.closedAt ?? 0).toLocaleString()} — {s.cashierUsername} (Shift #{s.id})
+                    {businessDayLabelForTs(s.openedAt)} — {s.cashierUsername}, opened {new Date(s.openedAt).toLocaleString()} (Shift #{s.id})
                   </option>
                 ))}
               </select>
               <p className="text-[11px] text-black mt-1.5">
-                This expense will be inserted into that shift's expense log, and its expected cash / discrepancy will be recalculated. Logged as an admin action.
+                This expense will be dated to the day shown above (that shift's own business day) and inserted into that shift's expense log; its expected cash / discrepancy will be recalculated. Logged as an admin action.
               </p>
             </div>
           )}
@@ -648,6 +648,30 @@ function ExpenseSubmitForm() {
 const CAIRO_TZ_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
 function cairoDateLabel(ts: number): string {
   return CAIRO_TZ_FORMATTER.format(new Date(ts));
+}
+
+// The REAL fix for the "shift date 2026-09-29 saves as 2026-09-28"
+// report: the backend (expenseDateForShift_ in Code.gs/shifts.js)
+// has always correctly dated a shift-linked expense by that shift's
+// OWN business day -- businessDayLabelForTs_(shift.openedAt), using
+// this café's real 8:00 AM-to-8:00 AM operating cycle with a 30-min
+// grace window (mirrors Reports.tsx's businessDayBounds exactly) --
+// NOT by the raw calendar date of whatever timestamp happens to be
+// nearby. The actual bug was here on the frontend: the "Past Closed
+// Shift" picker below used to show each shift by its CLOSE time
+// (new Date(s.closedAt).toLocaleString(), in the viewing browser's
+// own timezone) rather than by that same business-day label. An
+// overnight shift that opened at, say, 1 AM on the 29th belongs to
+// the 28th's business day (same rule a 1 AM customer sale would
+// follow) -- but its closedAt could easily read "Sep 29" in the
+// dropdown, leading an admin to reasonably expect an expense picked
+// against it to land on the 29th, when it was always correctly going
+// to land on the 28th. Showing the SAME label here that the backend
+// will actually save under removes that mismatch entirely, with no
+// backend change needed since the backend was never wrong.
+const BUSINESS_DAY_GRACE_MS = 8 * 3600000 - 30 * 60000;
+function businessDayLabelForTs(ts: number): string {
+  return cairoDateLabel(ts - BUSINESS_DAY_GRACE_MS);
 }
 
 // السلف والخصومات الشهرية — Advances & Monthly Loans. Admin-only,
