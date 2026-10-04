@@ -4968,6 +4968,9 @@ function recordSupplierPayment_(body) {
   if (validSources.indexOf(body.paymentSource) === -1) {
     return { ok: false, error: "Select a payment source." };
   }
+  if (body.paymentDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.paymentDate)) {
+    return { ok: false, error: "Invalid payment date." };
+  }
   const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
   const supplier = readObjects_("Suppliers").find(function (s) { return s.id === body.supplierId; });
   const supplierName = supplier ? supplier.name : "Supplier";
@@ -4989,8 +4992,19 @@ function recordSupplierPayment_(body) {
   // however it was paid.
   const resolvedShiftId = expenseScope === "monthly" ? null : (body.shiftId || null);
   const paidFromDrawer = expenseScope === "monthly" ? false : body.paymentSource === "cash_drawer";
+  // paymentDate is a plain "yyyy-MM-dd" the admin picked (defaults to
+  // today on the client, but can be backdated for a past shift or a
+  // late-logged transaction) -- same reasoning as resolveDateInput_'s
+  // other callers (submitPurchaseInvoice_/recordStaffAdvance_): anchor
+  // it at Cairo NOON via cairoMiddayTimestamp_, never via a raw
+  // new Date()/toISOString() parse, so no execution-timezone drift can
+  // push it onto the wrong calendar day. When given, it overrides both
+  // the ledger ts and expenseDate outright, same as a Supplier Invoice
+  // date does -- a date the admin explicitly picked should win over
+  // whatever shift happens to be active, not just nudge it.
+  const paymentTs = body.paymentDate ? cairoMiddayTimestamp_(body.paymentDate) : now;
   appendObject_("SupplierPayments", {
-    id: paymentId, supplierId: body.supplierId, ts: now, amount: Number(body.amount),
+    id: paymentId, supplierId: body.supplierId, ts: paymentTs, amount: Number(body.amount),
     paymentSource: body.paymentSource, note: body.note || "", recordedBy: body.username,
     // Stored so a future delete can find and remove exactly this
     // expense entry, rather than guessing by matching fields.
@@ -4998,14 +5012,14 @@ function recordSupplierPayment_(body) {
     invoiceId: body.invoiceId || null,
   });
   appendObject_("Ledger", {
-    id: ledgerEntryId, ts: now, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
+    id: ledgerEntryId, ts: paymentTs, amount: Number(body.amount), direction: "outflow", type: "supplierPayment",
     category: SUPPLIER_DEBT_PAYMENT_CATEGORY_,
     description: "سداد فاتورة آجلة - " + supplierName + (invoiceRef ? " — Invoice " + invoiceRef : "") + (body.note ? " — " + body.note : ""),
     supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
     paidFromDrawer: paidFromDrawer, shiftId: resolvedShiftId, materialId: null,
     qty: null, unitCost: null, paymentSource: body.paymentSource, paymentStatus: "paid",
     expenseScope: expenseScope,
-    expenseDate: expenseDateForShift_(body.shiftId || null, now),
+    expenseDate: body.paymentDate ? formatDateLabel_(paymentTs) : expenseDateForShift_(body.shiftId || null, now),
     linkedPaymentId: paymentId,
     invoiceId: body.invoiceId || null,
   });

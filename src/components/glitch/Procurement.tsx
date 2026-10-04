@@ -1486,6 +1486,16 @@ function RecordSupplierPaymentForm({ supplierId, outstandingInvoices, onDone, on
   const [expenseScope, setExpenseScope] = useState<"daily_shift" | "monthly" | "">("");
   const [invoiceId, setInvoiceId] = useState("");
   const [note, setNote] = useState("");
+  // Defaults to today's Cairo calendar date -- same pattern as the
+  // Supplier Invoice and Advances date pickers (cairoDateLabel, NOT
+  // new Date().toISOString().slice(0,10), for the same reason: the
+  // viewing browser's own timezone shouldn't decide which calendar day
+  // "today" defaults to). Backdatable for a past shift or a
+  // late-logged payment -- see recordSupplierPayment_ in Code.gs,
+  // which anchors this exact string at Cairo noon and uses it to set
+  // the generated expense's own expenseDate, so Reports -> Expenses
+  // History shows it under the date actually picked here, not today.
+  const [paymentDate, setPaymentDate] = useState(() => cairoDateLabel(Date.now()));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1493,10 +1503,11 @@ function RecordSupplierPaymentForm({ supplierId, outstandingInvoices, onDone, on
     if (!(parseFloat(amount) > 0)) { setErr("Enter a valid amount."); return; }
     if (!paymentSource) { setErr("Select a payment source."); return; }
     if (!expenseScope) { setErr("Select how this payment should be deducted (خيارات طريقة الخصم)."); return; }
+    if (!paymentDate) { setErr("Select a payment date."); return; }
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, expenseScope, note: note || undefined, invoiceId: invoiceId || undefined });
+      const res = await recordSupplierPayment({ supplierId, amount: parseFloat(amount), paymentSource, expenseScope, note: note || undefined, invoiceId: invoiceId || undefined, paymentDate });
       if (!res.ok) { setErr(res.error ?? "Failed to record payment"); return; }
       onDone();
     } catch (e) {
@@ -1508,10 +1519,14 @@ function RecordSupplierPaymentForm({ supplierId, outstandingInvoices, onDone, on
 
   return (
     <div className="px-6 py-4 border-b border-black/8 bg-black/5 shrink-0 space-y-3">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount</label>
           <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Date</label>
+          <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} max={cairoDateLabel(Date.now())} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</label>

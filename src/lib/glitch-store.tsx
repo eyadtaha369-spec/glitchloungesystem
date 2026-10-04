@@ -303,6 +303,10 @@ interface StoreContextValue {
     // Optional — a specific outstanding deferred invoice this payment
     // is settling, folded into the description for the paper trail.
     invoiceId?: string;
+    // Plain "yyyy-MM-dd" the admin picked (defaults to today, backdatable).
+    // Anchored at Cairo noon server-side and used as the generated
+    // expense's own expenseDate -- see recordSupplierPayment_ in Code.gs.
+    paymentDate?: string;
   }) => Promise<{ ok: boolean; error?: string; paymentId?: string }>;
   // Admin-only, password-confirmed data repair: backfills expenseDate,
   // relabels old-format categories, and backfills linkedPaymentId on

@@ -278,6 +278,10 @@ export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
     // Optional — a specific outstanding deferred invoice this payment
     // is settling, folded into the description for the paper trail.
     invoiceId?: string | null;
+    // Plain "yyyy-MM-dd" the admin picked (defaults to today, backdatable).
+    // Anchored at Cairo noon server-side and used as the generated
+    // expense's own expenseDate -- see recordSupplierPayment_ in Code.gs.
+    paymentDate?: string;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
