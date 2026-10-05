@@ -1360,89 +1360,106 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
   };
 
   return (
+    // Centered, constrained to 90% of the viewport height so it never
+    // grows taller than the screen on a short/zoomed-in window.
     <div className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onClick={() => !saving && onClose()}>
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.7_0.19_260/0.5)]" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-black/8 shrink-0">
-          <h3 className="text-lg font-bold">Edit Invoice</h3>
+      <div
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white shadow-2xl rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.6)] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 border-b border-black/10 shrink-0 bg-white">
+          <h3 className="text-lg font-bold text-[#2b2416]">Edit Invoice</h3>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Transaction Date</label>
+        {/* min-h-0 is the actual fix for the clipping bug: without it, a
+            flex child with overflow-y-auto still grows to fit all its
+            content instead of respecting the column's max-h-[90vh],
+            which is what was pushing the Save/Cancel footer off-screen
+            on longer invoices. With it, only this middle section
+            scrolls and the header/footer (both shrink-0) stay fixed in
+            place — functionally the same guarantee "sticky" would give,
+            since they're flex siblings outside the scrolling area, not
+            stacked on top of it. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 bg-white">
+          <label className="text-xs font-semibold uppercase tracking-widest text-[#2b2416]/70">Transaction Date</label>
           <input
             type="date" value={invoiceDateInput} onChange={(e) => setInvoiceDateInput(e.target.value)}
-            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4"
+            className="mt-1 w-full bg-white border border-black/20 rounded-lg px-3 py-2.5 text-base text-[#2b2416] mb-4 focus:outline-none focus:ring-2 focus:ring-[oklch(0.7_0.19_260/0.6)]"
           />
 
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier</label>
+          <label className="text-xs font-semibold uppercase tracking-widest text-[#2b2416]/70">Supplier</label>
           <select
             value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
-            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4"
+            className="mt-1 w-full bg-white border border-black/20 rounded-lg px-3 py-2.5 text-base text-[#2b2416] mb-4 focus:outline-none focus:ring-2 focus:ring-[oklch(0.7_0.19_260/0.6)]"
           >
             {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
 
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Invoice Reference Number (optional)</label>
+          <label className="text-xs font-semibold uppercase tracking-widest text-[#2b2416]/70">Invoice Reference Number (optional)</label>
           <input
             value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)}
             placeholder="e.g. INV-2026-0431"
-            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-base mb-4 font-mono"
+            className="mt-1 w-full bg-white border border-black/20 rounded-lg px-3 py-2.5 text-base text-[#2b2416] mb-4 font-mono focus:outline-none focus:ring-2 focus:ring-[oklch(0.7_0.19_260/0.6)]"
           />
 
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Payment Type</label>
-          <div className="mt-1 flex rounded-lg border border-black/10 overflow-hidden mb-4">
+          <label className="text-xs font-semibold uppercase tracking-widest text-[#2b2416]/70">Payment Type</label>
+          <div className="mt-1 flex rounded-lg border border-black/20 overflow-hidden mb-4">
             <button
               onClick={() => setPaymentType("cash")}
-              className={`flex-1 py-2.5 text-sm font-bold ${paymentType === "cash" ? "bg-[oklch(0.78_0.2_155/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+              className={`flex-1 py-2.5 text-sm font-bold ${paymentType === "cash" ? "bg-[oklch(0.78_0.2_155/0.35)] text-[#2b2416]" : "bg-white text-[#2b2416]/60"}`}
             >Cash</button>
             <button
               onClick={() => setPaymentType("deferred")}
-              className={`flex-1 py-2.5 text-sm font-bold border-l border-black/10 ${paymentType === "deferred" ? "bg-[oklch(0.62_0.24_25/0.25)] text-[#2b2416]" : "bg-white/50 text-muted-foreground"}`}
+              className={`flex-1 py-2.5 text-sm font-bold border-l border-black/20 ${paymentType === "deferred" ? "bg-[oklch(0.62_0.24_25/0.35)] text-[#2b2416]" : "bg-white text-[#2b2416]/60"}`}
             >Deferred (on credit)</button>
           </div>
 
-          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Items</div>
-          <div className="space-y-3 mb-4">
-            {items.map((it, idx) => (
-              <div key={it.id} className="rounded-lg bg-black/5 border border-black/8 p-4">
-                <div className="text-base font-semibold mb-2">{it.materialName}</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity</label>
-                    <input
-                      type="number" min="0" step="0.01" value={it.qty}
-                      onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, qty: parseFloat(e.target.value) || 0 } : p))}
-                      className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-base font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Price</label>
-                    <input
-                      type="number" min="0" step="0.01" value={it.unitPrice}
-                      onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unitPrice: parseFloat(e.target.value) || 0 } : p))}
-                      className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-base font-mono"
-                    />
-                  </div>
+          <div className="text-xs font-semibold uppercase tracking-widest text-[#2b2416]/70 mb-2">Items</div>
+          <div className="rounded-lg border border-black/15 overflow-hidden mb-4">
+            <div className="grid grid-cols-[1fr_90px_110px_110px] gap-2 px-4 py-2 bg-black/10 text-[11px] font-bold uppercase tracking-widest text-[#2b2416]">
+              <span>Material</span>
+              <span className="text-right">Qty</span>
+              <span className="text-right">Unit Price</span>
+              <span className="text-right">Subtotal</span>
+            </div>
+            <div className="divide-y divide-black/10">
+              {items.map((it, idx) => (
+                <div key={it.id} className="grid grid-cols-[1fr_90px_110px_110px] gap-2 items-center px-4 py-3 bg-white">
+                  <span className="text-sm font-semibold text-[#2b2416] truncate">{it.materialName}</span>
+                  <input
+                    type="number" min="0" step="0.01" value={it.qty}
+                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, qty: parseFloat(e.target.value) || 0 } : p))}
+                    className="w-full bg-white border border-black/20 rounded-md px-2 py-1.5 text-sm font-mono text-right text-[#2b2416] focus:outline-none focus:ring-2 focus:ring-[oklch(0.7_0.19_260/0.6)]"
+                  />
+                  <input
+                    type="number" min="0" step="0.01" value={it.unitPrice}
+                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unitPrice: parseFloat(e.target.value) || 0 } : p))}
+                    className="w-full bg-white border border-black/20 rounded-md px-2 py-1.5 text-sm font-mono text-right text-[#2b2416] focus:outline-none focus:ring-2 focus:ring-[oklch(0.7_0.19_260/0.6)]"
+                  />
+                  <span className="text-sm font-mono font-bold text-right text-[#2b2416]">{fmtMoney(it.qty * it.unitPrice)}</span>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
-          <div className="flex justify-between items-center py-3 border-t border-black/10">
-            <span className="text-sm font-bold uppercase tracking-widest text-muted-foreground">New Total</span>
-            <span className="text-2xl font-mono font-bold">{fmtMoney(newTotal)}</span>
+          <div className="flex justify-between items-center py-3 border-t border-black/15">
+            <span className="text-sm font-bold uppercase tracking-widest text-[#2b2416]/70">New Total</span>
+            <span className="text-2xl font-mono font-bold text-[#2b2416]">{fmtMoney(newTotal)}</span>
           </div>
 
-          {err && <div className="text-sm text-[oklch(0.62_0.24_25)] mt-3">{err}</div>}
+          {err && <div className="text-sm font-semibold text-[oklch(0.55_0.24_25)] mt-3">{err}</div>}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/8 shrink-0">
-          <button onClick={onClose} disabled={saving} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/10">Cancel</button>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/10 shrink-0 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+          <button onClick={onClose} disabled={saving} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/20 text-[#2b2416] hover:bg-black/10 disabled:opacity-50">
+            Cancel / إلغاء
+          </button>
           <button
             onClick={() => void handleSave()}
             disabled={saving || items.length === 0}
-            className="px-5 py-2.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] disabled:opacity-50"
+            className="px-5 py-2.5 rounded-lg text-sm font-bold bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] shadow-md disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save Changes"}
+            {saving ? "Saving..." : "Save Changes / حفظ"}
           </button>
         </div>
       </div>
