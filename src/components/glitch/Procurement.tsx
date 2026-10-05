@@ -1044,8 +1044,14 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
   }, [supplierId]);
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-[90vw] max-w-[1200px] max-h-[90vh] flex flex-col glass-strong rounded-2xl border border-black/20" onClick={(e) => e.stopPropagation()}>
+    // Lightened from a heavy bg-black/70 overlay: the admin recording a
+    // payment here often needs to glance at the underlying page (another
+    // supplier's balance, a different invoice) without the whole
+    // background going dark. A near-transparent backdrop plus a solid,
+    // clearly-bordered dialog of its own (below) gives separation from
+    // the page without obscuring it.
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/10 backdrop-blur-[1px]" onClick={onClose}>
+      <div className="w-[90vw] max-w-[1200px] max-h-[90vh] flex flex-col bg-white border border-black/15 shadow-2xl rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-black/8 shrink-0">
           <div>
             <h3 className="text-xl font-bold">{supplier?.name || "Supplier"}</h3>
