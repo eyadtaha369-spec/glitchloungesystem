@@ -182,6 +182,12 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   const [description, setDescription] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
+  // خيارات طريقة الخصم — only shown/meaningful for Out of Pocket/Bank
+  // Transfer: a Cash Drawer purchase is physically tied to whichever
+  // shift's drawer the cash came out of, so there's nothing to choose
+  // there. Mirrors RecordSupplierPaymentForm's own expenseScope toggle.
+  const [expenseScope, setExpenseScope] = useState<"daily_shift" | "monthly">("daily_shift");
+  const showExpenseScope = paymentStatus === "paid" && (paymentSource === "out_of_pocket" || paymentSource === "bank_transfer");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -199,6 +205,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
 
   const reset = () => {
     setMaterialId(""); setQty(""); setUnitCost(""); setSupplierId(""); setDescription(""); setPaymentStatus("paid"); setPaymentSource("");
+    setExpenseScope("daily_shift");
     setTargetMode("current"); setTargetShiftId("");
   };
 
@@ -219,6 +226,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         description,
         paymentStatus,
         paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
+        expenseScope: showExpenseScope ? expenseScope : undefined,
         targetShiftId: isAdmin && targetMode === "past" ? targetShiftId : undefined,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
@@ -357,7 +365,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
                   <button
                     key={src}
                     type="button"
-                    onClick={() => setPaymentSource(src)}
+                    onClick={() => { setPaymentSource(src); setExpenseScope("daily_shift"); }}
                     className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
                       paymentSource === src
                         ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
@@ -374,6 +382,29 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
             )}
             {!activeShift && paymentSource === "cash_drawer" && (
               <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+            )}
+            {showExpenseScope && (
+              <div className="mt-3">
+                <label className="text-xs uppercase tracking-widest text-muted-foreground">خيارات طريقة الخصم — Deduct this purchase from</label>
+                <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {EXPENSE_SCOPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setExpenseScope(opt.value)}
+                      title={opt.hint}
+                      className={`text-left py-2 px-3 rounded-lg border transition ${
+                        expenseScope === opt.value
+                          ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]"
+                          : "bg-white/70 border-black/10 text-muted-foreground hover:bg-black/8"
+                      }`}
+                    >
+                      <div className="text-sm font-bold" dir="rtl">{opt.labelAr}</div>
+                      <div className="text-[10px] uppercase tracking-widest mt-0.5">{opt.labelEn}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         ) : (
@@ -433,51 +464,79 @@ function ExpenseSubmitForm() {
     .filter((s) => s.closedAt !== null)
     .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
 
+  // Optional Inventory Sync — this general/daily expense is actually a
+  // stock purchase (a cleaning supply, an ingredient bought via petty
+  // cash...), so it can update stock the same way a Daily/Stocked
+  // Purchase or a Fixed Monthly Cost does. Mirrors
+  // FixedMonthlyCostFormModal's own Inventory Sync fields exactly, down
+  // to the amount being derived (never separately entered) once linked.
+  const [linkInventory, setLinkInventory] = useState(false);
+  const [materialId, setMaterialId] = useState("");
+  const [qty, setQty] = useState("");
+  const [unitCost, setUnitCost] = useState("");
+  const material = state.materials.find((m) => m.id === materialId);
+  const inventoryTotal = (parseFloat(qty) || 0) * (parseFloat(unitCost) || 0);
+
   const reset = () => {
     setItemName(""); setCategory(""); setAmount(""); setNotes(""); setSupplierId(""); setPaymentStatus("paid"); setPaymentSource("");
     setTargetMode("current"); setTargetShiftId("");
+    setLinkInventory(false); setMaterialId(""); setQty(""); setUnitCost("");
   };
 
   const submit = async () => {
     setResult(null);
-    if (!itemName || !amount) { setResult({ kind: "err", text: "Item/expense description and amount are required." }); return; }
+    if (!itemName) { setResult({ kind: "err", text: "Item/expense description is required." }); return; }
+    if (linkInventory) {
+      if (!materialId) { setResult({ kind: "err", text: "Select which material this stock purchase is for." }); return; }
+      if (!(parseFloat(qty) > 0)) { setResult({ kind: "err", text: "Enter a valid quantity." }); return; }
+      if (!(parseFloat(unitCost) > 0)) { setResult({ kind: "err", text: "Enter a valid unit price." }); return; }
+    } else if (!amount) {
+      setResult({ kind: "err", text: "Amount is required." }); return;
+    }
     if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
     if (isAdmin && targetMode === "past" && !targetShiftId) { setResult({ kind: "err", text: "Select which closed shift this expense belongs to." }); return; }
     setSubmitting(true);
+    const displayTotal = linkInventory ? inventoryTotal : parseFloat(amount);
     try {
       if (isAdmin && targetMode === "past") {
         const res = await submitBackdatedExpense({
           itemName,
           category: category || undefined,
-          amount: parseFloat(amount),
+          amount: linkInventory ? inventoryTotal : parseFloat(amount),
           notes: notes || undefined,
           supplierId: supplierId || undefined,
           paymentStatus,
           paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
           targetShiftId,
+          materialId: linkInventory ? materialId : undefined,
+          qty: linkInventory ? parseFloat(qty) : undefined,
+          unitCost: linkInventory ? parseFloat(unitCost) : undefined,
         });
         if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
-        setResult({ kind: "ok", text: `Backdated — ${fmtMoney(parseFloat(amount))} added to that closed shift, and its expected cash/discrepancy was recalculated.` });
+        setResult({ kind: "ok", text: `Backdated — ${fmtMoney(displayTotal)} added to that closed shift, and its expected cash/discrepancy was recalculated.` });
         reset();
         return;
       }
       const res = await submitExpense({
         itemName,
         category: category || undefined,
-        amount: parseFloat(amount),
+        amount: linkInventory ? inventoryTotal : parseFloat(amount),
         notes: notes || undefined,
         supplierId: supplierId || undefined,
         paymentStatus,
         paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
+        materialId: linkInventory ? materialId : undefined,
+        qty: linkInventory ? parseFloat(qty) : undefined,
+        unitCost: linkInventory ? parseFloat(unitCost) : undefined,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
         kind: "ok",
         text: res.status === "approved"
           ? paymentStatus === "unpaid"
-            ? `Logged — ${fmtMoney(parseFloat(amount))} recorded as unpaid, showing on the Unpaid Expenses page until settled.`
-            : `Approved instantly — ${fmtMoney(parseFloat(amount))} recorded.`
-          : `Submitted for admin approval — ${fmtMoney(parseFloat(amount))} is pending, no effect yet.`,
+            ? `Logged — ${fmtMoney(displayTotal)} recorded as unpaid, showing on the Unpaid Expenses page until settled.`
+            : `Approved instantly — ${fmtMoney(displayTotal)}${linkInventory ? " added to inventory" : " recorded"}.`
+          : `Submitted for admin approval — ${fmtMoney(displayTotal)} is pending, no effect yet.`,
       });
       reset();
     } catch (e) {
@@ -548,7 +607,15 @@ function ExpenseSubmitForm() {
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount (EGP)</label>
-          <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+          <input
+            type="number" step="0.01" value={linkInventory ? inventoryTotal.toFixed(2) : amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={linkInventory}
+            className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono disabled:opacity-60"
+          />
+          {linkInventory && (
+            <p className="text-[11px] text-muted-foreground mt-1">Calculated automatically from quantity × unit price below.</p>
+          )}
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Supplier (optional)</label>
@@ -560,6 +627,37 @@ function ExpenseSubmitForm() {
         <div className="md:col-span-2">
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Notes (optional)</label>
           <input value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={linkInventory} onChange={(e) => setLinkInventory(e.target.checked)} className="w-3.5 h-3.5" />
+            Inventory Sync — this expense is for a stock purchase (optional)
+          </label>
+          {linkInventory && (
+            <div className="mt-2 rounded-lg bg-black/[0.03] border border-black/10 p-3 space-y-3">
+              <div>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground">Material</label>
+                <div className="mt-1">
+                  <SearchableMaterialSelect materials={state.materials} value={materialId} onChange={setMaterialId} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity {material ? `(${material.unit})` : ""}</label>
+                  <input type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Price</label>
+                  <input type="number" min="0" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Adds {qty || "0"} {material?.unit ?? ""} of {material?.name ?? "the selected material"} to stock
+                {isAdmin ? " immediately" : " once an admin approves this"}, and shows up in Inventory's stock-movement history — same as a Daily Expense material purchase.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="md:col-span-2">
@@ -1090,7 +1188,17 @@ function SupplierStatementModal({ supplierId, onClose }: { supplierId: string; o
           />
         )}
 
-        <div className="flex-1 overflow-y-auto overflow-x-auto px-6 py-5">
+        {/* min-h-0 is the actual fix for the clipping/overlap bug reported
+            here: a flex child defaults to min-height:auto, which lets it
+            grow to fit ALL its content and ignore the ancestor's
+            max-h-[90vh] -- without it, a long ledger history just pushes
+            this dialog taller than the viewport instead of scrolling
+            inside it, and with this modal's deliberately near-transparent
+            backdrop (bg-black/10, see SupplierStatementModal's own
+            lightened backdrop), the overflow visually bleeds into the
+            Pending Approvals / Purchase History page sections sitting
+            behind it. Same root cause and fix as the Edit Invoice Modal. */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto px-6 py-5">
           {loading ? (
             <div className="text-sm text-muted-foreground text-center py-6">Loading...</div>
           ) : entries.length === 0 ? (

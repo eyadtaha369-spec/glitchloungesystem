@@ -170,6 +170,11 @@ export const submitPurchaseFn = createServerFn({ method: "POST" })
     description?: string;
     paymentStatus: "paid" | "unpaid";
     paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    // خيارات طريقة الخصم — only meaningful alongside out_of_pocket/
+    // bank_transfer; the server forces "daily_shift" for a Cash Drawer
+    // purchase regardless of what's sent here, same as
+    // recordSupplierPayment_.
+    expenseScope?: "daily_shift" | "monthly";
     shiftId?: string | null;
     receiptBase64?: string;
     receiptMimeType?: string;
@@ -197,6 +202,15 @@ export const submitExpenseFn = createServerFn({ method: "POST" })
     shiftId?: string | null;
     receiptBase64?: string;
     receiptMimeType?: string;
+    // Optional Inventory Sync: ties this general/daily expense to an
+    // actual Raw Material purchase (e.g. buying a cleaning supply or
+    // an ingredient off-the-books via petty cash), updating stock the
+    // same way a Daily/Stocked Purchase does. When present, the
+    // server derives `amount` as qty * unitCost itself -- see
+    // handleSubmitExpense_/submitExpense's own Inventory Sync block.
+    materialId?: string;
+    qty?: number;
+    unitCost?: number;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
@@ -223,6 +237,10 @@ export const submitBackdatedExpenseFn = createServerFn({ method: "POST" })
     targetShiftId: string;
     receiptBase64?: string;
     receiptMimeType?: string;
+    // Optional Inventory Sync — same as submitExpenseFn above.
+    materialId?: string;
+    qty?: number;
+    unitCost?: number;
   }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();

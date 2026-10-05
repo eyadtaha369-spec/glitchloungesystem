@@ -241,6 +241,9 @@ interface StoreContextValue {
     description?: string;
     paymentStatus: "paid" | "unpaid";
     paymentSource?: PaymentSource;
+    // خيارات طريقة الخصم — only meaningful alongside out_of_pocket/
+    // bank_transfer; see EXPENSE_SCOPE_OPTIONS in Procurement.tsx.
+    expenseScope?: "daily_shift" | "monthly";
     receiptFile?: File | null;
     targetShiftId?: string;
   }) => Promise<{ ok: boolean; error?: string; status?: string }>;
@@ -253,6 +256,10 @@ interface StoreContextValue {
     paymentStatus: "paid" | "unpaid";
     paymentSource?: PaymentSource;
     receiptFile?: File | null;
+    // Optional Inventory Sync — see submitExpenseFn in finance.ts.
+    materialId?: string;
+    qty?: number;
+    unitCost?: number;
   }) => Promise<{ ok: boolean; error?: string; status?: string }>;
   // Admin-only: backdate an expense into an already-closed shift, recalculating
   // that shift's expected cash/discrepancy and logging a red-risk audit entry.
@@ -266,6 +273,10 @@ interface StoreContextValue {
     paymentSource?: PaymentSource;
     targetShiftId: string;
     receiptFile?: File | null;
+    // Optional Inventory Sync — see submitBackdatedExpenseFn in finance.ts.
+    materialId?: string;
+    qty?: number;
+    unitCost?: number;
   }) => Promise<{ ok: boolean; error?: string }>;
   // Admin-only: edit or delete an already-recorded expense (normal or
   // backdated) from Reports.tsx's Expenses History table. Recalculates
@@ -1125,6 +1136,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           description: p.description,
           paymentStatus: p.paymentStatus,
           paymentSource: p.paymentStatus === "paid" ? p.paymentSource : undefined,
+          expenseScope: p.expenseScope,
           shiftId: appState.activeShiftId,
           targetShiftId: p.targetShiftId,
           receiptBase64,
@@ -1162,6 +1174,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           shiftId: appState.activeShiftId,
           receiptBase64,
           receiptMimeType: p.receiptFile?.type || undefined,
+          materialId: p.materialId,
+          qty: p.qty,
+          unitCost: p.unitCost,
         },
       });
       if (res.ok) {
@@ -1191,6 +1206,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           targetShiftId: p.targetShiftId,
           receiptBase64,
           receiptMimeType: p.receiptFile?.type || undefined,
+          materialId: p.materialId,
+          qty: p.qty,
+          unitCost: p.unitCost,
         },
       });
       if (res.ok) {

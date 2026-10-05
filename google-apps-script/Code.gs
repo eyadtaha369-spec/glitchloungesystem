@@ -3155,8 +3155,27 @@ function doPost(e) {
       // derived from it reflects the backdated cost from now on.
       case "submitBackdatedExpense": {
         requireRole_(body.username, ["admin"]);
-        if (!body.itemName || !body.amount) return json_({ ok: false, error: "Item/expense description and amount are required." });
+        if (!body.itemName) return json_({ ok: false, error: "Item/expense description is required." });
         if (!body.targetShiftId) return json_({ ok: false, error: "Select which closed shift this expense belongs to." });
+        // Optional Inventory Sync — same as handleSubmitExpense_'s own
+        // block above; always admin-only here, so it injects stock
+        // immediately, exactly like handleSubmitPurchase_'s backdated path.
+        let bdMaterial = null;
+        let bdQty = null;
+        let bdUnitCost = null;
+        let bdAmount;
+        if (body.materialId) {
+          bdMaterial = readObjects_("RawMaterials").find(function (m) { return m.id === body.materialId; });
+          if (!bdMaterial) return json_({ ok: false, error: "Material not found." });
+          bdQty = Number(body.qty);
+          bdUnitCost = Number(body.unitCost);
+          if (!(bdQty > 0)) return json_({ ok: false, error: "Enter a valid quantity for the selected material." });
+          if (!(bdUnitCost > 0)) return json_({ ok: false, error: "Enter a valid unit price for the selected material." });
+          bdAmount = bdQty * bdUnitCost;
+        } else {
+          if (!body.amount) return json_({ ok: false, error: "Amount is required." });
+          bdAmount = Number(body.amount);
+        }
         const bdShifts = readObjects_("Shifts");
         const bdShift = bdShifts.find(function (sh) { return sh.id === body.targetShiftId; });
         if (!bdShift) return json_({ ok: false, error: "Shift not found." });
@@ -3176,7 +3195,6 @@ function doPost(e) {
             return json_({ ok: false, error: "Receipt upload failed: " + String(err) });
           }
         }
-        const bdAmount = Number(body.amount);
         // One second before the shift actually closed, so it sorts as
         // having happened DURING that shift for every ts-ordered view
         // and date-range report — never "now", which would misfile it
@@ -3188,7 +3206,7 @@ function doPost(e) {
           category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : "") + " (backdated)",
           supplierId: body.supplierId || null, staffUsername: body.username, status: "approved",
           receiptUrl: bdReceiptUrl, paidFromDrawer: bdPaymentStatus === "paid" && bdPaymentSource === "cash_drawer",
-          shiftId: bdShift.id, materialId: null, qty: null, unitCost: null,
+          shiftId: bdShift.id, materialId: body.materialId || null, qty: bdQty, unitCost: bdUnitCost,
           paymentSource: bdPaymentSource, paymentStatus: bdPaymentStatus, backdated: true,
           // Bound to the TARGET shift's own business day (see
           // expenseDateForShift_), not recomputed from its close time —
@@ -3197,13 +3215,22 @@ function doPost(e) {
           expenseDate: expenseDateForShift_(bdShift.id, bdTs),
         };
         appendObject_("Ledger", bdEntry);
+        if (bdMaterial) {
+          appendObject_("Batches", {
+            id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null,
+            qtyPurchased: bdQty, qtyRemaining: bdQty, unitCost: bdUnitCost, purchasedAt: bdTs,
+            source: "dailyFresh", ledgerId: bdEntry.id,
+          });
+          updateObjectById_("RawMaterials", body.materialId, { unitCost: bdUnitCost, lastPurchaseCost: bdUnitCost });
+        }
         const bdResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), bdShift);
         if (bdResult.ok) {
           updateObjectById_("Shifts", bdShift.id, { expectedCash: bdResult.after.expectedCash, discrepancy: bdResult.after.discrepancy });
         }
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "BACKDATED_EXPENSE_LOGGED", shiftId: bdShift.id,
-          description: "Admin " + body.username + " added EGP " + bdAmount.toFixed(2) + " expense to closed Shift #" + bdShift.id + " on " + formatDateLabel_(bdShift.closedAt),
+          description: "Admin " + body.username + " added EGP " + bdAmount.toFixed(2) + " expense to closed Shift #" + bdShift.id + " on " + formatDateLabel_(bdShift.closedAt)
+            + (bdMaterial ? " — " + bdQty + " " + bdMaterial.unit + " of " + bdMaterial.name + " added to stock" : ""),
           before: bdResult.ok ? bdResult.before : undefined,
           after: bdResult.ok ? Object.assign({}, bdResult.after, { entryId: bdEntry.id, amount: bdAmount, itemName: body.itemName }) : { entryId: bdEntry.id, amount: bdAmount, itemName: body.itemName },
         });
@@ -3280,7 +3307,19 @@ function doPost(e) {
         if (delExpBefore.type === "sale" || delExpBefore.type === "supplierPayment" || delExpBefore.type === "fixedMonthlyCost") {
           return json_({ ok: false, error: "This entry type can't be deleted here." });
         }
+        // Same safety rule as deleting a normal purchase/fixed cost
+        // (deletePurchase_/deleteFixedMonthlyCost): if this expense's
+        // optional Inventory Sync batch has already been touched by a
+        // sale/waste/etc, deleting it would either leave stock silently
+        // inflated (batch kept, ledger gone) or make the batch's own
+        // qtyRemaining impossible to account for. Block it instead.
+        const delExpBatch = findLinkedBatch_(body.id);
+        if (delExpBatch && !batchIsUntouched_(delExpBatch)) {
+          const delExpUsed = Number(delExpBatch.qtyPurchased) - Number(delExpBatch.qtyRemaining);
+          return json_({ ok: false, error: "Can't delete — " + delExpUsed + " of the " + delExpBatch.qtyPurchased + " added to stock has already been used in sales or waste. Nothing was changed." });
+        }
         const delExpOk = deleteObjectById_("Ledger", body.id);
+        if (delExpOk && delExpBatch) deleteObjectById_("Batches", delExpBatch.id);
         let delExpRecalculated = null;
         if (delExpOk && delExpBefore.shiftId) {
           const delExpShift = readObjects_("Shifts").find(function (sh) { return sh.id === delExpBefore.shiftId; });
@@ -5564,8 +5603,32 @@ function handleSubmitExpense_(body) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  if (!body.itemName || !body.amount) {
-    return json_({ ok: false, error: "Item/expense description and amount are required." });
+  if (!body.itemName) {
+    return json_({ ok: false, error: "Item/expense description is required." });
+  }
+  // Optional Inventory Sync: ties this general/daily expense to an
+  // actual Raw Material purchase (e.g. a cleaning supply or ingredient
+  // bought via petty cash/out-of-pocket), so stock updates the same way
+  // a Daily/Stocked Purchase does -- mirrors addFixedMonthlyCost's own
+  // Inventory Sync block exactly. When a material is linked, the total
+  // is always qty * unit price, never a separately-entered amount, so
+  // the ledger total and the stock value booked in Batches can never
+  // disagree.
+  let material = null;
+  let qty = null;
+  let unitCost = null;
+  let amount;
+  if (body.materialId) {
+    material = readObjects_("RawMaterials").find(function (m) { return m.id === body.materialId; });
+    if (!material) return json_({ ok: false, error: "Material not found." });
+    qty = Number(body.qty);
+    unitCost = Number(body.unitCost);
+    if (!(qty > 0)) return json_({ ok: false, error: "Enter a valid quantity for the selected material." });
+    if (!(unitCost > 0)) return json_({ ok: false, error: "Enter a valid unit price for the selected material." });
+    amount = qty * unitCost;
+  } else {
+    if (!body.amount) return json_({ ok: false, error: "Amount is required." });
+    amount = Number(body.amount);
   }
   const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
   let paymentSource = null;
@@ -5590,14 +5653,13 @@ function handleSubmitExpense_(body) {
   lock.waitLock(30000);
   try {
     const isAdmin = role === "admin";
-    const amount = Number(body.amount);
     const ts = Date.now();
     const entry = {
       id: newId_("ledg"), ts: ts, amount: amount, direction: "outflow", type: "midShiftPurchase",
       category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
       supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
       receiptUrl: receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
-      shiftId: body.shiftId || null, materialId: null, qty: null, unitCost: null,
+      shiftId: body.shiftId || null, materialId: body.materialId || null, qty: qty, unitCost: unitCost,
       paymentSource: paymentSource, paymentStatus: paymentStatus,
       // Bound to the CURRENT ACTIVE SHIFT's own business day whenever a
       // shift is open (shift.businessDayId -> BusinessDays.label), not
@@ -5606,9 +5668,26 @@ function handleSubmitExpense_(body) {
       expenseDate: expenseDateForShift_(body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
+    // Only an admin's instantly-approved expense injects stock right
+    // away -- a pending cashier submission waits for approvePurchase_
+    // (which already generically adds the linked Batches row for any
+    // pending Ledger entry carrying materialId+qty, regardless of
+    // type) to do it at approval time instead, exactly like a normal
+    // material purchase.
+    if (isAdmin && material) {
+      appendObject_("Batches", {
+        id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null,
+        qtyPurchased: qty, qtyRemaining: qty, unitCost: unitCost, purchasedAt: ts,
+        source: "dailyFresh", ledgerId: entry.id,
+      });
+      // "Most Recent Purchase Unit Cost" replaces average-cost logic
+      // everywhere else in this app.
+      updateObjectById_("RawMaterials", body.materialId, { unitCost: unitCost, lastPurchaseCost: unitCost });
+    }
     logActivity_({
       actorUsername: body.username, actorRole: role, actionType: "EXPENSE_LOGGED", shiftId: entry.shiftId,
-      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " expense: " + body.itemName + " for " + amount.toFixed(2) + " EGP (" + paymentStatus + ")",
+      description: (isAdmin ? "Logged & auto-approved" : "Submitted (pending)") + " expense: " + body.itemName + " for " + amount.toFixed(2) + " EGP (" + paymentStatus + ")"
+        + (material ? " — " + qty + " " + material.unit + " of " + material.name + " added to stock" : ""),
       after: { status: entry.status, amount: amount, itemName: body.itemName, paymentStatus: paymentStatus },
     });
     return json_({ ok: true, status: entry.status, entry: entry });
@@ -5637,6 +5716,13 @@ function handleSubmitPurchase_(body) {
     }
     paymentSource = body.paymentSource;
   }
+  // خيارات طريقة الخصم — only meaningful for Out of Pocket/Bank Transfer
+  // (a Cash Drawer purchase is physically tied to whichever shift's
+  // drawer the cash came out of, so it's always daily_shift regardless
+  // of what the client sends). Mirrors recordSupplierPayment_ exactly.
+  const expenseScope = (paymentSource === "out_of_pocket" || paymentSource === "bank_transfer") && body.expenseScope === "monthly"
+    ? "monthly"
+    : "daily_shift";
 
   let receiptUrl = null;
   if (body.receiptBase64) {
@@ -5669,6 +5755,12 @@ function handleSubmitPurchase_(body) {
     const amount = Number(body.qty) * Number(body.unitCost);
     const isAdmin = role === "admin";
     const ts = targetShift ? targetShift.closedAt - 1000 : Date.now();
+    // Monthly Consolidated: deliberately untied from any shift and
+    // never touches drawer math, exactly like
+    // recordSupplierPayment_'s own expenseScope handling -- the
+    // material still arrives either way, this only changes which
+    // shift's (if any) cash reconciliation it's counted against.
+    const resolvedShiftId = expenseScope === "monthly" ? null : (targetShift ? targetShift.id : (body.shiftId || null));
     const entry = {
       id: newId_("ledg"),
       ts: ts,
@@ -5681,23 +5773,29 @@ function handleSubmitPurchase_(body) {
       staffUsername: body.username,
       status: targetShift ? "approved" : (isAdmin ? "approved" : "pending"),
       receiptUrl: receiptUrl,
-      paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
+      paidFromDrawer: expenseScope === "monthly" ? false : (paymentStatus === "paid" && paymentSource === "cash_drawer"),
       paymentSource: paymentSource,
       paymentStatus: paymentStatus,
-      shiftId: targetShift ? targetShift.id : (body.shiftId || null),
+      shiftId: resolvedShiftId,
       materialId: body.materialId,
       qty: body.qty,
       unitCost: body.unitCost,
       backdated: !!targetShift,
+      expenseScope: expenseScope,
       // Bound to the shift this purchase actually belongs to (current
       // active, or the backdated target) via expenseDateForShift_, not
       // recomputed from "now" -- see the matching comment on
-      // handleSubmitExpense_.
+      // handleSubmitExpense_. Still looked up from the ACTUAL
+      // shift/target (not resolvedShiftId), since this is just "what
+      // day did this happen on", independent of expenseScope.
       expenseDate: expenseDateForShift_(targetShift ? targetShift.id : body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
 
-    if (targetShift) {
+    // A Monthly Consolidated purchase was never tied to resolvedShiftId
+    // in the first place, so there's no shift drawer to recalculate --
+    // this only runs for a daily_shift-scope backdated purchase.
+    if (targetShift && resolvedShiftId) {
       const purchaseRecalcResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), targetShift);
       if (purchaseRecalcResult.ok) {
         updateObjectById_("Shifts", targetShift.id, { expectedCash: purchaseRecalcResult.after.expectedCash, discrepancy: purchaseRecalcResult.after.discrepancy });

@@ -112,6 +112,20 @@ function isMonthlyScopeSupplierPayment_(l: LedgerEntry): boolean {
   return l.type === "supplierPayment" && l.expenseScope === "monthly";
 }
 
+// Same idea as isMonthlyScopeSupplierPayment_ above, but for a raw-
+// material purchase logged with Out of Pocket/Bank Transfer and
+// explicitly marked خصم من إيراد/أرباح الشهر (Monthly Revenue) instead
+// of the current shift -- see handleSubmitPurchase_'s expenseScope in
+// Code.gs. Folded into Monthly P&L's Fixed Costs total the same way
+// (computeMonthFinancials/MonthlyReconciliationDashboard below), so
+// the stock still arrives immediately but the money is deducted from
+// the month's revenue instead of inflating a daily/shift expense
+// total. A normal Daily Expense (ExpenseSubmitForm) never sets
+// expenseScope at all, so this never matches one of those.
+function isMonthlyScopePurchase_(l: LedgerEntry): boolean {
+  return l.type !== "supplierPayment" && l.type !== "fixedMonthlyCost" && l.expenseScope === "monthly";
+}
+
 // This café's confirmed real operating cycle: a "business day" runs
 // 8:00 AM to 7:59:59 AM the next calendar day, not midnight to
 // midnight. A shift that opens at 11 PM and runs until 4 AM belongs
@@ -307,7 +321,10 @@ function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], mon
   const monthShiftIds = new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id));
   const revenue = filterByBusinessDay(state.sessions, monthShiftIds, from, to).reduce((a, s) => a + s.total, 0);
   const operationalAndSupplier = [
-    ...state.ledger.filter(isOperationalExpense),
+    // Monthly-scope purchases move to fixedCosts below instead -- see
+    // isMonthlyScopePurchase_ -- so they're excluded here to avoid
+    // counting the same purchase in both buckets.
+    ...state.ledger.filter((l) => isOperationalExpense(l) && !isMonthlyScopePurchase_(l)),
     // Monthly-scope supplier payments move to fixedCosts below instead
     // -- see isMonthlyScopeSupplierPayment_ -- so they're excluded here
     // to avoid counting the same payment in both buckets.
@@ -316,7 +333,7 @@ function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], mon
     .filter((l) => expenseMatchesMonth_(l, monthShiftIds, from, to, monthStr))
     .reduce((a, l) => a + Number(l.amount), 0);
   const fixedCosts = filterByBusinessDay(
-    state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l)),
+    state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l) || isMonthlyScopePurchase_(l)),
     monthShiftIds, from, to,
   ).reduce((a, l) => a + Number(l.amount), 0);
   // إجمالي السلف والخصومات الشهرية — deducted here, at month-end, and
@@ -1419,6 +1436,11 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
                         ({l.expenseScope === "monthly" ? "monthly consolidated" : "daily shift"} payment)
                       </span>
                     ) : null}
+                    {!isPayment(l) && l.expenseScope === "monthly" ? (
+                      <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)]">
+                        (monthly consolidated purchase)
+                      </span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                   <td className="py-2 pr-3">{l.paymentSource ?? "—"}</td>
@@ -1917,7 +1939,10 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   // purchase's cost never appearing in Net Profit at all.
   const totalExpenses = useMemo(
     () => [
-      ...state.ledger.filter(isOperationalExpense),
+      // Monthly-scope purchases move to monthFixedCosts below instead
+      // -- see isMonthlyScopePurchase_ -- so they're excluded here to
+      // avoid counting the same purchase in both totals.
+      ...state.ledger.filter((l) => isOperationalExpense(l) && !isMonthlyScopePurchase_(l)),
       // Monthly-scope supplier payments (خصم من إيراد/أرباح الشهر) move
       // to monthFixedCosts below instead -- see
       // isMonthlyScopeSupplierPayment_ -- so they're excluded here to
@@ -1936,10 +1961,11 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   // same static total regardless of which month is selected. Also
   // folds in any supplier debt payment the admin funded from Monthly
   // Revenue rather than a shift's drawer (isMonthlyScopeSupplierPayment_)
-  // -- same reasoning as computeMonthFinancials.
+  // -- same reasoning as computeMonthFinancials -- plus any raw-
+  // material purchase funded the same way (isMonthlyScopePurchase_).
   const monthFixedCosts = useMemo(
     () => filterByBusinessDay(
-      state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l)),
+      state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l) || isMonthlyScopePurchase_(l)),
       monthShiftIds, monthStart, monthEnd,
     ),
     [state.ledger, monthShiftIds, monthStart, monthEnd],
