@@ -3978,19 +3978,63 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         const fixedCostDescription = (body.description || "").trim();
         if (!fixedCostDescription) return json_({ ok: false, error: "Expense description is required." });
-        if (!body.amount || Number(body.amount) <= 0) return json_({ ok: false, error: "Amount must be greater than zero." });
+        // Optional Inventory Sync: tying this monthly/fixed expense to an
+        // actual stock purchase (e.g. a monthly bulk order of coffee
+        // beans paid for as a lump-sum fixed cost rather than a normal
+        // Daily Expense). Mirrors handleSubmitPurchase_'s own
+        // Batches/RawMaterials write exactly, so the stock level (always
+        // DERIVED from the sum of Batches.qtyPurchased, never a separate
+        // counter -- see getInventoryStatus_) updates immediately and the
+        // purchase shows up in Inventory's own stock-movement views, the
+        // same as any other purchase would.
+        let fixedCostMaterial = null;
+        let fixedCostQty = null;
+        let fixedCostUnitCost = null;
+        let fixedCostAmount;
+        if (body.materialId) {
+          fixedCostMaterial = readObjects_("RawMaterials").find(function (m) { return m.id === body.materialId; });
+          if (!fixedCostMaterial) return json_({ ok: false, error: "Material not found." });
+          fixedCostQty = Number(body.qty);
+          fixedCostUnitCost = Number(body.unitCost);
+          if (!(fixedCostQty > 0)) return json_({ ok: false, error: "Enter a valid quantity for the selected material." });
+          if (!(fixedCostUnitCost > 0)) return json_({ ok: false, error: "Enter a valid unit price for the selected material." });
+          // The total is always qty * unit price when an item is tied in
+          // -- not a separately-entered amount -- so the ledger total and
+          // the stock value booked in Batches can never disagree.
+          fixedCostAmount = fixedCostQty * fixedCostUnitCost;
+        } else {
+          if (!body.amount || Number(body.amount) <= 0) return json_({ ok: false, error: "Amount must be greater than zero." });
+          fixedCostAmount = Number(body.amount);
+        }
+        const fixedCostTs = body.ts || Date.now();
         const fixedCostItem = {
-          id: newId_("ledg"), ts: body.ts || Date.now(), amount: Number(body.amount), direction: "outflow",
+          id: newId_("ledg"), ts: fixedCostTs, amount: fixedCostAmount, direction: "outflow",
+          // Deliberately still type "fixedMonthlyCost" regardless of the
+          // optional inventory link -- this is what keeps it tagged as a
+          // Monthly Expense in Reports' Monthly P&L (see the filters at
+          // the top of Reports.tsx), exactly like any other fixed cost.
           type: "fixedMonthlyCost", category: body.category || "Fixed Overhead",
           description: fixedCostDescription + (body.notes ? " — " + body.notes : ""),
           supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-          paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
+          paidFromDrawer: false, shiftId: null,
+          materialId: body.materialId || null, qty: fixedCostQty, unitCost: fixedCostUnitCost,
           paymentSource: "owner_revenue",
         };
         appendObject_("Ledger", fixedCostItem);
+        if (fixedCostMaterial) {
+          appendObject_("Batches", {
+            id: newId_("batch"), materialId: body.materialId, supplierId: null,
+            qtyPurchased: fixedCostQty, qtyRemaining: fixedCostQty, unitCost: fixedCostUnitCost,
+            purchasedAt: fixedCostTs, source: "monthly_stock_procurement", invoiceId: null, ledgerId: fixedCostItem.id,
+          });
+          // "Most Recent Purchase Unit Cost" replaces average-cost logic
+          // everywhere else in this app -- see handleSubmitPurchase_.
+          updateObjectById_("RawMaterials", body.materialId, { unitCost: fixedCostUnitCost, lastPurchaseCost: fixedCostUnitCost });
+        }
         logActivity_({
           actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_LOGGED",
-          description: body.username + " logged a fixed monthly cost: " + fixedCostDescription + " — " + Number(body.amount).toFixed(2) + " EGP (owner revenue, outside drawer)",
+          description: body.username + " logged a fixed monthly cost: " + fixedCostDescription + " — " + fixedCostAmount.toFixed(2) + " EGP (owner revenue, outside drawer)"
+            + (fixedCostMaterial ? " — " + fixedCostQty + " " + fixedCostMaterial.unit + " of " + fixedCostMaterial.name + " added to stock" : ""),
           after: fixedCostItem,
         });
         return json_({ ok: true, item: fixedCostItem });
@@ -4019,7 +4063,20 @@ function doPost(e) {
       case "deleteFixedMonthlyCost": {
         requireRole_(body.username, ["admin"]);
         const deleteFixedCostBefore = readObjects_("Ledger").find(function (l) { return l.id === body.id && l.type === "fixedMonthlyCost"; });
+        if (!deleteFixedCostBefore) return json_({ ok: false, error: "Entry not found." });
+        // Same safety rule as deleting a normal purchase (deletePurchase_):
+        // if this fixed cost's linked stock batch has already been
+        // touched by a sale/waste/etc, deleting it would either leave
+        // stock silently inflated (batch kept, ledger gone) or make the
+        // batch's own qtyRemaining impossible to account for. Block it
+        // with a clear message instead of guessing.
+        const deleteFixedCostBatch = findLinkedBatch_(body.id);
+        if (deleteFixedCostBatch && !batchIsUntouched_(deleteFixedCostBatch)) {
+          const fixedCostUsed = Number(deleteFixedCostBatch.qtyPurchased) - Number(deleteFixedCostBatch.qtyRemaining);
+          return json_({ ok: false, error: "Can't delete — " + fixedCostUsed + " of the " + deleteFixedCostBatch.qtyPurchased + " added to stock has already been used in sales or waste. Nothing was changed." });
+        }
         const deleteFixedCostOk = deleteObjectById_("Ledger", body.id);
+        if (deleteFixedCostOk && deleteFixedCostBatch) deleteObjectById_("Batches", deleteFixedCostBatch.id);
         if (deleteFixedCostOk && deleteFixedCostBefore) {
           logActivity_({
             actorUsername: body.username, actorRole: "admin", actionType: "FIXED_MONTHLY_COST_DELETED",

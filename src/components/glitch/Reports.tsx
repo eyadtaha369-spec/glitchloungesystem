@@ -6,6 +6,7 @@ import { generateSectionReportPdf } from "@/lib/section-report-pdf";
 import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-store";
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft, HandCoins } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
+import { SearchableMaterialSelect } from "./Procurement";
 
 // What counts as a real, same-day operational expense — used
 // consistently everywhere "Daily Expenses" is computed on this page.
@@ -2163,6 +2164,7 @@ function FixedMonthlyCostsLedger() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRangeMonthToDate();
 
   const allEntries = useMemo(
@@ -2176,7 +2178,12 @@ function FixedMonthlyCostsLedger() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    await deleteFixedMonthlyCost(deleteTarget.id);
+    setDeleteErr(null);
+    // Blocked server-side (returns ok:false) when this entry's linked
+    // stock purchase has already been consumed by a sale/waste -- same
+    // "already used" safety check a normal purchase delete enforces.
+    const res = await deleteFixedMonthlyCost(deleteTarget.id);
+    if (!res.ok) { setDeleteErr(res.error ?? "Could not delete this entry."); return; }
     setDeleteTarget(null);
   };
 
@@ -2250,10 +2257,23 @@ function FixedMonthlyCostsLedger() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((l) => (
+              {entries.map((l) => {
+                // Inventory Sync indicator -- shows which material/qty
+                // this fixed cost added to stock, so the link to
+                // Inventory Logs & Stock Movement is visible right here
+                // too, not just inferable from the amount.
+                const linkedMaterial = l.materialId ? state.materials.find((m) => m.id === l.materialId) : null;
+                return (
                 <tr key={l.id} className="border-b border-black/5">
                   <td className="py-2 pl-3 pr-3 font-mono">{new Date(l.ts).toLocaleString()}</td>
-                  <td className="py-2 pr-3 font-semibold">{l.description}</td>
+                  <td className="py-2 pr-3 font-semibold">
+                    {l.description}
+                    {linkedMaterial && (
+                      <div className="text-[11px] font-normal text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Boxes className="w-3 h-3" /> {l.qty} {linkedMaterial.unit} of {linkedMaterial.name} added to stock
+                      </div>
+                    )}
+                  </td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                   <td className="py-2 pr-3">{l.category}</td>
                   <td className="py-2 pr-3">{l.staffUsername}</td>
@@ -2269,7 +2289,8 @@ function FixedMonthlyCostsLedger() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -2278,14 +2299,15 @@ function FixedMonthlyCostsLedger() {
       {formOpen && <FixedMonthlyCostFormModal entry={editingEntry} onClose={() => setFormOpen(false)} />}
 
       {deleteTarget && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setDeleteTarget(null)}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => { setDeleteTarget(null); setDeleteErr(null); }}>
           <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this entry?</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Permanently removes <strong>{deleteTarget.description}</strong> ({fmtMoney(Number(deleteTarget.amount))}). This can't be undone.
             </p>
+            {deleteErr && <p className="text-sm font-semibold text-[oklch(0.55_0.24_25)] mb-4">{deleteErr}</p>}
             <div className="flex justify-end gap-2">
-              <button onClick={() => setDeleteTarget(null)} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
+              <button onClick={() => { setDeleteTarget(null); setDeleteErr(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-black/5 border border-black/10">Cancel</button>
               <button onClick={() => void confirmDelete()} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[oklch(0.62_0.24_25/0.9)] text-white">Delete</button>
             </div>
           </div>
@@ -2296,7 +2318,7 @@ function FixedMonthlyCostsLedger() {
 }
 
 function FixedMonthlyCostFormModal({ entry, onClose }: { entry: LedgerEntry | null; onClose: () => void }) {
-  const { addFixedMonthlyCost, updateFixedMonthlyCost } = useStore();
+  const { state, addFixedMonthlyCost, updateFixedMonthlyCost } = useStore();
   const isEdit = !!entry;
   const entryDate = entry ? new Date(entry.ts) : new Date();
 
@@ -2306,24 +2328,52 @@ function FixedMonthlyCostFormModal({ entry, onClose }: { entry: LedgerEntry | nu
   const [date, setDate] = useState(entryDate.toISOString().slice(0, 10));
   const [time, setTime] = useState(`${String(entryDate.getHours()).padStart(2, "0")}:${String(entryDate.getMinutes()).padStart(2, "0")}`);
   const [notes, setNotes] = useState("");
+  // Inventory Sync -- optionally ties this monthly/fixed expense to an
+  // actual stock purchase (e.g. a monthly bulk coffee bean order paid
+  // as a lump sum rather than through the normal Daily Expense form),
+  // exactly matching that form's own Material/Qty/Unit Cost fields.
+  // Add-only, like Notes above: changing which material or how much
+  // stock an ALREADY-RECORDED entry added would need the same
+  // already-used safety check a purchase edit enforces, which is more
+  // than this form does for its other fields either.
+  const [linkInventory, setLinkInventory] = useState(false);
+  const [materialId, setMaterialId] = useState("");
+  const [qty, setQty] = useState("");
+  const [unitCost, setUnitCost] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const material = state.materials.find((m) => m.id === materialId);
+  const inventoryTotal = (parseFloat(qty) || 0) * (parseFloat(unitCost) || 0);
 
   const submit = async () => {
     setErr(null);
     if (!description.trim()) { setErr("Expense description is required."); return; }
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) { setErr("Amount must be greater than zero."); return; }
     const ts = new Date(`${date}T${time}`).getTime();
     if (Number.isNaN(ts)) { setErr("Invalid date/time."); return; }
+
+    if (!isEdit && linkInventory) {
+      if (!materialId) { setErr("Select which material this stock purchase is for."); return; }
+      if (!(parseFloat(qty) > 0)) { setErr("Enter a valid quantity."); return; }
+      if (!(parseFloat(unitCost) > 0)) { setErr("Enter a valid unit price."); return; }
+    } else {
+      const amt = parseFloat(amount);
+      if (!amt || amt <= 0) { setErr("Amount must be greater than zero."); return; }
+    }
 
     setSubmitting(true);
     try {
       if (isEdit && entry) {
+        const amt = parseFloat(amount);
         const res = await updateFixedMonthlyCost(entry.id, { description: description.trim(), amount: amt, category, ts });
         if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
       } else {
-        const res = await addFixedMonthlyCost({ description: description.trim(), amount: amt, category, notes: notes.trim() || undefined, ts });
+        const res = await addFixedMonthlyCost({
+          description: description.trim(), category, notes: notes.trim() || undefined, ts,
+          ...(linkInventory
+            ? { materialId, qty: parseFloat(qty), unitCost: parseFloat(unitCost) }
+            : { amount: parseFloat(amount) }),
+        });
         if (!res.ok) { setErr(res.error ?? "Could not log this expense."); return; }
       }
       onClose();
@@ -2354,10 +2404,15 @@ function FixedMonthlyCostFormModal({ entry, onClose }: { entry: LedgerEntry | nu
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Amount (EGP)</label>
               <input
-                type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
-                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+                type="number" min="0" step="0.01" value={!isEdit && linkInventory ? inventoryTotal.toFixed(2) : amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={!isEdit && linkInventory}
+                className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono disabled:opacity-60"
                 placeholder="0.00"
               />
+              {!isEdit && linkInventory && (
+                <p className="text-[11px] text-muted-foreground mt-1">Calculated automatically from quantity × unit price below.</p>
+              )}
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Category</label>
@@ -2369,6 +2424,44 @@ function FixedMonthlyCostFormModal({ entry, onClose }: { entry: LedgerEntry | nu
               </select>
             </div>
           </div>
+
+          {!isEdit && (
+            <div>
+              <label className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={linkInventory} onChange={(e) => { setLinkInventory(e.target.checked); setErr(null); }} className="w-3.5 h-3.5" />
+                Inventory Sync — this expense is for a stock purchase (optional)
+              </label>
+              {linkInventory && (
+                <div className="mt-2 rounded-lg bg-black/[0.03] border border-black/10 p-3 space-y-3">
+                  <div>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground">Material</label>
+                    <div className="mt-1">
+                      <SearchableMaterialSelect materials={state.materials} value={materialId} onChange={setMaterialId} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity {material ? `(${material.unit})` : ""}</label>
+                      <input
+                        type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)}
+                        className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Price</label>
+                      <input
+                        type="number" min="0" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)}
+                        className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Adds {qty || "0"} {material?.unit ?? ""} of {material?.name ?? "the selected material"} to stock immediately, and shows up in Inventory's stock-movement history — same as a Daily Expense material purchase.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

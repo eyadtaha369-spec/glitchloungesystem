@@ -353,7 +353,19 @@ export const clearExpensesLedgerFn = createServerFn({ method: "POST" })
   });
 
 export const addFixedMonthlyCostFn = createServerFn({ method: "POST" })
-  .validator((d: { description: string; amount: number; category?: string; notes?: string; ts?: number }) => d)
+  .validator((d: {
+    description: string;
+    // Required unless materialId is given, in which case the total is
+    // always derived server-side as qty * unitCost instead.
+    amount?: number;
+    category?: string;
+    notes?: string;
+    ts?: number;
+    // Optional Inventory Sync -- see addFixedMonthlyCost_ in Code.gs.
+    materialId?: string;
+    qty?: number;
+    unitCost?: number;
+  }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; item?: LedgerEntry }>("addFixedMonthlyCost", { ...data, username: user.username });

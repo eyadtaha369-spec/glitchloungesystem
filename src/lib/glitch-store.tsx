@@ -330,7 +330,22 @@ interface StoreContextValue {
   deleteSupplierInvoice: (invoiceId: string) => Promise<{ ok: boolean; error?: string }>;
   forceDeleteSupplierInvoice: (invoiceId: string, confirmText: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   clearExpensesLedger: (confirmText: string, password: string) => Promise<{ ok: boolean; error?: string; count?: number; totalCleared?: number }>;
-  addFixedMonthlyCost: (params: { description: string; amount: number; category?: string; notes?: string; ts?: number }) => Promise<{ ok: boolean; error?: string; item?: LedgerEntry }>;
+  addFixedMonthlyCost: (params: {
+    description: string;
+    // Required unless a materialId is given below, in which case the
+    // total is always derived server-side as qty * unitCost instead.
+    amount?: number;
+    category?: string;
+    notes?: string;
+    ts?: number;
+    // Optional Inventory Sync -- ties this fixed/monthly expense to an
+    // actual stock purchase (e.g. a monthly bulk coffee bean order),
+    // exactly like a Daily Expense material purchase: appends a Batch
+    // and bumps RawMaterials' reference cost, same as submitPurchase.
+    materialId?: string;
+    qty?: number;
+    unitCost?: number;
+  }) => Promise<{ ok: boolean; error?: string; item?: LedgerEntry }>;
   updateFixedMonthlyCost: (id: string, patch: { description?: string; amount?: number; category?: string; ts?: number }) => Promise<{ ok: boolean; error?: string }>;
   deleteFixedMonthlyCost: (id: string) => Promise<{ ok: boolean; error?: string }>;
   updateSupplierInvoice: (params: {

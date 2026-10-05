@@ -106,7 +106,10 @@ function SubmitPurchaseForm() {
 // plain <select> means scrolling through a long list or relying on
 // native type-to-jump, which works less reliably with Arabic/RTL text
 // than a real search box does.
-function SearchableMaterialSelect({ materials, value, onChange, placeholder }: {
+// Exported so Reports.tsx's Fixed Monthly Cost form can reuse the same
+// searchable material picker, instead of duplicating it, when the
+// admin optionally ties a monthly expense to an inventory purchase.
+export function SearchableMaterialSelect({ materials, value, onChange, placeholder }: {
   materials: { id: string; name: string; unit: string }[];
   value: string;
   onChange: (id: string) => void;
