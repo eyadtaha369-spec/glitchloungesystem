@@ -96,6 +96,22 @@ function isSettledSupplierPayment_(l: LedgerEntry): boolean {
   return l.type === "supplierPayment";
 }
 
+// A supplier debt payment the admin explicitly funded from خصم من
+// إيراد/أرباح الشهر (Monthly Revenue), not from a specific shift's
+// drawer -- see recordSupplierPayment_'s expenseScope in Code.gs. Both
+// the Fixed Monthly Costs table and the Monthly P&L's own Fixed Costs
+// total fold these in (FixedMonthlyCostsLedger/MonthlyReconciliation-
+// Dashboard/computeMonthFinancials below), on the reasoning that money
+// the admin deliberately chose to take from the month's revenue rather
+// than a till IS a fixed/monthly cost in substance, same as rent --
+// it's just also, mechanically, a supplierPayment Ledger entry. A
+// "خصم من إيراد اليوم / Daily Shift" payment is NOT included here: that
+// one already belongs to -- and reduces the Expected Cash of -- a
+// specific shift, exactly like any other same-day expense.
+function isMonthlyScopeSupplierPayment_(l: LedgerEntry): boolean {
+  return l.type === "supplierPayment" && l.expenseScope === "monthly";
+}
+
 // This café's confirmed real operating cycle: a "business day" runs
 // 8:00 AM to 7:59:59 AM the next calendar day, not midnight to
 // midnight. A shift that opens at 11 PM and runs until 4 AM belongs
@@ -292,12 +308,15 @@ function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], mon
   const revenue = filterByBusinessDay(state.sessions, monthShiftIds, from, to).reduce((a, s) => a + s.total, 0);
   const operationalAndSupplier = [
     ...state.ledger.filter(isOperationalExpense),
-    ...state.ledger.filter(isSettledSupplierPayment_),
+    // Monthly-scope supplier payments move to fixedCosts below instead
+    // -- see isMonthlyScopeSupplierPayment_ -- so they're excluded here
+    // to avoid counting the same payment in both buckets.
+    ...state.ledger.filter((l) => isSettledSupplierPayment_(l) && !isMonthlyScopeSupplierPayment_(l)),
   ]
     .filter((l) => expenseMatchesMonth_(l, monthShiftIds, from, to, monthStr))
     .reduce((a, l) => a + Number(l.amount), 0);
   const fixedCosts = filterByBusinessDay(
-    state.ledger.filter((l) => l.type === "fixedMonthlyCost" && l.status === "approved"),
+    state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l)),
     monthShiftIds, from, to,
   ).reduce((a, l) => a + Number(l.amount), 0);
   // إجمالي السلف والخصومات الشهرية — deducted here, at month-end, and
@@ -1899,21 +1918,30 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   const totalExpenses = useMemo(
     () => [
       ...state.ledger.filter(isOperationalExpense),
-      ...state.ledger.filter(isSettledSupplierPayment_),
+      // Monthly-scope supplier payments (خصم من إيراد/أرباح الشهر) move
+      // to monthFixedCosts below instead -- see
+      // isMonthlyScopeSupplierPayment_ -- so they're excluded here to
+      // avoid counting the same payment in both totals.
+      ...state.ledger.filter((l) => isSettledSupplierPayment_(l) && !isMonthlyScopeSupplierPayment_(l)),
     ]
       .filter((l) => expenseMatchesMonth_(l, monthShiftIds, monthStart, monthEnd, selectedMonth))
       .reduce((a, l) => a + Number(l.amount), 0),
     [state.ledger, monthShiftIds, monthStart, monthEnd, selectedMonth],
   );
 
-  // Fixed monthly costs are now genuine, dated Ledger entries
-  // (fixedMonthlyCost type) logged via the dedicated module below,
-  // not a flat sum of RecurringExpenses config rows — this is what
-  // makes the figure change month to month rather than always
-  // reporting the same static total regardless of which month is
-  // selected.
+  // Fixed monthly costs are genuine, dated Ledger entries
+  // (fixedMonthlyCost type) logged via the dedicated module below, not
+  // a flat sum of RecurringExpenses config rows — this is what makes
+  // the figure change month to month rather than always reporting the
+  // same static total regardless of which month is selected. Also
+  // folds in any supplier debt payment the admin funded from Monthly
+  // Revenue rather than a shift's drawer (isMonthlyScopeSupplierPayment_)
+  // -- same reasoning as computeMonthFinancials.
   const monthFixedCosts = useMemo(
-    () => filterByBusinessDay(state.ledger.filter((l) => l.type === "fixedMonthlyCost" && l.status === "approved"), monthShiftIds, monthStart, monthEnd),
+    () => filterByBusinessDay(
+      state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l)),
+      monthShiftIds, monthStart, monthEnd,
+    ),
     [state.ledger, monthShiftIds, monthStart, monthEnd],
   );
   const totalFixedExpenses = useMemo(() => monthFixedCosts.reduce((a, l) => a + Number(l.amount), 0), [monthFixedCosts]);
@@ -2159,16 +2187,31 @@ const FIXED_COST_CATEGORIES = ["Fixed Overhead", "Rent", "Utilities", "Internet"
 // populate it and no date/logger per entry, only a static list of
 // templates. Every entry here is a real, dated, admin-logged payment
 // from owner revenue, explicitly outside the daily cash drawer.
+// سداد موردين — how a supplier debt payment funded from Monthly Revenue
+// is labeled inside the Fixed Monthly Costs table, regardless of its
+// own stored Ledger category (always the fixed "Supplier Debt Payment
+// / سداد فاتورة آجل" string set by recordSupplierPayment_) -- this is
+// purely a display label for this one table, so it reads as the fixed
+// cost it's being treated as here, without touching the underlying
+// category used everywhere else (Expenses History, Purchase History).
+const MONTHLY_SUPPLIER_PAYMENT_CATEGORY_LABEL = "Supplier Payment / سداد موردين";
+
 function FixedMonthlyCostsLedger() {
-  const { state, deleteFixedMonthlyCost } = useStore();
+  const { state, deleteFixedMonthlyCost, deleteSupplierPayment } = useStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRangeMonthToDate();
 
+  // Includes both genuine fixedMonthlyCost entries AND any supplier
+  // debt payment funded from خصم من إيراد/أرباح الشهر (Monthly Revenue)
+  // -- see isMonthlyScopeSupplierPayment_ -- so this table (and its
+  // total, which feeds the Monthly P&L's own Fixed Costs figure via
+  // computeMonthFinancials/MonthlyReconciliationDashboard) reflects the
+  // full picture of what's actually being funded from monthly revenue.
   const allEntries = useMemo(
-    () => state.ledger.filter((l) => l.type === "fixedMonthlyCost").sort((a, b) => b.ts - a.ts),
+    () => state.ledger.filter((l) => l.type === "fixedMonthlyCost" || isMonthlyScopeSupplierPayment_(l)).sort((a, b) => b.ts - a.ts),
     [state.ledger],
   );
   const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
@@ -2176,13 +2219,26 @@ function FixedMonthlyCostsLedger() {
   const total = entries.reduce((a, l) => a + Number(l.amount), 0);
   const rangeLabel = formatRangeLabel(startDate, endDate);
 
+  const categoryLabel = (l: LedgerEntry) => (l.type === "supplierPayment" ? MONTHLY_SUPPLIER_PAYMENT_CATEGORY_LABEL : l.category);
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleteErr(null);
-    // Blocked server-side (returns ok:false) when this entry's linked
-    // stock purchase has already been consumed by a sale/waste -- same
-    // "already used" safety check a normal purchase delete enforces.
-    const res = await deleteFixedMonthlyCost(deleteTarget.id);
+    // A merged-in supplier payment is still, underneath, a
+    // supplierPayment Ledger entry -- deleteFixedMonthlyCost only
+    // matches type "fixedMonthlyCost" server-side, so this routes to
+    // the existing supplier-payment delete instead, via its
+    // linkedPaymentId (the SupplierPayments.id, a different id to the
+    // Ledger row's own -- see linkedPaymentId in Code.gs).
+    const res = deleteTarget.type === "supplierPayment"
+      ? (deleteTarget.linkedPaymentId
+        ? await deleteSupplierPayment(deleteTarget.linkedPaymentId)
+        : { ok: false, error: "This older payment is missing its link to the supplier balance record — run \"Resync Supplier Payments\" above first, then try deleting again." })
+      // Blocked server-side (returns ok:false) when this entry's linked
+      // stock purchase has already been consumed by a sale/waste --
+      // same "already used" safety check a normal purchase delete
+      // enforces.
+      : await deleteFixedMonthlyCost(deleteTarget.id);
     if (!res.ok) { setDeleteErr(res.error ?? "Could not delete this entry."); return; }
     setDeleteTarget(null);
   };
@@ -2198,7 +2254,7 @@ function FixedMonthlyCostsLedger() {
           { header: "Date & Time" }, { header: "Expense" }, { header: "Amount EGP", align: "right" },
           { header: "Category" }, { header: "Logged By" }, { header: "Payment Source" },
         ],
-        rows: entries.map((l) => [new Date(l.ts).toLocaleString(), l.description, fmtMoney(Number(l.amount)), l.category, l.staffUsername, "Owner Revenue"]),
+        rows: entries.map((l) => [new Date(l.ts).toLocaleString(), l.description, fmtMoney(Number(l.amount)), categoryLabel(l), l.staffUsername, "Owner Revenue"]),
         summaryLines: [
           { label: "Entries", value: String(entries.length) },
           { label: "Total", value: fmtMoney(total) },
@@ -2238,7 +2294,8 @@ function FixedMonthlyCostsLedger() {
       </div>
       <p className="text-xs text-muted-foreground mb-4">
         Rent, utilities, internet, subscriptions — paid directly from owner revenue, never from the daily cashier
-        drawer. These never affect a shift's Expected Cash or count toward a drawer discrepancy. Showing {rangeLabel}.
+        drawer — plus any supplier debt payment recorded as خصم من إيراد/أرباح الشهر (Monthly Revenue) rather than a
+        shift's drawer. These never affect a shift's Expected Cash or count toward a drawer discrepancy. Showing {rangeLabel}.
       </p>
       {entries.length === 0 ? (
         <div className="text-sm text-muted-foreground font-mono text-center py-8">No fixed monthly costs logged in this date range.</div>
@@ -2275,14 +2332,20 @@ function FixedMonthlyCostsLedger() {
                     )}
                   </td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
-                  <td className="py-2 pr-3">{l.category}</td>
+                  <td className="py-2 pr-3">{categoryLabel(l)}</td>
                   <td className="py-2 pr-3">{l.staffUsername}</td>
                   <td className="py-2 pr-3 text-xs uppercase">Owner Revenue</td>
                   <td className="py-2 pr-3">
                     <div className="flex items-center justify-end gap-1.5">
-                      <button onClick={() => { setEditingEntry(l); setFormOpen(true); }} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* A merged-in supplier payment has no edit path here
+                          -- it's edited/settled from Supplier Payments
+                          itself, not as a fixed cost -- so only Delete
+                          applies to it. */}
+                      {l.type !== "supplierPayment" && (
+                        <button onClick={() => { setEditingEntry(l); setFormOpen(true); }} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button onClick={() => setDeleteTarget(l)} title="Delete" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
