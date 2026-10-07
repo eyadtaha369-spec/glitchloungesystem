@@ -50,6 +50,20 @@ function isInventoryAuditWriteOff_(l: LedgerEntry): boolean {
   return l.category.indexOf("Inventory Audit Write-off") === 0;
 }
 
+// Wasted/Marketing virtual-table log (Rooms.tsx -> logWasteMarketing):
+// remakes, complaints, spillage, and complimentary/VIP hospitality
+// items. Ingredient cost already left stock the moment each item was
+// originally ordered (FIFO-consumed then, same as any sale) -- this
+// Ledger entry exists purely for cost-tracking/audit purposes and was
+// never real cash leaving the drawer or the business this month, so
+// (like the Void-produced WASTE_LEDGER_CATEGORIES below) it must never
+// reduce Daily/Monthly Expenses, Net Profit, or any shift's drawer.
+// Tracked instead in its own Wasted/Marketing Expense Audit report
+// (WasteMarketingPanel below).
+function isWasteMarketingExpense_(l: LedgerEntry): boolean {
+  return l.category === "Marketing / Waste Expense";
+}
+
 function isOperationalExpense(l: LedgerEntry): boolean {
   return (
     l.direction === "outflow" &&
@@ -66,6 +80,7 @@ function isOperationalExpense(l: LedgerEntry): boolean {
     l.status === "approved" &&
     l.paymentStatus !== "unpaid" &&
     !WASTE_LEDGER_CATEGORIES.has(l.category) &&
+    !isWasteMarketingExpense_(l) &&
     !isInventoryAuditWriteOff_(l)
   );
 }
@@ -1725,8 +1740,9 @@ function WasteMarketingPanel({ allEntries }: { allEntries: LedgerEntry[] }) {
         </div>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        Remade orders, complaints, and complimentary hospitality — ingredient cost only, already excluded from revenue
-        and Expected Drawer Cash above.
+        Remade orders, complaints, and complimentary hospitality — ingredient cost only, tracked here purely for
+        audit/statistics. Never counted as revenue, never affects any shift's Expected Drawer Cash, and excluded from
+        Daily/Monthly Expenses and Net Profit above.
       </p>
 
       {timeframe === "month" ? (

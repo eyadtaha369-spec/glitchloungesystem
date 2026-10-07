@@ -36,7 +36,11 @@ function isOperationalExpense(l: LedgerEntry): boolean {
     l.category !== "Staff Consumption Expense" &&
     l.status === "approved" &&
     l.paymentStatus !== "unpaid" &&
-    !WASTE_LEDGER_CATEGORIES.has(l.category)
+    !WASTE_LEDGER_CATEGORIES.has(l.category) &&
+    // Wasted/Marketing virtual-table log (Rooms.tsx) -- ingredient cost
+    // only, already left stock when the item was ordered, never real
+    // cash spend this period. See the matching exclusion in Reports.tsx.
+    l.category !== "Marketing / Waste Expense"
   );
 }
 

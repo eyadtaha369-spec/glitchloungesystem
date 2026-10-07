@@ -265,7 +265,7 @@ function ZonePage({ scope }: { scope: "room" | "lounge" }) {
         />
       )}
 
-      {scope === "lounge" && wasteTable && (
+      {scope === "lounge" && wasteTable && isAdmin && (
         <div>
           <h2 className="text-sm uppercase tracking-widest text-[oklch(0.62_0.24_25)] font-mono mb-3">Wasted / Marketing — Remakes, Complaints &amp; Complimentary</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">

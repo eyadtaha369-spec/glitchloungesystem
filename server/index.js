@@ -653,16 +653,17 @@ Object.assign(handlers, {
     return { ok: true, state: withStockView_(result.state) };
   },
 
+  // Admin-only -- matches the Wasted/Marketing table itself being
+  // hidden from cashiers in the UI (Rooms.tsx). touchedBatchIds is
+  // always empty now (see bizLogWasteMarketing_'s own comment: cogs is
+  // read from room.cogsAccrued, not re-consumed), so there's nothing
+  // left for this handler to write back to Batches.
   logWasteMarketing(body) {
-    requireRole_(body.username, ["admin", "cashier"]);
+    requireRole_(body.username, ["admin"]);
     const batches = readObjects_("Batches");
     const result = bizLogWasteMarketing_(getState_(), batches, body.roomId, body.reason, body.note);
     if (!result.ok) return { ok: false, error: result.error, state: withStockView_(result.state) };
     setState_(result.state);
-    result.touchedBatchIds.forEach((id) => {
-      const b = batches.find((x) => x.id === id);
-      if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
-    });
     // Always record — even at zero calculated cost. See the matching
     // comment in Code.gs for why: the audit record itself (what/who/
     // when/why) is the point, not just tracking non-zero cost.

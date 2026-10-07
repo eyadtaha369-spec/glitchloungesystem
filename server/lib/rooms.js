@@ -539,31 +539,29 @@ const WASTE_MARKETING_REASONS = {
   other: "Other",
 };
 
+// Ingredients were already consumed FIFO the moment each item was
+// added to this room (bizAddOrder_ runs for every room, the waste
+// table included) -- NOT re-consumed here. cogs is read straight off
+// room.cogsAccrued, the running total already kept in exact sync with
+// that consumption, exactly like a normal checkout (bizEndRoomCheckout_)
+// or staff order (bizEndRoomAsStaffOrder_) does. Re-consuming here on
+// top of that was a real double-deduction bug: it silently halved
+// stock for every wasted/comped item (once correctly at order time,
+// once again -- incorrectly -- at logging time).
 function bizLogWasteMarketing_(state, batches, roomId, reason, note) {
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.zone !== "waste") return { ok: false, error: "This is only for the Wasted/Marketing table", state };
   if (room.orders.length === 0) return { ok: false, error: "Nothing on the Wasted/Marketing table to log", state };
   if (!WASTE_MARKETING_REASONS[reason]) return { ok: false, error: "Select a reason for this waste/marketing entry.", state };
 
-  let cogs = 0;
   let retailValue = 0;
-  const touchedBatchIds = [];
   const loggedItems = room.orders.slice();
-  loggedItems.forEach((line) => {
-    retailValue += line.qty * line.price;
-    const menuItem = state.menu.find((m) => m.id === line.menuItemId);
-    if (menuItem) {
-      menuItem.ingredients.forEach((ing) => {
-        const res = consumeFifo_(batches, ing.stockId, ing.qty * line.qty);
-        cogs += res.cost;
-        touchedBatchIds.push(...res.touched);
-      });
-    }
-  });
+  loggedItems.forEach((line) => { retailValue += line.qty * line.price; });
+  const cogs = room.cogsAccrued || 0;
 
-  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [] }) : r));
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { orders: [], cogsAccrued: 0 }) : r));
   pushActivity_(state, "Logged " + loggedItems.length + " item(s) as Wasted/Marketing (" + WASTE_MARKETING_REASONS[reason] + ") — " + cogs.toFixed(2) + " EGP ingredient cost");
-  return { ok: true, state, touchedBatchIds: Array.from(new Set(touchedBatchIds)), cogs, retailValue, items: loggedItems, reason, reasonLabel: WASTE_MARKETING_REASONS[reason], note: note || "" };
+  return { ok: true, state, touchedBatchIds: [], cogs, retailValue, items: loggedItems, reason, reasonLabel: WASTE_MARKETING_REASONS[reason], note: note || "" };
 }
 
 // Moves qty units of one order line from sourceRoomId to targetRoomId.
