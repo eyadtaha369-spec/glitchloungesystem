@@ -1219,16 +1219,20 @@ Object.assign(handlers, {
     const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
     let paymentSource = null;
     if (paymentStatus === "paid") {
-      const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+      const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
       if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
       paymentSource = body.paymentSource;
     }
-    // خيارات طريقة الخصم — only meaningful for Out of Pocket/Bank
-    // Transfer (a Cash Drawer purchase is physically tied to whichever
-    // shift's drawer the cash came out of, so it's always daily_shift
-    // regardless of what the client sends). Mirrors
+    // خيارات طريقة الخصم — Monthly Payment is ALWAYS monthly scope on
+    // its own (it's never tied to a shift's drawer by definition); Out
+    // of Pocket can optionally be either, via the client's own toggle;
+    // a Cash Drawer purchase is physically tied to whichever shift's
+    // drawer the cash came out of, so it's always daily_shift
+    // regardless of what the client sends. Mirrors
     // recordSupplierPayment_/Code.gs's handleSubmitPurchase_ exactly.
-    const expenseScope = (paymentSource === "out_of_pocket" || paymentSource === "bank_transfer") && body.expenseScope === "monthly"
+    const expenseScope = paymentSource === "monthly_payment"
+      ? "monthly"
+      : paymentSource === "out_of_pocket" && body.expenseScope === "monthly"
       ? "monthly"
       : "daily_shift";
     // Admin-only backdating, mirroring submitBackdatedExpense exactly:
@@ -1336,10 +1340,15 @@ Object.assign(handlers, {
     // without needing any special-case handling there).
     let paymentSource = null;
     if (paymentStatus === "paid") {
-      const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+      const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
       if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
       paymentSource = body.paymentSource;
     }
+    // Monthly Payment is always monthly scope on its own -- never tied
+    // to a shift's drawer, same as handleSubmitPurchase_'s/
+    // recordSupplierPayment_'s own expenseScope handling.
+    const expenseScope = paymentSource === "monthly_payment" ? "monthly" : "daily_shift";
+    const resolvedShiftId = expenseScope === "monthly" ? null : (body.shiftId || null);
     const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
     const isAdmin = role === "admin";
     const ts = Date.now();
@@ -1348,8 +1357,8 @@ Object.assign(handlers, {
       category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
       supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
-      shiftId: body.shiftId || null, materialId: body.materialId || null, qty, unitCost,
-      paymentSource, paymentStatus,
+      shiftId: resolvedShiftId, materialId: body.materialId || null, qty, unitCost,
+      paymentSource, paymentStatus, expenseScope,
       // Bound to the CURRENT ACTIVE SHIFT's own business day whenever a
       // shift is open (recomputed from the shift's openedAt -- see
       // expenseDateForShift_ above for why that's not a lookup of the
@@ -1421,10 +1430,17 @@ Object.assign(handlers, {
     const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
     let paymentSource = null;
     if (paymentStatus === "paid") {
-      const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+      const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
       if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
       paymentSource = body.paymentSource;
     }
+    // Monthly Payment is always monthly scope on its own -- untied from
+    // the target shift's own drawer, same as submitPurchase's backdated
+    // monthly-scope path. The shift is still used for ts/expenseDate
+    // (this is a historical filing date, not a drawer link), but its
+    // own expected-cash is never recalculated for a monthly-scope entry.
+    const expenseScope = paymentSource === "monthly_payment" ? "monthly" : "daily_shift";
+    const resolvedShiftId = expenseScope === "monthly" ? null : shift.id;
     const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
     // Timestamped one second before the shift actually closed, so it
     // sorts as having happened DURING that shift (before its closing
@@ -1437,8 +1453,8 @@ Object.assign(handlers, {
       category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : "") + " (backdated)",
       supplierId: body.supplierId || null, staffUsername: body.username, status: "approved",
       receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
-      shiftId: shift.id, materialId: body.materialId || null, qty, unitCost,
-      paymentSource, paymentStatus, backdated: true,
+      shiftId: resolvedShiftId, materialId: body.materialId || null, qty, unitCost,
+      paymentSource, paymentStatus, backdated: true, expenseScope,
       // Bound to the TARGET shift's own business day (its openedAt, via
       // expenseDateForShift_), not recomputed from its close time -- this
       // is what makes it show up under the exact historical day it's
@@ -1452,7 +1468,9 @@ Object.assign(handlers, {
       appendObject_("Batches", { id: newId_("batch"), materialId: body.materialId, supplierId: body.supplierId || null, qtyPurchased: qty, qtyRemaining: qty, unitCost, purchasedAt: backdatedTs, source: "dailyFresh", ledgerId: entry.id });
       updateObjectById_("RawMaterials", body.materialId, { unitCost, lastPurchaseCost: unitCost });
     }
-    const result = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift);
+    // A Monthly Payment entry was never tied to resolvedShiftId in the
+    // first place, so there's no shift drawer to recalculate.
+    const result = resolvedShiftId ? bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), shift) : { ok: false };
     if (result.ok) {
       updateObjectById_("Shifts", shift.id, { expectedCash: result.after.expectedCash, discrepancy: result.after.discrepancy });
     }
@@ -1482,7 +1500,7 @@ Object.assign(handlers, {
     if (before.type === "sale" || before.type === "supplierPayment" || before.type === "fixedMonthlyCost") {
       return { ok: false, error: "This entry type can't be edited here." };
     }
-    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
     const patch = body.patch || {};
     const safePatch = {};
     if (patch.amount !== undefined) {
@@ -1497,7 +1515,15 @@ Object.assign(handlers, {
       safePatch.paymentSource = patch.paymentSource;
       // An unpaid (debt) entry has no payment source to begin with --
       // use Settle Expense for that, not this action.
-      if (before.paymentStatus !== "unpaid") safePatch.paidFromDrawer = patch.paymentSource === "cash_drawer";
+      if (before.paymentStatus !== "unpaid") {
+        safePatch.paidFromDrawer = patch.paymentSource === "cash_drawer";
+        // Switching an entry TO Monthly Payment always re-forces monthly
+        // scope here too, same rule as every creation point -- an admin
+        // correcting the source shouldn't leave a stale "daily_shift"
+        // scope behind it. Switching AWAY from it leaves scope as-is
+        // (out_of_pocket's scope is a separate, independent choice).
+        if (patch.paymentSource === "monthly_payment") safePatch.expenseScope = "monthly";
+      }
     }
     if (patch.expenseDate !== undefined) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(patch.expenseDate)) return { ok: false, error: "Date must be in YYYY-MM-DD format." };
@@ -1648,13 +1674,19 @@ Object.assign(handlers, {
   },
   settleExpense(body) {
     const role = requireRole_(body.username, ["admin", "cashier"]);
-    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
     if (validSources.indexOf(body.paymentSource) === -1) return { ok: false, error: "Select a payment source." };
     const entry = readObjects_("Ledger").find((l) => l.id === body.ledgerId);
     if (!entry) return { ok: false, error: "Entry not found." };
     if (entry.paymentStatus !== "unpaid") return { ok: false, error: "This entry is not marked unpaid." };
     const paidFromDrawer = body.paymentSource === "cash_drawer";
-    const patch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer };
+    // Settling with Monthly Payment is always monthly scope, same
+    // forcing rule as every creation point -- this entry's original
+    // shiftId (set back when it was first logged as a debt) is cleared
+    // so it never lands against any shift's drawer reconciliation.
+    const patch = body.paymentSource === "monthly_payment"
+      ? { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: false, expenseScope: "monthly", shiftId: null }
+      : { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer };
     // The cash actually leaves the drawer NOW, at settlement — not
     // whenever this was first logged as a debt (which could be a
     // shift that's already closed). Re-stamping shiftId to whichever

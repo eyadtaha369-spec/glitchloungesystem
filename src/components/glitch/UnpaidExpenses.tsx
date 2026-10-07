@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource } from "@/lib/glitch-store";
-import { Receipt, Wallet, Landmark, HandCoins, CheckCircle2 } from "lucide-react";
+import { Receipt, Wallet, CalendarClock, HandCoins, CheckCircle2 } from "lucide-react";
 
 const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
   cash_drawer: "Cash Drawer / من الدرج",
   out_of_pocket: "Out of Pocket / من الجيب",
-  bank_transfer: "Bank Transfer / Visa / InstaPay",
+  monthly_payment: "Monthly Payment / دفع شهري",
 };
 const PAYMENT_SOURCE_ICONS: Record<PaymentSource, typeof Wallet> = {
   cash_drawer: Wallet,
   out_of_pocket: HandCoins,
-  bank_transfer: Landmark,
+  monthly_payment: CalendarClock,
 };
 
 export function UnpaidExpensesPage() {

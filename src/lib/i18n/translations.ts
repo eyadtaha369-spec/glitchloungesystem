@@ -124,7 +124,7 @@ export const translations = {
     paymentSource: { en: "Payment Source", ar: "طريقة الدفع" },
     cashDrawer: { en: "Cash Drawer", ar: "من الدرج" },
     outOfPocket: { en: "Out of Pocket", ar: "من الجيب" },
-    bankTransfer: { en: "Bank Transfer / Visa / InstaPay", ar: "تحويل بنكي / فيزا / إنستاباي" },
+    monthlyPayment: { en: "Monthly Payment / دفع شهري", ar: "دفع شهري / خصم من أرباح الشهر" },
     pendingApproval: { en: "Pending Approval", ar: "بانتظار الموافقة" },
     approved: { en: "Approved", ar: "تمت الموافقة" },
     rejected: { en: "Rejected", ar: "مرفوض" },

@@ -169,11 +169,11 @@ export const submitPurchaseFn = createServerFn({ method: "POST" })
     category?: string;
     description?: string;
     paymentStatus: "paid" | "unpaid";
-    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
-    // خيارات طريقة الخصم — only meaningful alongside out_of_pocket/
-    // bank_transfer; the server forces "daily_shift" for a Cash Drawer
-    // purchase regardless of what's sent here, same as
-    // recordSupplierPayment_.
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "monthly_payment";
+    // خيارات طريقة الخصم — only meaningful alongside out_of_pocket; a
+    // Monthly Payment source is always monthly scope on its own, and
+    // the server forces "daily_shift" for a Cash Drawer purchase
+    // regardless of what's sent here, same as recordSupplierPayment_.
     expenseScope?: "daily_shift" | "monthly";
     shiftId?: string | null;
     receiptBase64?: string;
@@ -198,7 +198,7 @@ export const submitExpenseFn = createServerFn({ method: "POST" })
     notes?: string;
     supplierId?: string;
     paymentStatus: "paid" | "unpaid";
-    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "monthly_payment";
     shiftId?: string | null;
     receiptBase64?: string;
     receiptMimeType?: string;
@@ -233,7 +233,7 @@ export const submitBackdatedExpenseFn = createServerFn({ method: "POST" })
     notes?: string;
     supplierId?: string;
     paymentStatus: "paid" | "unpaid";
-    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "monthly_payment";
     targetShiftId: string;
     receiptBase64?: string;
     receiptMimeType?: string;
@@ -257,7 +257,7 @@ export const getUnpaidExpensesFn = createServerFn({ method: "GET" }).handler(asy
 });
 
 export const settleExpenseFn = createServerFn({ method: "POST" })
-  .validator((d: { ledgerId: string; paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer" }) => d)
+  .validator((d: { ledgerId: string; paymentSource: "cash_drawer" | "out_of_pocket" | "monthly_payment" }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string }>("settleExpense", { ...data, username: user.username });
@@ -272,7 +272,7 @@ export const submitPurchaseInvoiceFn = createServerFn({ method: "POST" })
     // epoch ms, for backward compatibility.
     invoiceDate?: string | number;
     paymentType: "cash" | "deferred";
-    paymentSource?: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    paymentSource?: "cash_drawer" | "out_of_pocket" | "monthly_payment";
     items: { materialId: string; qty: number; unitPrice: number }[];
     shiftId?: string | null;
   }) => d)
@@ -287,7 +287,7 @@ export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
   .validator((d: {
     supplierId: string;
     amount: number;
-    paymentSource: "cash_drawer" | "out_of_pocket" | "bank_transfer";
+    paymentSource: "cash_drawer" | "out_of_pocket" | "monthly_payment";
     // خصم من إيراد اليوم (شيفت حالي) vs خصم من إيراد/أرباح الشهر —
     // see recordSupplierPayment_ in Code.gs for the full reasoning.
     expenseScope: "daily_shift" | "monthly";

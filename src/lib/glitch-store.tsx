@@ -241,8 +241,9 @@ interface StoreContextValue {
     description?: string;
     paymentStatus: "paid" | "unpaid";
     paymentSource?: PaymentSource;
-    // خيارات طريقة الخصم — only meaningful alongside out_of_pocket/
-    // bank_transfer; see EXPENSE_SCOPE_OPTIONS in Procurement.tsx.
+    // خيارات طريقة الخصم — only meaningful alongside out_of_pocket (a
+    // monthly_payment source is always monthly scope on its own, no
+    // toggle needed); see EXPENSE_SCOPE_OPTIONS in Procurement.tsx.
     expenseScope?: "daily_shift" | "monthly";
     receiptFile?: File | null;
     targetShiftId?: string;

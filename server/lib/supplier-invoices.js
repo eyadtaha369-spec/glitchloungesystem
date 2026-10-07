@@ -25,7 +25,7 @@ function bizSubmitPurchaseInvoice_(deps, body) {
     return { ok: false, error: "Select a supplier and add at least one item." };
   }
   if (body.paymentType === "cash") {
-    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
     if (validSources.indexOf(body.paymentSource) === -1) {
       return { ok: false, error: "Select a payment source for a cash invoice." };
     }
@@ -86,12 +86,17 @@ function bizSubmitPurchaseInvoice_(deps, body) {
   let ledgerEntryId = null;
   if (paymentType === "cash") {
     ledgerEntryId = cashLedgerEntryId;
+    // A Monthly Payment invoice is never tied to a shift's drawer,
+    // regardless of what shiftId the client happened to send -- same
+    // forcing rule as submitPurchase/submitExpense in index.js.
+    const invoiceExpenseScope = paymentSource === "monthly_payment" ? "monthly" : "daily_shift";
+    const invoiceResolvedShiftId = invoiceExpenseScope === "monthly" ? null : (body.shiftId || null);
     appendObject_("Ledger", {
       id: ledgerEntryId, ts: now, amount: totalAmount, direction: "outflow", type: "supplierInvoice",
       category: "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",
       supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
-      paidFromDrawer: paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
-      qty: null, unitCost: null, paymentSource, paymentStatus: "paid",
+      paidFromDrawer: paymentSource === "cash_drawer", shiftId: invoiceResolvedShiftId, materialId: null,
+      qty: null, unitCost: null, paymentSource, paymentStatus: "paid", expenseScope: invoiceExpenseScope,
       // The admin already picks an explicit Invoice Date on this form
       // (which can be any past date, not just "today") -- that's the
       // authoritative source of which business day this expense belongs
@@ -131,14 +136,18 @@ function bizRecordSupplierPayment_(deps, body) {
   if (!body.supplierId || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Select a supplier and enter a valid amount." };
   }
-  const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+  const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
   if (validSources.indexOf(body.paymentSource) === -1) {
     return { ok: false, error: "Select a payment source." };
   }
   if (body.paymentDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.paymentDate)) {
     return { ok: false, error: "Invalid payment date." };
   }
-  const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
+  // Monthly Payment is always monthly scope on its own -- the client
+  // never gets a say here, same forcing rule as every other
+  // entry-creation point. out_of_pocket keeps its existing optional
+  // toggle; cash_drawer always stays daily_shift.
+  const expenseScope = body.paymentSource === "monthly_payment" ? "monthly" : body.paymentSource === "out_of_pocket" && body.expenseScope === "monthly" ? "monthly" : "daily_shift";
   const supplier = readObjects_("Suppliers").find((s) => s.id === body.supplierId);
   const supplierName = supplier ? supplier.name : "Supplier";
   // Optional — the admin may pick a specific outstanding deferred

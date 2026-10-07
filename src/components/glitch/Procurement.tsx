@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource, SupplierLedgerEntry } from "@/lib/glitch-store";
-import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, Landmark, HandCoins, FileBarChart, History, Search, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, CalendarClock, HandCoins, FileBarChart, History, Search, Pencil, Trash2 } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
   stockedBatch: "Stocked Batch (bulk delivery)",
@@ -15,12 +15,12 @@ const TYPE_LABEL: Record<string, string> = {
 const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
   cash_drawer: "Cash Drawer / من الدرج",
   out_of_pocket: "Out of Pocket / من الجيب",
-  bank_transfer: "Bank Transfer / Visa / InstaPay",
+  monthly_payment: "Monthly Payment / دفع شهري",
 };
 const PAYMENT_SOURCE_ICONS: Record<PaymentSource, typeof Wallet> = {
   cash_drawer: Wallet,
   out_of_pocket: HandCoins,
-  bank_transfer: Landmark,
+  monthly_payment: CalendarClock,
 };
 // "supplierPayment" included so a settled deferred invoice (سداد فاتورة
 // آجلة) shows up in Purchase History alongside direct cash purchases,
@@ -182,12 +182,14 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
   const [description, setDescription] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
-  // خيارات طريقة الخصم — only shown/meaningful for Out of Pocket/Bank
-  // Transfer: a Cash Drawer purchase is physically tied to whichever
-  // shift's drawer the cash came out of, so there's nothing to choose
-  // there. Mirrors RecordSupplierPaymentForm's own expenseScope toggle.
+  // خيارات طريقة الخصم — only shown/meaningful for Out of Pocket: a Cash
+  // Drawer purchase is physically tied to whichever shift's drawer the
+  // cash came out of, and a Monthly Payment is ALWAYS monthly scope on
+  // its own (see the onClick below), so there's nothing to choose in
+  // either case. Mirrors RecordSupplierPaymentForm's own expenseScope
+  // toggle.
   const [expenseScope, setExpenseScope] = useState<"daily_shift" | "monthly">("daily_shift");
-  const showExpenseScope = paymentStatus === "paid" && (paymentSource === "out_of_pocket" || paymentSource === "bank_transfer");
+  const showExpenseScope = paymentStatus === "paid" && paymentSource === "out_of_pocket";
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -226,7 +228,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         description,
         paymentStatus,
         paymentSource: paymentStatus === "paid" ? (paymentSource as PaymentSource) : undefined,
-        expenseScope: showExpenseScope ? expenseScope : undefined,
+        expenseScope: paymentSource === "monthly_payment" ? "monthly" : showExpenseScope ? expenseScope : undefined,
         targetShiftId: isAdmin && targetMode === "past" ? targetShiftId : undefined,
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
@@ -365,7 +367,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
                   <button
                     key={src}
                     type="button"
-                    onClick={() => { setPaymentSource(src); setExpenseScope("daily_shift"); }}
+                    onClick={() => { setPaymentSource(src); setExpenseScope(src === "monthly_payment" ? "monthly" : "daily_shift"); }}
                     className={`flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border transition ${
                       paymentSource === src
                         ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
@@ -382,6 +384,9 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
             )}
             {!activeShift && paymentSource === "cash_drawer" && (
               <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+            )}
+            {paymentSource === "monthly_payment" && (
+              <p className="text-[11px] text-black mt-1.5">Deducted from this month's revenue — never tied to a shift's drawer, and counted under Fixed Monthly Costs in the Monthly P&L.</p>
             )}
             {showExpenseScope && (
               <div className="mt-3">
@@ -716,6 +721,9 @@ function ExpenseSubmitForm() {
             {!activeShift && paymentSource === "cash_drawer" && (
               <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
             )}
+            {paymentSource === "monthly_payment" && (
+              <p className="text-[11px] text-black mt-1.5">Deducted from this month's revenue — never tied to a shift's drawer, and counted under Fixed Monthly Costs in the Monthly P&L.</p>
+            )}
           </div>
         ) : (
           <div className="md:col-span-2 text-xs text-muted-foreground bg-black/5 border border-black/8 rounded-lg p-3">
@@ -1014,6 +1022,9 @@ function SupplierInvoiceForm() {
           )}
           {!activeShift && paymentSource === "cash_drawer" && (
             <p className="text-[11px] text-black mt-1.5">No active shift — this won't be tied to a specific shift's drawer.</p>
+          )}
+          {paymentSource === "monthly_payment" && (
+            <p className="text-[11px] text-black mt-1.5">Deducted from this month's revenue — never tied to a shift's drawer, and counted under Fixed Monthly Costs in the Monthly P&L.</p>
           )}
         </div>
       ) : (
@@ -1693,7 +1704,7 @@ function RecordSupplierPaymentForm({ supplierId, outstandingInvoices, onDone, on
             <button
               key={src}
               type="button"
-              onClick={() => setPaymentSource(src)}
+              onClick={() => { setPaymentSource(src); if (src === "monthly_payment") setExpenseScope("monthly"); }}
               className={`flex items-center gap-2 text-xs py-2 px-3 rounded-lg border transition ${
                 paymentSource === src
                   ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
@@ -1706,27 +1717,34 @@ function RecordSupplierPaymentForm({ supplierId, outstandingInvoices, onDone, on
         })}
       </div>
 
-      <div>
-        <label className="text-xs uppercase tracking-widest text-muted-foreground">خيارات طريقة الخصم — Deduct this payment from</label>
-        <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {EXPENSE_SCOPE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setExpenseScope(opt.value)}
-              title={opt.hint}
-              className={`text-left py-2 px-3 rounded-lg border transition ${
-                expenseScope === opt.value
-                  ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]"
-                  : "bg-white/70 border-black/10 text-muted-foreground hover:bg-black/8"
-              }`}
-            >
-              <div className="text-sm font-bold" dir="rtl">{opt.labelAr}</div>
-              <div className="text-[10px] uppercase tracking-widest mt-0.5">{opt.labelEn}</div>
-            </button>
-          ))}
+      {/* A Monthly Payment source is already, on its own, خصم من إيراد
+          الشهر -- there's no daily-shift reading of it to choose, so
+          the toggle is skipped entirely and expenseScope is set above
+          when that source is picked. Cash Drawer/Out of Pocket still
+          need the explicit choice, same as before. */}
+      {paymentSource !== "monthly_payment" && (
+        <div>
+          <label className="text-xs uppercase tracking-widest text-muted-foreground">خيارات طريقة الخصم — Deduct this payment from</label>
+          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {EXPENSE_SCOPE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setExpenseScope(opt.value)}
+                title={opt.hint}
+                className={`text-left py-2 px-3 rounded-lg border transition ${
+                  expenseScope === opt.value
+                    ? "bg-[oklch(0.7_0.19_260/0.2)] border-[oklch(0.7_0.19_260/0.6)] text-[#2b2416]"
+                    : "bg-white/70 border-black/10 text-muted-foreground hover:bg-black/8"
+                }`}
+              >
+                <div className="text-sm font-bold" dir="rtl">{opt.labelAr}</div>
+                <div className="text-[10px] uppercase tracking-widest mt-0.5">{opt.labelEn}</div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {err && <div className="text-xs text-[oklch(0.62_0.24_25)]">{err}</div>}
       <div className="flex justify-end gap-2">
@@ -2081,9 +2099,13 @@ function ReportModal({ entries, materials, onClose }: {
 
   const filtered = entries.filter((e) => e.ts >= range.start && e.ts < range.end).sort((a, b) => a.ts - b.ts);
   const total = filtered.reduce((a, e) => a + e.amount, 0);
-  const bySource = { cash_drawer: 0, out_of_pocket: 0, bank_transfer: 0, unspecified: 0 };
+  // Keyed loosely (not Record<PaymentSource, number>) so a legacy entry
+  // still carrying the old "bank_transfer" value (retired in favor of
+  // Monthly Payment) falls into Unspecified below instead of throwing
+  // or silently dropping out of the grand total's own breakdown.
+  const bySource: Record<string, number> = { cash_drawer: 0, out_of_pocket: 0, monthly_payment: 0, unspecified: 0 };
   filtered.forEach((e) => {
-    if (e.paymentSource) bySource[e.paymentSource as PaymentSource] += e.amount;
+    if (e.paymentSource && e.paymentSource in bySource) bySource[e.paymentSource] += e.amount;
     else bySource.unspecified += e.amount;
   });
 
@@ -2109,7 +2131,7 @@ function ReportModal({ entries, materials, onClose }: {
   <div class="grand"><span>TOTAL PROCUREMENT EXPENDITURE</span><span>${total.toFixed(2)} EGP</span></div>
   <div><span>&nbsp;&nbsp;Cash Drawer / من الدرج</span><span>${bySource.cash_drawer.toFixed(2)} EGP</span></div>
   <div><span>&nbsp;&nbsp;Out of Pocket / من الجيب</span><span>${bySource.out_of_pocket.toFixed(2)} EGP</span></div>
-  <div><span>&nbsp;&nbsp;Bank Transfer / Visa / InstaPay</span><span>${bySource.bank_transfer.toFixed(2)} EGP</span></div>
+  <div><span>&nbsp;&nbsp;Monthly Payment / دفع شهري</span><span>${bySource.monthly_payment.toFixed(2)} EGP</span></div>
   ${bySource.unspecified > 0 ? `<div><span>&nbsp;&nbsp;Unspecified</span><span>${bySource.unspecified.toFixed(2)} EGP</span></div>` : ""}
   <div><span>Line Items</span><span>${filtered.length}</span></div>
 </div>
@@ -2200,7 +2222,7 @@ function ReportModal({ entries, materials, onClose }: {
             <div className="flex justify-between"><span>Line Items</span><span>{filtered.length}</span></div>
             <div className="flex justify-between"><span>Cash Drawer</span><span>{fmtMoney(bySource.cash_drawer)}</span></div>
             <div className="flex justify-between"><span>Out of Pocket</span><span>{fmtMoney(bySource.out_of_pocket)}</span></div>
-            <div className="flex justify-between"><span>Bank Transfer</span><span>{fmtMoney(bySource.bank_transfer)}</span></div>
+            <div className="flex justify-between"><span>Monthly Payment</span><span>{fmtMoney(bySource.monthly_payment)}</span></div>
             <div className="flex justify-between border-t border-black/10 pt-1 mt-1 font-bold"><span>Total</span><span>{fmtMoney(total)}</span></div>
           </div>
         </div>

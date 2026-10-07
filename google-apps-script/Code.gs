@@ -3183,10 +3183,15 @@ function doPost(e) {
         const bdPaymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
         let bdPaymentSource = null;
         if (bdPaymentStatus === "paid") {
-          const bdValidSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+          const bdValidSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
           if (bdValidSources.indexOf(body.paymentSource) === -1) return json_({ ok: false, error: "Select a payment source." });
           bdPaymentSource = body.paymentSource;
         }
+        // Monthly Payment is always monthly scope on its own, never tied
+        // to the target (closed) shift's drawer -- same forcing rule as
+        // every other entry-creation point.
+        const bdExpenseScope = bdPaymentSource === "monthly_payment" ? "monthly" : "daily_shift";
+        const bdResolvedShiftId = bdExpenseScope === "monthly" ? null : bdShift.id;
         let bdReceiptUrl = null;
         if (body.receiptBase64) {
           try {
@@ -3206,8 +3211,8 @@ function doPost(e) {
           category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : "") + " (backdated)",
           supplierId: body.supplierId || null, staffUsername: body.username, status: "approved",
           receiptUrl: bdReceiptUrl, paidFromDrawer: bdPaymentStatus === "paid" && bdPaymentSource === "cash_drawer",
-          shiftId: bdShift.id, materialId: body.materialId || null, qty: bdQty, unitCost: bdUnitCost,
-          paymentSource: bdPaymentSource, paymentStatus: bdPaymentStatus, backdated: true,
+          shiftId: bdResolvedShiftId, materialId: body.materialId || null, qty: bdQty, unitCost: bdUnitCost,
+          paymentSource: bdPaymentSource, paymentStatus: bdPaymentStatus, backdated: true, expenseScope: bdExpenseScope,
           // Bound to the TARGET shift's own business day (see
           // expenseDateForShift_), not recomputed from its close time —
           // this is what makes it show up under the exact historical day
@@ -3223,7 +3228,9 @@ function doPost(e) {
           });
           updateObjectById_("RawMaterials", body.materialId, { unitCost: bdUnitCost, lastPurchaseCost: bdUnitCost });
         }
-        const bdResult = bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), bdShift);
+        // A Monthly Payment entry was never tied to bdResolvedShiftId in
+        // the first place, so there's no shift drawer to recalculate.
+        const bdResult = bdResolvedShiftId ? bizRecalculateClosedShift_(readSessions_(), readObjects_("Ledger"), bdShift) : { ok: false };
         if (bdResult.ok) {
           updateObjectById_("Shifts", bdShift.id, { expectedCash: bdResult.after.expectedCash, discrepancy: bdResult.after.discrepancy });
         }
@@ -3253,7 +3260,7 @@ function doPost(e) {
         if (editExpBefore.type === "sale" || editExpBefore.type === "supplierPayment" || editExpBefore.type === "fixedMonthlyCost") {
           return json_({ ok: false, error: "This entry type can't be edited here." });
         }
-        const editExpValidSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+        const editExpValidSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
         const editExpPatch = body.patch || {};
         const editExpSafePatch = {};
         if (editExpPatch.amount !== undefined) {
@@ -3266,7 +3273,12 @@ function doPost(e) {
         if (editExpPatch.paymentSource !== undefined) {
           if (editExpValidSources.indexOf(editExpPatch.paymentSource) === -1) return json_({ ok: false, error: "Invalid payment source." });
           editExpSafePatch.paymentSource = editExpPatch.paymentSource;
-          if (editExpBefore.paymentStatus !== "unpaid") editExpSafePatch.paidFromDrawer = editExpPatch.paymentSource === "cash_drawer";
+          if (editExpBefore.paymentStatus !== "unpaid") {
+            editExpSafePatch.paidFromDrawer = editExpPatch.paymentSource === "cash_drawer";
+            // Switching an entry TO Monthly Payment always re-forces
+            // monthly scope here too, same rule as every creation point.
+            if (editExpPatch.paymentSource === "monthly_payment") editExpSafePatch.expenseScope = "monthly";
+          }
         }
         if (editExpPatch.expenseDate !== undefined) {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(editExpPatch.expenseDate)) return json_({ ok: false, error: "Date must be in YYYY-MM-DD format." });
@@ -4160,7 +4172,7 @@ function doPost(e) {
 
       case "settleExpense": {
         const settleRole = requireRole_(body.username, ["admin", "cashier"]);
-        const validSettleSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+        const validSettleSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
         if (validSettleSources.indexOf(body.paymentSource) === -1) {
           return json_({ ok: false, error: "Select a payment source." });
         }
@@ -4168,7 +4180,13 @@ function doPost(e) {
         if (!settleEntry) return json_({ ok: false, error: "Entry not found." });
         if (settleEntry.paymentStatus !== "unpaid") return json_({ ok: false, error: "This entry is not marked unpaid." });
         const settlePaidFromDrawer = body.paymentSource === "cash_drawer";
-        const settlePatch = { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: settlePaidFromDrawer };
+        // Settling with Monthly Payment is always monthly scope, same
+        // forcing rule as every creation point -- the original shiftId
+        // (set back when it was first logged as a debt) is cleared so it
+        // never lands against any shift's drawer reconciliation.
+        const settlePatch = body.paymentSource === "monthly_payment"
+          ? { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: false, expenseScope: "monthly", shiftId: null }
+          : { paymentStatus: "paid", paymentSource: body.paymentSource, paidFromDrawer: settlePaidFromDrawer };
         // The cash actually leaves the drawer NOW, at settlement — not
         // whenever this was first logged as a debt (which could be a
         // shift that's already closed). See the local server's
@@ -4904,7 +4922,7 @@ function submitPurchaseInvoice_(body) {
     return { ok: false, error: "Select a supplier and add at least one item." };
   }
   if (body.paymentType === "cash") {
-    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
     if (validSources.indexOf(body.paymentSource) === -1) {
       return { ok: false, error: "Select a payment source for a cash invoice." };
     }
@@ -4963,12 +4981,17 @@ function submitPurchaseInvoice_(body) {
   let ledgerEntryId = null;
   if (paymentType === "cash") {
     ledgerEntryId = cashLedgerEntryId;
+    // A Monthly Payment invoice is never tied to a shift's drawer,
+    // regardless of what shiftId the client happened to send -- same
+    // forcing rule as every other entry-creation point.
+    const invoiceExpenseScope = paymentSource === "monthly_payment" ? "monthly" : "daily_shift";
+    const invoiceResolvedShiftId = invoiceExpenseScope === "monthly" ? null : (body.shiftId || null);
     appendObject_("Ledger", {
       id: ledgerEntryId, ts: now, amount: totalAmount, direction: "outflow", type: "supplierInvoice",
       category: "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",
       supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
-      paidFromDrawer: paymentSource === "cash_drawer", shiftId: body.shiftId || null, materialId: null,
-      qty: null, unitCost: null, paymentSource: paymentSource, paymentStatus: "paid",
+      paidFromDrawer: paymentSource === "cash_drawer", shiftId: invoiceResolvedShiftId, materialId: null,
+      qty: null, unitCost: null, paymentSource: paymentSource, paymentStatus: "paid", expenseScope: invoiceExpenseScope,
       // The admin already picks an explicit Invoice Date on this form
       // (any past date, not just "today") -- that's the authoritative
       // source of which business day this expense belongs to, used
@@ -5060,14 +5083,18 @@ function recordSupplierPayment_(body) {
   if (!body.supplierId || !(Number(body.amount) > 0)) {
     return { ok: false, error: "Select a supplier and enter a valid amount." };
   }
-  const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+  const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
   if (validSources.indexOf(body.paymentSource) === -1) {
     return { ok: false, error: "Select a payment source." };
   }
   if (body.paymentDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.paymentDate)) {
     return { ok: false, error: "Invalid payment date." };
   }
-  const expenseScope = body.expenseScope === "monthly" ? "monthly" : "daily_shift";
+  // Monthly Payment is always monthly scope on its own -- the client
+  // never gets a say here, same forcing rule as every other
+  // entry-creation point. out_of_pocket keeps its existing optional
+  // toggle; cash_drawer always stays daily_shift.
+  const expenseScope = body.paymentSource === "monthly_payment" ? "monthly" : body.paymentSource === "out_of_pocket" && body.expenseScope === "monthly" ? "monthly" : "daily_shift";
   const supplier = readObjects_("Suppliers").find(function (s) { return s.id === body.supplierId; });
   const supplierName = supplier ? supplier.name : "Supplier";
   // Optional — the admin may pick a specific outstanding deferred
@@ -5633,12 +5660,17 @@ function handleSubmitExpense_(body) {
   const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
   let paymentSource = null;
   if (paymentStatus === "paid") {
-    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
     if (validSources.indexOf(body.paymentSource) === -1) {
       return json_({ ok: false, error: "Select a payment source." });
     }
     paymentSource = body.paymentSource;
   }
+  // Monthly Payment is always monthly scope on its own, never tied to
+  // whichever shift happens to be active -- same forcing rule as every
+  // other entry-creation point.
+  const expenseScope = paymentSource === "monthly_payment" ? "monthly" : "daily_shift";
+  const resolvedShiftId = expenseScope === "monthly" ? null : (body.shiftId || null);
 
   let receiptUrl = null;
   if (body.receiptBase64) {
@@ -5659,12 +5691,16 @@ function handleSubmitExpense_(body) {
       category: body.category || "Expense", description: body.itemName + (body.notes ? " — " + body.notes : ""),
       supplierId: body.supplierId || null, staffUsername: body.username, status: isAdmin ? "approved" : "pending",
       receiptUrl: receiptUrl, paidFromDrawer: paymentStatus === "paid" && paymentSource === "cash_drawer",
-      shiftId: body.shiftId || null, materialId: body.materialId || null, qty: qty, unitCost: unitCost,
-      paymentSource: paymentSource, paymentStatus: paymentStatus,
+      shiftId: resolvedShiftId, materialId: body.materialId || null, qty: qty, unitCost: unitCost,
+      paymentSource: paymentSource, paymentStatus: paymentStatus, expenseScope: expenseScope,
       // Bound to the CURRENT ACTIVE SHIFT's own business day whenever a
       // shift is open (shift.businessDayId -> BusinessDays.label), not
       // recomputed from "now" -- see expenseDateForShift_. Falls back to
-      // the timestamp only when no shift is open at all.
+      // the timestamp only when no shift is open at all. Uses the RAW
+      // body.shiftId here (not resolvedShiftId), same reasoning as
+      // recordSupplierPayment_: the business-date label reflects reality
+      // regardless of whether this also counts against that shift's own
+      // drawer.
       expenseDate: expenseDateForShift_(body.shiftId, ts),
     };
     appendObject_("Ledger", entry);
@@ -5710,17 +5746,21 @@ function handleSubmitPurchase_(body) {
   const paymentStatus = body.paymentStatus === "unpaid" ? "unpaid" : "paid";
   let paymentSource = null;
   if (paymentStatus === "paid") {
-    const validSources = ["cash_drawer", "out_of_pocket", "bank_transfer"];
+    const validSources = ["cash_drawer", "out_of_pocket", "monthly_payment"];
     if (validSources.indexOf(body.paymentSource) === -1) {
-      return json_({ ok: false, error: "Select a payment source (Cash Drawer, Out of Pocket, or Bank Transfer)." });
+      return json_({ ok: false, error: "Select a payment source (Cash Drawer, Out of Pocket, or Monthly Payment)." });
     }
     paymentSource = body.paymentSource;
   }
-  // خيارات طريقة الخصم — only meaningful for Out of Pocket/Bank Transfer
-  // (a Cash Drawer purchase is physically tied to whichever shift's
-  // drawer the cash came out of, so it's always daily_shift regardless
-  // of what the client sends). Mirrors recordSupplierPayment_ exactly.
-  const expenseScope = (paymentSource === "out_of_pocket" || paymentSource === "bank_transfer") && body.expenseScope === "monthly"
+  // خيارات طريقة الخصم — Monthly Payment is always monthly scope on its
+  // own, never a client-optional choice (a Cash Drawer purchase is
+  // physically tied to whichever shift's drawer the cash came out of,
+  // so it's always daily_shift regardless of what the client sends; Out
+  // of Pocket keeps the existing optional toggle). Mirrors
+  // recordSupplierPayment_ exactly.
+  const expenseScope = paymentSource === "monthly_payment"
+    ? "monthly"
+    : paymentSource === "out_of_pocket" && body.expenseScope === "monthly"
     ? "monthly"
     : "daily_shift";
 

@@ -484,7 +484,11 @@ export type LedgerType =
 export type LedgerStatus = "approved" | "pending" | "rejected";
 export type LedgerDirection = "inflow" | "outflow";
 
-export type PaymentSource = "cash_drawer" | "out_of_pocket" | "bank_transfer";
+// "monthly_payment" (formerly "bank_transfer") always means خصم من
+// إيراد/أرباح الشهر -- see recordSupplierPayment_/handleSubmitPurchase_
+// in Code.gs: it's never tied to a shift's drawer, regardless of any
+// expenseScope sent with it, and always folds into Fixed Monthly Costs.
+export type PaymentSource = "cash_drawer" | "out_of_pocket" | "monthly_payment";
 
 export interface LedgerEntry {
   id: string;
@@ -500,9 +504,10 @@ export interface LedgerEntry {
   receiptUrl: string | null;
   paidFromDrawer: boolean;
   // More granular than paidFromDrawer — distinguishes "Out of Pocket"
-  // (owner/staff personal expense, no till effect) from "Bank Transfer"
-  // (digital payment, also no till effect) so reporting can break out
-  // Till vs Personal vs Digital separately, not just drawer-or-not.
+  // (owner/staff personal expense, no till effect) from "Monthly
+  // Payment" (always monthly-scope, also no till effect) so reporting
+  // can break out Till vs Personal vs Monthly separately, not just
+  // drawer-or-not.
   paymentSource: PaymentSource | "owner_revenue" | null;
   shiftId: string | null;
   materialId: string | null;

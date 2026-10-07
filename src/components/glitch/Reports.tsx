@@ -112,16 +112,18 @@ function isMonthlyScopeSupplierPayment_(l: LedgerEntry): boolean {
   return l.type === "supplierPayment" && l.expenseScope === "monthly";
 }
 
-// Same idea as isMonthlyScopeSupplierPayment_ above, but for a raw-
-// material purchase logged with Out of Pocket/Bank Transfer and
-// explicitly marked خصم من إيراد/أرباح الشهر (Monthly Revenue) instead
-// of the current shift -- see handleSubmitPurchase_'s expenseScope in
-// Code.gs. Folded into Monthly P&L's Fixed Costs total the same way
+// Same idea as isMonthlyScopeSupplierPayment_ above, but for a
+// purchase or expense explicitly marked خصم من إيراد/أرباح الشهر
+// (Monthly Revenue) instead of the current shift -- either because it
+// was paid with the dedicated Monthly Payment source (always monthly
+// scope on its own) or, for Out of Pocket, because the admin picked
+// Monthly Consolidated on the scope toggle. See handleSubmitPurchase_/
+// handleSubmitExpense_'s expenseScope handling in Code.gs. Folded into
+// Monthly P&L's Fixed Costs total the same way
 // (computeMonthFinancials/MonthlyReconciliationDashboard below), so
-// the stock still arrives immediately but the money is deducted from
-// the month's revenue instead of inflating a daily/shift expense
-// total. A normal Daily Expense (ExpenseSubmitForm) never sets
-// expenseScope at all, so this never matches one of those.
+// the stock/expense still lands immediately but the money is deducted
+// from the month's revenue instead of inflating a daily/shift expense
+// total.
 function isMonthlyScopePurchase_(l: LedgerEntry): boolean {
   return l.type !== "supplierPayment" && l.type !== "fixedMonthlyCost" && l.expenseScope === "monthly";
 }
@@ -1085,7 +1087,7 @@ const EDITABLE_EXPENSE_CATEGORIES = [
 const PAYMENT_SOURCE_LABELS: Record<PaymentSource, string> = {
   cash_drawer: "Cash Drawer / من الدرج",
   out_of_pocket: "Out of Pocket / من الجيب",
-  bank_transfer: "Bank Transfer / Visa / InstaPay",
+  monthly_payment: "Monthly Payment / دفع شهري",
 };
 
 // Admin-only data-repair tool for the month-end/overnight business-day
@@ -1495,8 +1497,12 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
   const [description, setDescription] = useState(entry.description ?? "");
   const [amount, setAmount] = useState(String(entry.amount));
   const [category, setCategory] = useState(entry.category || "Expense");
+  // A legacy entry still carrying the retired "bank_transfer" value
+  // (now Monthly Payment) falls through to "" here, same as any other
+  // unrecognized value -- requiring an explicit re-pick on edit rather
+  // than silently relabeling it.
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">(
-    entry.paymentSource === "cash_drawer" || entry.paymentSource === "out_of_pocket" || entry.paymentSource === "bank_transfer" ? entry.paymentSource : "",
+    entry.paymentSource === "cash_drawer" || entry.paymentSource === "out_of_pocket" || entry.paymentSource === "monthly_payment" ? entry.paymentSource : "",
   );
   // Falls back to a Cairo-pinned label derived from ts for the rare
   // legacy entry logged before expenseDate existed, so the field is
