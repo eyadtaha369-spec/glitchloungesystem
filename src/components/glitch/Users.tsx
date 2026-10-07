@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "@/lib/glitch-store";
-import { Plus, Trash2, Shield, User, Save, Pencil, X, KeyRound } from "lucide-react";
+import { Plus, Trash2, Shield, User, Save, Pencil, X, KeyRound, ShieldAlert } from "lucide-react";
 
 export function UsersPage() {
   const { state, addAccount, deleteAccount, updateAccount } = useStore();
@@ -8,6 +9,11 @@ export function UsersPage() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "cashier">("cashier");
   const [err, setErr] = useState("");
+  // Confirm & Create is gated behind the currently logged-in admin
+  // re-entering their own password (step-up re-authentication) --
+  // nothing is sent to the server until that password is filled in and
+  // the modal's own submit runs; see ConfirmCreateAccountModal below.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Admin self-edit form
   const me = state.currentUser;
@@ -21,12 +27,22 @@ export function UsersPage() {
   const [editPassword, setEditPassword] = useState("");
   const [rowMsg, setRowMsg] = useState<string | null>(null);
 
-  const submit = async () => {
+  // Opens the password-confirmation modal instead of submitting
+  // directly -- the actual addAccount call (and therefore the request
+  // to the server) only happens from inside that modal, once the
+  // current admin's password has been entered and verified.
+  const openConfirm = () => {
     setErr("");
     if (!username || !password) { setErr("Fill both fields"); return; }
-    const ok = await addAccount({ username, password, role });
-    if (!ok) { setErr("Username already exists"); return; }
+    setConfirmOpen(true);
+  };
+
+  const submitWithAdminPassword = async (adminPassword: string) => {
+    const res = await addAccount({ username, password, role, adminPassword });
+    if (!res.ok) return res;
     setUsername(""); setPassword(""); setRole("cashier");
+    setConfirmOpen(false);
+    return res;
   };
 
   const saveSelf = async () => {
@@ -135,7 +151,7 @@ export function UsersPage() {
             <option value="admin">Admin</option>
           </select>
           <button
-            onClick={submit}
+            onClick={openConfirm}
             className="rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm shadow-[0_0_20px_oklch(0.7_0.19_260/0.4)]"
           >
             Create
@@ -143,6 +159,15 @@ export function UsersPage() {
         </div>
         {err && <div className="mt-3 text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
       </div>
+
+      {confirmOpen && (
+        <ConfirmCreateAccountModal
+          newUsername={username}
+          newRole={role}
+          onSubmit={submitWithAdminPassword}
+          onClose={() => setConfirmOpen(false)}
+        />
+      )}
 
       <div className="glass rounded-2xl p-6">
         <h2 className="text-lg font-semibold mb-4">Employee Roster</h2>
@@ -227,5 +252,72 @@ export function UsersPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Step-up re-authentication before creating a new login: the current
+// admin must re-enter their OWN password right now (verified fresh
+// server-side via addAccount -> login_, not just trusted off the
+// already-open session) before the account is actually created.
+// Nothing reaches the server until this password field is filled in
+// and "Confirm & Create" is pressed.
+function ConfirmCreateAccountModal({ newUsername, newRole, onSubmit, onClose }: {
+  newUsername: string;
+  newRole: "admin" | "cashier";
+  onSubmit: (adminPassword: string) => Promise<{ ok: boolean; error?: string }>;
+  onClose: () => void;
+}) {
+  const [adminPassword, setAdminPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!adminPassword) { setErr("Enter your admin password."); return; }
+    setErr(null);
+    setSubmitting(true);
+    try {
+      const res = await onSubmit(adminPassword);
+      if (!res.ok) { setErr(res.error ?? "Could not create the account."); return; }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !submitting && onClose()}>
+      <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-black/50" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+          <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-black">
+            <ShieldAlert className="w-4 h-4" /> Confirm Your Password
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Re-enter your admin password to create <strong>{newUsername}</strong> ({newRole}).
+          </p>
+          <div>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Your Admin Password / كلمة السر</label>
+            <input
+              autoFocus type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          {err && <div className="text-sm text-[oklch(0.62_0.24_25)]">{err}</div>}
+        </div>
+        <div className="p-4 border-t border-black/10 flex justify-end gap-2">
+          <button onClick={onClose} disabled={submitting} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting || !adminPassword}
+            className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-black to-black text-white font-semibold disabled:opacity-60"
+          >
+            {submitting ? "Verifying..." : "Confirm & Create"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

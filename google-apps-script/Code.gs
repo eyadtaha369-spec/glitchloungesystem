@@ -2415,8 +2415,25 @@ function doPost(e) {
         requireRole_(body.username, ["admin"]);
         return json_({ accounts: getAccounts_() });
 
+      // Step-up re-authentication: creating a login (especially another
+      // admin's) is sensitive enough that an already-open session isn't
+      // enough on its own -- the acting admin must re-enter THEIR OWN
+      // current password right now, verified fresh against the
+      // Accounts sheet (same login_ check as signing in), before the
+      // row is appended. Deliberately pinned to body.username (whoever
+      // requireRole_ already confirmed is the acting admin) rather than
+      // an arbitrary admin username, unlike the generic verifyAdminAuth
+      // manager-key override above.
       case "addAccount": {
         requireRole_(body.username, ["admin"]);
+        const authCheck = login_(body.username, body.adminPassword);
+        if (!authCheck.ok || authCheck.role !== "admin") {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "LOGIN_FAILED",
+            description: "Failed password re-confirmation before creating account '" + body.newUsername + "'",
+          });
+          return json_({ ok: false, error: "كلمة السر غير صحيحة" });
+        }
         const result = addAccount_(body.newUsername, body.newPassword, body.newRole);
         if (result.ok) {
           logActivity_({

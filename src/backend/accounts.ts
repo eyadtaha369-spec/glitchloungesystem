@@ -11,7 +11,10 @@ export const getAccountsFn = createServerFn({ method: "GET" }).handler(async () 
 });
 
 export const addAccountFn = createServerFn({ method: "POST" })
-  .validator((d: { username: string; password: string; role: Role }) => d)
+  // adminPassword is the ACTING admin's own current password (step-up
+  // re-confirmation), never the new account's password -- that's
+  // `password` above, kept distinct on purpose.
+  .validator((d: { username: string; password: string; role: Role; adminPassword: string }) => d)
   .handler(async ({ data }) => {
     const me = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string }>("addAccount", {
@@ -19,6 +22,7 @@ export const addAccountFn = createServerFn({ method: "POST" })
       newUsername: data.username,
       newPassword: data.password,
       newRole: data.role,
+      adminPassword: data.adminPassword,
     });
   });
 

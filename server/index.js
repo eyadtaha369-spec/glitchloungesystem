@@ -2153,8 +2153,21 @@ Object.assign(handlers, {
     requireRole_(body.username, ["admin"]);
     return { accounts: getAccounts_() };
   },
+  // Step-up re-authentication: creating a login (especially another
+  // admin's) is sensitive enough that an already-open session isn't
+  // enough on its own -- the acting admin must re-enter THEIR OWN
+  // current password right now, verified fresh against the Accounts
+  // table (same login_ check as signing in), before the INSERT runs.
+  // Deliberately pinned to body.username (whoever requireRole_ already
+  // confirmed is the acting admin) rather than an arbitrary admin
+  // username, unlike the generic verifyAdminAuth manager-key override.
   addAccount(body) {
     requireRole_(body.username, ["admin"]);
+    const auth = login_(body.username, body.adminPassword);
+    if (!auth.ok || auth.role !== "admin") {
+      logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "LOGIN_FAILED", description: "Failed password re-confirmation before creating account '" + body.newUsername + "'" });
+      return { ok: false, error: "كلمة السر غير صحيحة" };
+    }
     const result = addAccount_(body.newUsername, body.newPassword, body.newRole);
     if (result.ok) logActivity_({ actorUsername: body.username, actorRole: "admin", actionType: "ACCOUNT_CREATED", description: "Created account '" + body.newUsername + "' with role " + body.newRole, after: { username: body.newUsername, role: body.newRole } });
     return result;

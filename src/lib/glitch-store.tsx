@@ -152,7 +152,10 @@ interface StoreContextValue {
   lastSyncedAt: number | null;
   login: (u: string, p: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  addAccount: (a: { username: string; password: string; role: Role }) => Promise<boolean>;
+  // adminPassword is the currently logged-in admin's own password,
+  // re-confirmed on the spot before the account is created -- see
+  // addAccountFn/addAccount_ for why.
+  addAccount: (a: { username: string; password: string; role: Role; adminPassword: string }) => Promise<{ ok: boolean; error?: string }>;
   updateAccount: (
     originalUsername: string,
     patch: { username?: string; password?: string; role?: Role },
@@ -614,7 +617,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return withPending("addAccount", async () => {
       const res = await addAccountFn({ data: a });
       if (res.ok) await refreshAccounts(currentUser);
-      return res.ok;
+      return { ok: res.ok, error: res.error };
     });
   };
   const deleteAccount: StoreContextValue["deleteAccount"] = async (username) => {
