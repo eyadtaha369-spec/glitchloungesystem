@@ -35,17 +35,30 @@ function bizSubmitPurchaseInvoice_(deps, body) {
   const materialById = {};
   materials.forEach((m) => { materialById[m.id] = m; });
 
+  // A line item is "tracked" (بند مخزني) whenever it carries a
+  // materialId -- it's picked from the materials dropdown and updates
+  // stock below. Without one, it's "non-tracked" (بند غير مخزني): a
+  // free-typed custom expense (cleaning supplies, maintenance, etc.)
+  // that still counts toward totalAmount/the supplier's balance but
+  // never creates a Batches row or touches RawMaterials, so it can
+  // never show up in a shift's physical-count/discrepancy audit.
   let totalAmount = 0;
   const preparedItems = [];
   for (const it of items) {
-    const material = materialById[it.materialId];
-    if (!material) return { ok: false, error: "One of the selected materials no longer exists." };
     const qty = Number(it.qty);
     const unitPrice = Number(it.unitPrice);
     if (!(qty > 0) || !(unitPrice >= 0)) return { ok: false, error: "Every line item needs a valid quantity and unit price." };
     const subtotal = qty * unitPrice;
     totalAmount += subtotal;
-    preparedItems.push({ materialId: it.materialId, materialName: material.name, qty, unitPrice, subtotal });
+    if (it.materialId) {
+      const material = materialById[it.materialId];
+      if (!material) return { ok: false, error: "One of the selected materials no longer exists." };
+      preparedItems.push({ tracked: true, materialId: it.materialId, materialName: material.name, qty, unitPrice, subtotal });
+    } else {
+      const itemName = String(it.itemName || "").trim();
+      if (!itemName) return { ok: false, error: "Enter a name for the non-stock item, or select a material." };
+      preparedItems.push({ tracked: false, materialId: null, materialName: itemName, qty, unitPrice, subtotal });
+    }
   }
 
   const now = Date.now();
@@ -72,6 +85,11 @@ function bizSubmitPurchaseInvoice_(deps, body) {
       id: newId_("pinvitem"), invoiceId, materialId: it.materialId, materialName: it.materialName,
       qty: it.qty, unitPrice: it.unitPrice, subtotal: it.subtotal,
     });
+    // Non-stock line: the cost is already folded into totalAmount above
+    // (and therefore into the invoice/Ledger/supplier-balance amount
+    // below) -- it just never arrives as physical stock, so no Batches
+    // row and no RawMaterials cost update.
+    if (!it.tracked) return;
     // Stock arrives regardless of payment type — same principle as
     // regular purchases: receiving on credit doesn't change that the
     // material is now physically in hand.

@@ -4932,18 +4932,31 @@ function submitPurchaseInvoice_(body) {
   const materialById = {};
   materials.forEach(function (m) { materialById[m.id] = m; });
 
+  // A line item is "tracked" (بند مخزني) whenever it carries a
+  // materialId -- it's picked from the materials dropdown and updates
+  // stock below. Without one, it's "non-tracked" (بند غير مخزني): a
+  // free-typed custom expense (cleaning supplies, maintenance, etc.)
+  // that still counts toward totalAmount/the supplier's balance but
+  // never creates a Batches row or touches RawMaterials, so it can
+  // never show up in a shift's physical-count/discrepancy audit.
   let totalAmount = 0;
   const preparedItems = [];
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const material = materialById[it.materialId];
-    if (!material) return { ok: false, error: "One of the selected materials no longer exists." };
     const qty = Number(it.qty);
     const unitPrice = Number(it.unitPrice);
     if (!(qty > 0) || !(unitPrice >= 0)) return { ok: false, error: "Every line item needs a valid quantity and unit price." };
     const subtotal = qty * unitPrice;
     totalAmount += subtotal;
-    preparedItems.push({ materialId: it.materialId, materialName: material.name, qty: qty, unitPrice: unitPrice, subtotal: subtotal });
+    if (it.materialId) {
+      const material = materialById[it.materialId];
+      if (!material) return { ok: false, error: "One of the selected materials no longer exists." };
+      preparedItems.push({ tracked: true, materialId: it.materialId, materialName: material.name, qty: qty, unitPrice: unitPrice, subtotal: subtotal });
+    } else {
+      const itemName = String(it.itemName || "").trim();
+      if (!itemName) return { ok: false, error: "Enter a name for the non-stock item, or select a material." };
+      preparedItems.push({ tracked: false, materialId: null, materialName: itemName, qty: qty, unitPrice: unitPrice, subtotal: subtotal });
+    }
   }
 
   const now = Date.now();
@@ -4970,6 +4983,11 @@ function submitPurchaseInvoice_(body) {
       id: newId_("pinvitem"), invoiceId: invoiceId, materialId: it.materialId, materialName: it.materialName,
       qty: it.qty, unitPrice: it.unitPrice, subtotal: it.subtotal,
     });
+    // Non-stock line: the cost is already folded into totalAmount above
+    // (and therefore into the invoice/Ledger/supplier-balance amount
+    // below) -- it just never arrives as physical stock, so no Batches
+    // row and no RawMaterials cost update.
+    if (!it.tracked) return;
     appendObject_("Batches", {
       id: newId_("batch"), materialId: it.materialId, supplierId: body.supplierId,
       qtyPurchased: it.qty, qtyRemaining: it.qty, unitCost: it.unitPrice, purchasedAt: now, source: "supplierInvoice",

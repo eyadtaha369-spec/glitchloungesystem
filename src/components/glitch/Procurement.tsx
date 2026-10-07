@@ -863,7 +863,16 @@ function AdvancesForm() {
   );
 }
 
-type InvoiceLineItem = { materialId: string; qty: string; unitPrice: string };
+// tracked: true  -- "بند مخزني" / Standard Material (In Stock): picked
+//   from the materials dropdown, updates stock (Batches + RawMaterials
+//   cost) exactly like before.
+// tracked: false -- "بند غير مخزني" / Custom Expense (Non-Stock): a
+//   free-typed name (cleaning supplies, maintenance, etc.) that counts
+//   toward the invoice total and the supplier's balance/ledger but
+//   never touches inventory -- no Batches row, no RawMaterials update,
+//   so it can never show up in a shift's physical-count/discrepancy
+//   audit.
+type InvoiceLineItem = { tracked: boolean; materialId: string; itemName: string; qty: string; unitPrice: string };
 
 function SupplierInvoiceForm() {
   const { state, activeShift, submitPurchaseInvoice } = useStore();
@@ -877,7 +886,7 @@ function SupplierInvoiceForm() {
   const [invoiceDate, setInvoiceDate] = useState(() => cairoDateLabel(Date.now()));
   const [paymentType, setPaymentType] = useState<"cash" | "deferred">("cash");
   const [paymentSource, setPaymentSource] = useState<PaymentSource | "">("");
-  const [items, setItems] = useState<InvoiceLineItem[]>([{ materialId: "", qty: "", unitPrice: "" }]);
+  const [items, setItems] = useState<InvoiceLineItem[]>([{ tracked: true, materialId: "", itemName: "", qty: "", unitPrice: "" }]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -887,19 +896,19 @@ function SupplierInvoiceForm() {
   const updateItem = (idx: number, patch: Partial<InvoiceLineItem>) => {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   };
-  const addLine = () => setItems((prev) => [...prev, { materialId: "", qty: "", unitPrice: "" }]);
+  const addLine = () => setItems((prev) => [...prev, { tracked: true, materialId: "", itemName: "", qty: "", unitPrice: "" }]);
   const removeLine = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
 
   const reset = () => {
     setSupplierId(""); setInvoiceDate(cairoDateLabel(Date.now())); setPaymentType("cash"); setPaymentSource("");
-    setItems([{ materialId: "", qty: "", unitPrice: "" }]);
+    setItems([{ tracked: true, materialId: "", itemName: "", qty: "", unitPrice: "" }]);
   };
 
   const submit = async () => {
     setResult(null);
     if (!supplierId) { setResult({ kind: "err", text: "Select a supplier." }); return; }
-    const validItems = items.filter((it) => it.materialId && parseFloat(it.qty) > 0);
-    if (validItems.length === 0) { setResult({ kind: "err", text: "Add at least one line item with a material and quantity." }); return; }
+    const validItems = items.filter((it) => (it.tracked ? !!it.materialId : !!it.itemName.trim()) && parseFloat(it.qty) > 0);
+    if (validItems.length === 0) { setResult({ kind: "err", text: "Add at least one line item with a material (or item name) and quantity." }); return; }
     if (paymentType === "cash" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Deferred instead." }); return; }
     setSubmitting(true);
     try {
@@ -915,7 +924,15 @@ function SupplierInvoiceForm() {
         invoiceDate,
         paymentType,
         paymentSource: paymentType === "cash" ? (paymentSource as PaymentSource) : undefined,
-        items: validItems.map((it) => ({ materialId: it.materialId, qty: parseFloat(it.qty), unitPrice: parseFloat(it.unitPrice) || 0 })),
+        items: validItems.map((it) => (
+          it.tracked
+            ? { materialId: it.materialId, qty: parseFloat(it.qty), unitPrice: parseFloat(it.unitPrice) || 0 }
+            // No materialId at all -- this is what tells the backend to
+            // skip Batches/RawMaterials entirely for this line, not just
+            // an empty string (which would fail the "material not found"
+            // check instead of being treated as non-stock).
+            : { itemName: it.itemName.trim(), qty: parseFloat(it.qty), unitPrice: parseFloat(it.unitPrice) || 0 }
+        )),
       });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
@@ -953,14 +970,40 @@ function SupplierInvoiceForm() {
         {items.map((it, idx) => {
           const subtotal = (parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0);
           return (
-            <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_100px_120px_110px_32px] gap-2 items-center bg-black/5 border border-black/8 rounded-lg p-2">
-              <SearchableMaterialSelect materials={state.materials} value={it.materialId} onChange={(id) => updateItem(idx, { materialId: id })} />
-              <input type="number" step="0.01" placeholder="Qty" value={it.qty} onChange={(e) => updateItem(idx, { qty: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
-              <input type="number" step="0.01" placeholder="Unit price" value={it.unitPrice} onChange={(e) => updateItem(idx, { unitPrice: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
-              <div className="text-sm font-mono font-semibold text-right px-1">{fmtMoney(subtotal)}</div>
-              <button type="button" onClick={() => removeLine(idx)} disabled={items.length === 1} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)] disabled:opacity-30 justify-self-center">
-                <XCircle className="w-4 h-4" />
-              </button>
+            <div key={idx} className="bg-black/5 border border-black/8 rounded-lg p-2 space-y-2">
+              <div className="flex rounded-lg border border-black/10 overflow-hidden w-fit text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => updateItem(idx, { tracked: true })}
+                  className={`px-2.5 py-1 transition ${it.tracked ? "bg-[oklch(0.78_0.2_155/0.25)] text-[oklch(0.78_0.2_155)]" : "bg-white/70 text-muted-foreground hover:bg-black/8"}`}
+                >
+                  Standard Material / بند مخزني
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(idx, { tracked: false })}
+                  className={`px-2.5 py-1 border-l border-black/10 transition ${!it.tracked ? "bg-black/20 text-[#2b2416]" : "bg-white/70 text-muted-foreground hover:bg-black/8"}`}
+                >
+                  Custom Expense (Non-Stock) / بند غير مخزني
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_100px_120px_110px_32px] gap-2 items-center">
+                {it.tracked ? (
+                  <SearchableMaterialSelect materials={state.materials} value={it.materialId} onChange={(id) => updateItem(idx, { materialId: id })} />
+                ) : (
+                  <input
+                    type="text" placeholder="Item name (e.g. cleaning supplies, maintenance)"
+                    value={it.itemName} onChange={(e) => updateItem(idx, { itemName: e.target.value })}
+                    className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                  />
+                )}
+                <input type="number" step="0.01" placeholder="Qty" value={it.qty} onChange={(e) => updateItem(idx, { qty: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
+                <input type="number" step="0.01" placeholder="Unit price" value={it.unitPrice} onChange={(e) => updateItem(idx, { unitPrice: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
+                <div className="text-sm font-mono font-semibold text-right px-1">{fmtMoney(subtotal)}</div>
+                <button type="button" onClick={() => removeLine(idx)} disabled={items.length === 1} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)] disabled:opacity-30 justify-self-center">
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           );
         })}

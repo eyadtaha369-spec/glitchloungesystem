@@ -273,7 +273,10 @@ export const submitPurchaseInvoiceFn = createServerFn({ method: "POST" })
     invoiceDate?: string | number;
     paymentType: "cash" | "deferred";
     paymentSource?: "cash_drawer" | "out_of_pocket" | "monthly_payment";
-    items: { materialId: string; qty: number; unitPrice: number }[];
+    // A tracked item carries materialId (and updates stock); a
+    // non-tracked ("Custom Expense / بند غير مخزني") item carries
+    // itemName instead and never touches Batches/RawMaterials.
+    items: ({ materialId: string; itemName?: never; qty: number; unitPrice: number } | { materialId?: never; itemName: string; qty: number; unitPrice: number })[];
     shiftId?: string | null;
   }) => d)
   .handler(async ({ data }) => {
