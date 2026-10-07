@@ -10,9 +10,11 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
 
-  // This page is admin-only (enforced in App.tsx — a cashier is redirected
-  // before ever rendering this), so every number here is the full day,
-  // with no cashier/shift-scoped variant to branch on anymore.
+  // Cashiers and admins both reach this page now (App.tsx/Sidebar.tsx no
+  // longer gate it). Most of the numbers below are business-wide, same
+  // as before — only the Daily Financial Reconciliation panel and the
+  // Expenses History table beneath it are scoped to the active shift,
+  // via computeShiftFinancials/state.shiftExpenses.
   const roomsOnly = state.rooms.filter((r) => r.zone === "room");
   const activeRooms = roomsOnly.filter((r) => r.status === "active");
   const available = roomsOnly.length - activeRooms.length;
@@ -63,6 +65,8 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
       <ShiftBar />
 
       <DailyReconciliationPanel />
+
+      <ShiftExpensesHistoryPanel />
 
       {/* Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -419,6 +423,48 @@ function DailyReconciliationPanel() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Per-entry breakdown of the "Daily Expenses" KPI above — same shift
+// isolation, just row-by-row instead of a single total. Reads
+// state.shiftExpenses, which the backend (getShiftExpensesFn →
+// getShiftExpenses) already scopes to ONLY state.activeShiftId using
+// the exact predicate computeShiftFinancials uses, so these rows
+// always sum to that KPI and never include a previous/closed shift's
+// expenses. Unlike the reconciliation panel above, this is visible
+// and populated for cashiers too — it's the one piece of this page
+// built specifically for their own shift, not business-wide data.
+function ShiftExpensesHistoryPanel() {
+  const { state } = useStore();
+  const { t } = useLanguage();
+  const entries = [...state.shiftExpenses].sort((a, b) => b.ts - a.ts);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0b0d12] text-white p-6 shadow-[0_0_40px_rgba(0,0,0,0.3)]">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <Receipt className="w-4 h-4 text-[oklch(0.7_0.19_260)]" /> {t("dashboard.shiftExpensesHistory")}
+      </h2>
+      <p className="text-xs text-white/40 mt-0.5">{t("dashboard.shiftExpensesHistorySubtitle")}</p>
+
+      <div className="mt-4">
+        {!state.activeShiftId ? (
+          <div className="text-sm text-white/40">{t("dashboard.noActiveShiftForExpenses")}</div>
+        ) : entries.length === 0 ? (
+          <div className="text-sm text-white/40">{t("dashboard.noShiftExpensesYet")}</div>
+        ) : (
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {entries.map((e) => (
+              <div key={e.id} className="flex items-center justify-between gap-3 text-xs font-mono py-2 px-2.5 rounded bg-white/5">
+                <span className="text-white/40 shrink-0">{new Date(e.ts).toLocaleString()}</span>
+                <span className="text-white/70 truncate flex-1">{e.description || e.category}</span>
+                <span className="text-[oklch(0.62_0.24_25)] shrink-0">-{fmtMoney(e.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

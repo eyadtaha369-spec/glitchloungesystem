@@ -1736,6 +1736,26 @@ Object.assign(handlers, {
     return { items: readObjects_("Ledger") };
   },
 
+  // Cashier-safe cousin of getLedger above — scoped strictly to the
+  // CURRENTLY active shift's own approved drawer expenses, same
+  // predicate computeShiftFinancials uses client-side for the "Daily
+  // Expenses" KPI, so these rows always sum to that number. Never
+  // exposes other (previous/closed) shifts, pending items, or
+  // non-drawer entries (monthly payments, supplier invoices) — those
+  // stay admin-only via getLedger. Returns an empty list with no
+  // active shift, and automatically reflects whichever shift is
+  // active by the time this is called, so a cashier's view clears on
+  // its own the moment a shift closes and a new one opens.
+  getShiftExpenses(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    const state = getState_();
+    if (!state.activeShiftId) return { items: [] };
+    const items = readObjects_("Ledger").filter(
+      (l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && l.shiftId === state.activeShiftId,
+    );
+    return { items };
+  },
+
   // ---- Voids ----
   requestVoid(body) {
     const role = requireRole_(body.username, ["admin", "cashier"]);

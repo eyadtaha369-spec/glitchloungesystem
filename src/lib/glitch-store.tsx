@@ -88,7 +88,7 @@ import {
   submitExpenseFn, submitBackdatedExpenseFn, editExpenseFn, deleteExpenseFn, backfillExpenseDatesFn, resyncSupplierPaymentExpensesFn, getUnpaidExpensesFn, settleExpenseFn,
   submitPurchaseInvoiceFn, recordSupplierPaymentFn, recordStaffAdvanceFn, getSupplierBalancesFn, getSupplierLedgerFn,
   deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, clearExpensesLedgerFn, addFixedMonthlyCostFn, updateFixedMonthlyCostFn, deleteFixedMonthlyCostFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
-  getLedgerFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
+  getLedgerFn, getShiftExpensesFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
 import {
   requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn, verifyAdminAuthFn, reconcileUnapprovedVoidFn,
@@ -114,6 +114,11 @@ interface State extends AppState {
   suppliers: Supplier[];
   recurringExpenses: RecurringExpense[];
   ledger: LedgerEntry[];
+  // Cashier-visible breakdown of the active shift's own approved
+  // drawer expenses (see getShiftExpensesFn) — unlike `ledger` above,
+  // this is populated for every role, not just admin, and is always
+  // scoped to state.activeShiftId by the backend itself.
+  shiftExpenses: LedgerEntry[];
   pendingApprovals: LedgerEntry[];
   voidRequests: VoidRequest[];
   activityLogs: AuditLogEntry[];
@@ -435,6 +440,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [shiftExpenses, setShiftExpenses] = useState<LedgerEntry[]>([]);
   const [unpaidExpenses, setUnpaidExpenses] = useState<LedgerEntry[]>([]);
   const [supplierBalances, setSupplierBalances] = useState<Record<string, number>>({});
   const [pendingApprovals, setPendingApprovals] = useState<LedgerEntry[]>([]);
@@ -496,7 +502,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // requests are admin-only.
   const refreshFinance = useCallback(async (user: CurrentUser | null) => {
     if (!user) {
-      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]); setEventBookings([]);
+      setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setShiftExpenses([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]); setEventBookings([]);
       return;
     }
     try {
@@ -506,6 +512,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setRestockLog(restocks);
       setStaffMembers(staffMems);
       setEventBookings(bookings);
+    } catch { /* leave as-is */ }
+    // Dashboard's shift-scoped Expenses History is cashier-visible too
+    // (getShiftExpensesFn is role-agnostic — it's the backend that
+    // scopes the result to only the active shift), unlike everything
+    // else in this block, which stays admin-only.
+    try {
+      setShiftExpenses(await getShiftExpensesFn());
     } catch { /* leave as-is */ }
     if (user.role === "admin") {
       try {
@@ -524,6 +537,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
   const refreshLedger: StoreContextValue["refreshLedger"] = async () => {
+    try {
+      setShiftExpenses(await getShiftExpensesFn());
+    } catch { /* leave as-is */ }
     if (currentUser?.role !== "admin") return;
     const [led, pend] = await Promise.all([getLedgerFn(), getPendingApprovalsFn()]);
     setLedger(led);
@@ -570,11 +586,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (pendingRef.current.size > 0) return;
       setConnectionStatus((prev) => (prev === "offline" ? "syncing" : prev));
       try {
-        const [state, bookings, staffMems] = await Promise.all([getStateFn(), getEventBookingsFn(), getStaffMembersFn()]);
+        const [state, bookings, staffMems, shiftExp] = await Promise.all([getStateFn(), getEventBookingsFn(), getStaffMembersFn(), getShiftExpensesFn()]);
         if (pendingRef.current.size > 0) return;
         setAppState(state);
         setEventBookings(bookings);
         setStaffMembers(staffMems);
+        setShiftExpenses(shiftExp);
         setConnectionStatus("synced");
         setLastSyncedAt(Date.now());
       } catch (e) {
@@ -1748,7 +1765,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.floor(raw - pausedSoFar + (room.timeAdjustmentSec || 0)));
   };
 
-  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, pendingApprovals, voidRequests, activityLogs, staffOrders, staffMembers, eventBookings, restockLog };
+  const state: State = { ...appState, currentUser, accounts, materials, suppliers, recurringExpenses, ledger, shiftExpenses, pendingApprovals, voidRequests, activityLogs, staffOrders, staffMembers, eventBookings, restockLog };
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {

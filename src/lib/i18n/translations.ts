@@ -188,6 +188,10 @@ export const translations = {
     reconciliationSaved: { en: "Reconciliation saved", ar: "تم حفظ التسوية" },
     reconciliationHistory: { en: "Reconciliation History", ar: "سجل التسويات" },
     noHistoryYet: { en: "No reconciliations recorded yet.", ar: "لا توجد تسويات مسجلة بعد." },
+    shiftExpensesHistory: { en: "Expenses History", ar: "سجل مصاريف الشيفت" },
+    shiftExpensesHistorySubtitle: { en: "This shift's own expenses only — clears when a new shift starts.", ar: "مصاريف هذه الوردية فقط — تُمسح عند بدء وردية جديدة." },
+    noShiftExpensesYet: { en: "No expenses logged on this shift yet.", ar: "لا توجد مصاريف مسجلة في هذه الوردية بعد." },
+    noActiveShiftForExpenses: { en: "No active shift — open a shift to start logging expenses.", ar: "لا توجد وردية نشطة — ابدأ وردية لتسجيل المصاريف." },
   },
 } as const;
 

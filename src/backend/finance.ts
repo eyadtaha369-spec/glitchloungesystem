@@ -571,6 +571,15 @@ export const getLedgerFn = createServerFn({ method: "GET" }).handler(async () =>
   const res = await callAppsScript<{ items: LedgerEntry[] }>("getLedger", { username: user.username });
   return res.items;
 });
+// Cashier-safe cousin of getLedgerFn above — any logged-in user
+// (admin or cashier) can call this; the backend itself scopes the
+// result to only the currently active shift's own approved drawer
+// expenses, so there's nothing broader to accidentally expose here.
+export const getShiftExpensesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const res = await callAppsScript<{ items: LedgerEntry[] }>("getShiftExpenses", { username: user.username });
+  return res.items;
+});
 export const getPendingApprovalsFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireAdmin();
   const res = await callAppsScript<{ items: LedgerEntry[] }>("getPendingApprovals", { username: user.username });

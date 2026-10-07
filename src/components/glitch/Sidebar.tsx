@@ -8,7 +8,7 @@ import logo from "@/assets/glitch-logo.jpg";
 export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit" | "leaderboard" | "analytics" | "bookings";
 
 const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
-  { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, adminOnly: true },
+  { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { id: "rooms", labelKey: "nav.rooms", icon: Gamepad2 },
   { id: "lounge", labelKey: "nav.lounge", icon: Sofa },
   { id: "bookings", labelKey: "nav.bookings", icon: PartyPopper },
