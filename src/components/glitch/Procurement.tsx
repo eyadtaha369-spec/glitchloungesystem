@@ -1477,11 +1477,16 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
   };
 
   return (
-    // Centered, constrained to 90% of the viewport height so it never
+    // Centered, constrained to 85% of the viewport height so it never
     // grows taller than the screen on a short/zoomed-in window.
-    <div className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onClick={() => !saving && onClose()}>
+    // z-[9999] is deliberately the highest value in this file -- this
+    // is a leaf modal (nothing else ever needs to layer above it), so
+    // there's no ceiling to stay under the way EditInvoiceModal itself
+    // has to stay under nothing but above the SupplierStatementModal
+    // it's opened from.
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !saving && onClose()}>
       <div
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white shadow-2xl rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.6)] overflow-hidden"
+        className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-white shadow-2xl rounded-2xl border-2 border-[oklch(0.7_0.19_260/0.6)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-black/10 shrink-0 bg-white">
@@ -1490,14 +1495,14 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
 
         {/* min-h-0 is the actual fix for the clipping bug: without it, a
             flex child with overflow-y-auto still grows to fit all its
-            content instead of respecting the column's max-h-[90vh],
+            content instead of respecting the column's max-h-[85vh],
             which is what was pushing the Save/Cancel footer off-screen
             on longer invoices. With it, only this middle section
             scrolls and the header/footer (both shrink-0) stay fixed in
             place — functionally the same guarantee "sticky" would give,
             since they're flex siblings outside the scrolling area, not
             stacked on top of it. */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 bg-white">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 bg-white">
           <label className="text-xs font-semibold uppercase tracking-widest text-[#2b2416]/70">Transaction Date</label>
           <input
             type="date" value={invoiceDateInput} onChange={(e) => setInvoiceDateInput(e.target.value)}
@@ -1567,7 +1572,7 @@ function EditInvoiceModal({ entry, onClose, onSaved }: { entry: SupplierLedgerEn
           {err && <div className="text-sm font-semibold text-[oklch(0.55_0.24_25)] mt-3">{err}</div>}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/10 shrink-0 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-black/10 shrink-0 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-10">
           <button onClick={onClose} disabled={saving} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-black/5 border border-black/20 text-[#2b2416] hover:bg-black/10 disabled:opacity-50">
             Cancel / إلغاء
           </button>
