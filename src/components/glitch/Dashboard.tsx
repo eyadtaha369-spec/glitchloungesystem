@@ -266,7 +266,13 @@ function DailyReconciliationPanel() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Awaited<ReturnType<typeof getDailyReconciliationHistory>> | null>(null);
 
-  const financials = computeShiftFinancials(state.sessions, state.ledger, state.activeShiftId);
+  // state.shiftExpenses, NOT state.ledger: the full ledger is admin-only
+  // (always empty for a cashier) and only refreshes on admin mutations,
+  // whereas shiftExpenses is already scoped to the active shift by the
+  // backend, is available to every role, and is re-polled every 12s --
+  // so Daily Expenses and Expected Cash stay correct and current for
+  // both. computeShiftFinancials' own filter is idempotent on it.
+  const financials = computeShiftFinancials(state.sessions, state.shiftExpenses, state.activeShiftId);
   const actualCash = parseFloat(actualCashInput);
   const instapayTotal = parseFloat(instapayInput) || 0;
   const visaTotal = parseFloat(visaInput) || 0;

@@ -60,6 +60,10 @@ function bizSubmitPurchaseInvoice_(deps, body) {
       preparedItems.push({ tracked: false, materialId: null, materialName: itemName, qty, unitPrice, subtotal });
     }
   }
+  // A zero-total invoice is never legitimate (a blank unit price used to
+  // coerce to 0 and save as EGP 0.00) -- refuse it outright rather than
+  // writing an empty invoice/Ledger entry.
+  if (!(totalAmount > 0)) return { ok: false, error: "The invoice total can't be 0.00 — check the quantities and unit prices." };
 
   const now = Date.now();
   const invoiceId = newId_("pinv");

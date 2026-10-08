@@ -910,6 +910,17 @@ function SupplierInvoiceForm() {
     const validItems = items.filter((it) => (it.tracked ? !!it.materialId : !!it.itemName.trim()) && parseFloat(it.qty) > 0);
     if (validItems.length === 0) { setResult({ kind: "err", text: "Add at least one line item with a material (or item name) and quantity." }); return; }
     if (paymentType === "cash" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Deferred instead." }); return; }
+    // A blank unit price used to be silently coerced to 0 below, which
+    // let an invoice save (and then report) as EGP 0.00 -- most visibly
+    // for Monthly Payment invoices, where the amount IS the whole point.
+    // Every line needs an explicit price, and the invoice as a whole
+    // can't total zero.
+    if (validItems.some((it) => it.unitPrice.trim() === "" || !(parseFloat(it.unitPrice) >= 0))) {
+      setResult({ kind: "err", text: "Enter a unit price for every line item." });
+      return;
+    }
+    const invoiceTotal = validItems.reduce((a, it) => a + parseFloat(it.qty) * parseFloat(it.unitPrice), 0);
+    if (!(invoiceTotal > 0)) { setResult({ kind: "err", text: "The invoice total can't be 0.00 — check the quantities and unit prices." }); return; }
     setSubmitting(true);
     try {
       const res = await submitPurchaseInvoice({

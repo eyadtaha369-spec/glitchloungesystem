@@ -1316,6 +1316,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         try {
           if (res.state) setAppState(res.state);
           await refreshSupplierBalances();
+          // A cash/Monthly Payment invoice writes a Ledger entry -- without
+          // this, Reports (Fixed Monthly Costs, Expenses, Net Profit) and
+          // the Dashboard's shift expenses kept showing stale figures
+          // until the next unrelated refresh.
+          await refreshLedger();
         } catch (e) {
           console.error("Post-invoice refresh failed (invoice itself still succeeded):", e);
         }

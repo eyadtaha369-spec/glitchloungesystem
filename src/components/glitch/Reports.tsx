@@ -143,6 +143,24 @@ function isMonthlyScopePurchase_(l: LedgerEntry): boolean {
   return l.type !== "supplierPayment" && l.type !== "fixedMonthlyCost" && l.expenseScope === "monthly";
 }
 
+// THE single definition of "what counts as a Fixed Monthly Cost" -- used
+// by the Financial Reconciliation card, the Monthly P&L / Audit Report
+// (computeMonthFinancials), AND the Fixed Monthly Costs table, so they
+// can never disagree again. Before this, the card and P&L folded in
+// monthly-scope purchases/invoices (Monthly Payment) but the table only
+// listed fixedMonthlyCost + monthly supplier payments, and the card's
+// rule on its own was too loose (it also swept in staff advances, which
+// are already deducted on their own line, plus rejected/unpaid
+// entries). A monthly-scope purchase only counts when it would
+// otherwise have been a normal operational expense (isOperationalExpense:
+// approved, paid, outflow, not an advance/waste/write-off), which is
+// also exactly the set totalExpenses removes via isMonthlyScopePurchase_,
+// so nothing is dropped or double-counted between the two buckets.
+function isFixedMonthlyCostEntry_(l: LedgerEntry): boolean {
+  if (l.type === "fixedMonthlyCost") return l.status === "approved";
+  return isMonthlyScopeSupplierPayment_(l) || (isMonthlyScopePurchase_(l) && isOperationalExpense(l));
+}
+
 // This café's confirmed real operating cycle: a "business day" runs
 // 8:00 AM to 7:59:59 AM the next calendar day, not midnight to
 // midnight. A shift that opens at 11 PM and runs until 4 AM belongs
@@ -349,10 +367,11 @@ function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], mon
   ]
     .filter((l) => expenseMatchesMonth_(l, monthShiftIds, from, to, monthStr))
     .reduce((a, l) => a + Number(l.amount), 0);
-  const fixedCosts = filterByBusinessDay(
-    state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l) || isMonthlyScopePurchase_(l)),
-    monthShiftIds, from, to,
-  ).reduce((a, l) => a + Number(l.amount), 0);
+  // expenseMatchesMonth_ (not filterByBusinessDay): honors a backdated
+  // entry's own expenseDate, same as every other expense bucket above.
+  const fixedCosts = state.ledger
+    .filter((l) => isFixedMonthlyCostEntry_(l) && expenseMatchesMonth_(l, monthShiftIds, from, to, monthStr))
+    .reduce((a, l) => a + Number(l.amount), 0);
   // إجمالي السلف والخصومات الشهرية — deducted here, at month-end, and
   // ONLY here: never part of "expenses" above (which feeds Daily
   // Expenses too), so an advance never touches any day's own totals.
@@ -1986,11 +2005,8 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   // -- same reasoning as computeMonthFinancials -- plus any raw-
   // material purchase funded the same way (isMonthlyScopePurchase_).
   const monthFixedCosts = useMemo(
-    () => filterByBusinessDay(
-      state.ledger.filter((l) => (l.type === "fixedMonthlyCost" && l.status === "approved") || isMonthlyScopeSupplierPayment_(l) || isMonthlyScopePurchase_(l)),
-      monthShiftIds, monthStart, monthEnd,
-    ),
-    [state.ledger, monthShiftIds, monthStart, monthEnd],
+    () => state.ledger.filter((l) => isFixedMonthlyCostEntry_(l) && expenseMatchesMonth_(l, monthShiftIds, monthStart, monthEnd, selectedMonth)),
+    [state.ledger, monthShiftIds, monthStart, monthEnd, selectedMonth],
   );
   const totalFixedExpenses = useMemo(() => monthFixedCosts.reduce((a, l) => a + Number(l.amount), 0), [monthFixedCosts]);
 
@@ -2258,16 +2274,31 @@ function FixedMonthlyCostsLedger() {
   // total, which feeds the Monthly P&L's own Fixed Costs figure via
   // computeMonthFinancials/MonthlyReconciliationDashboard) reflects the
   // full picture of what's actually being funded from monthly revenue.
+  // Uses the same isFixedMonthlyCostEntry_ rule as the Financial
+  // Reconciliation card and Monthly P&L, so Monthly Payment supplier
+  // invoices / purchases / expenses appear here the moment they're
+  // saved and this table's total can't drift from the card's.
   const allEntries = useMemo(
-    () => state.ledger.filter((l) => l.type === "fixedMonthlyCost" || isMonthlyScopeSupplierPayment_(l)).sort((a, b) => b.ts - a.ts),
+    () => state.ledger.filter(isFixedMonthlyCostEntry_).sort((a, b) => b.ts - a.ts),
     [state.ledger],
   );
   const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
-  const entries = useMemo(() => allEntries.filter((l) => l.ts >= from && l.ts <= to), [allEntries, from, to]);
+  // expenseMatchesRange_ (not a raw ts compare) so a backdated invoice
+  // lands under the date the admin actually picked, matching the card.
+  const entries = useMemo(
+    () => allEntries.filter((l) => expenseMatchesRange_(l, new Set<string>(), from, to, startDate, endDate)),
+    [allEntries, from, to, startDate, endDate],
+  );
   const total = entries.reduce((a, l) => a + Number(l.amount), 0);
   const rangeLabel = formatRangeLabel(startDate, endDate);
 
   const categoryLabel = (l: LedgerEntry) => (l.type === "supplierPayment" ? MONTHLY_SUPPLIER_PAYMENT_CATEGORY_LABEL : l.category);
+  // Only genuine fixed costs and merged-in supplier payments can be
+  // edited/deleted from this table; a Monthly Payment invoice, purchase
+  // or expense shown here is managed where it was created (Procurement),
+  // since deleting it needs that flow's stock/supplier-balance handling.
+  const isManagedHere = (l: LedgerEntry) => l.type === "fixedMonthlyCost" || l.type === "supplierPayment";
+  const sourceLabel = (l: LedgerEntry) => (l.paymentSource === "monthly_payment" ? "Monthly Payment" : "Owner Revenue");
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -2302,7 +2333,7 @@ function FixedMonthlyCostsLedger() {
           { header: "Date & Time" }, { header: "Expense" }, { header: "Amount EGP", align: "right" },
           { header: "Category" }, { header: "Logged By" }, { header: "Payment Source" },
         ],
-        rows: entries.map((l) => [new Date(l.ts).toLocaleString(), l.description, fmtMoney(Number(l.amount)), categoryLabel(l), l.staffUsername, "Owner Revenue"]),
+        rows: entries.map((l) => [new Date(l.ts).toLocaleString(), l.description, fmtMoney(Number(l.amount)), categoryLabel(l), l.staffUsername, sourceLabel(l)]),
         summaryLines: [
           { label: "Entries", value: String(entries.length) },
           { label: "Total", value: fmtMoney(total) },
@@ -2342,7 +2373,7 @@ function FixedMonthlyCostsLedger() {
       </div>
       <p className="text-xs text-muted-foreground mb-4">
         Rent, utilities, internet, subscriptions — paid directly from owner revenue, never from the daily cashier
-        drawer — plus any supplier debt payment recorded as خصم من إيراد/أرباح الشهر (Monthly Revenue) rather than a
+        drawer — plus any supplier debt payment, supplier invoice, purchase or expense recorded as Monthly Payment / خصم من إيراد/أرباح الشهر (Monthly Revenue) rather than a
         shift's drawer. These never affect a shift's Expected Cash or count toward a drawer discrepancy. Showing {rangeLabel}.
       </p>
       {entries.length === 0 ? (
@@ -2382,21 +2413,26 @@ function FixedMonthlyCostsLedger() {
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.62_0.24_25)]">{fmtMoney(Number(l.amount))}</td>
                   <td className="py-2 pr-3">{categoryLabel(l)}</td>
                   <td className="py-2 pr-3">{l.staffUsername}</td>
-                  <td className="py-2 pr-3 text-xs uppercase">Owner Revenue</td>
+                  <td className="py-2 pr-3 text-xs uppercase">{sourceLabel(l)}</td>
                   <td className="py-2 pr-3">
                     <div className="flex items-center justify-end gap-1.5">
                       {/* A merged-in supplier payment has no edit path here
                           -- it's edited/settled from Supplier Payments
                           itself, not as a fixed cost -- so only Delete
                           applies to it. */}
-                      {l.type !== "supplierPayment" && (
+                      {!isManagedHere(l) && (
+                        <span className="text-[10px] text-muted-foreground">Managed in Procurement</span>
+                      )}
+                      {l.type === "fixedMonthlyCost" && (
                         <button onClick={() => { setEditingEntry(l); setFormOpen(true); }} title="Edit" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      <button onClick={() => setDeleteTarget(l)} title="Delete" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isManagedHere(l) && (
+                        <button onClick={() => setDeleteTarget(l)} title="Delete" className="w-7 h-7 flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
