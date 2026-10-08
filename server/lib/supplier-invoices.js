@@ -115,7 +115,12 @@ function bizSubmitPurchaseInvoice_(deps, body) {
     const invoiceResolvedShiftId = invoiceExpenseScope === "monthly" ? null : (body.shiftId || null);
     appendObject_("Ledger", {
       id: ledgerEntryId, ts: now, amount: totalAmount, direction: "outflow", type: "supplierInvoice",
-      category: "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",
+      // Monthly Payment invoices are labeled as the fixed/overhead
+      // monthly cost they are treated as (shown under this category in
+      // Reports > Fixed Monthly Costs). Routing is driven by expenseScope
+      // + shiftId: null above, not by this label; type stays
+      // "supplierInvoice" so supplier-balance logic is unaffected.
+      category: paymentSource === "monthly_payment" ? "Supplier Payment / Fixed Overhead" : "Supplier Invoice", description: "Invoice from " + (body.supplierName || "supplier") + " (" + preparedItems.length + " item" + (preparedItems.length === 1 ? "" : "s") + ")",
       supplierId: body.supplierId, staffUsername: body.username, status: "approved", receiptUrl: null,
       paidFromDrawer: paymentSource === "cash_drawer", shiftId: invoiceResolvedShiftId, materialId: null,
       qty: null, unitCost: null, paymentSource, paymentStatus: "paid", expenseScope: invoiceExpenseScope,
