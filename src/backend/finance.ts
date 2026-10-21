@@ -314,7 +314,7 @@ export const recordSupplierPaymentFn = createServerFn({ method: "POST" })
 // deliberately independent of any shift/drawer — see
 // recordStaffAdvance_ in Code.gs for the full reasoning.
 export const recordStaffAdvanceFn = createServerFn({ method: "POST" })
-  .validator((d: { recipientName: string; amount: number; reason?: string; date?: string }) => d)
+  .validator((d: { recipientName: string; amount: number; reason?: string; date?: string; paymentSource?: "monthly_payment" | "cash_drawer" }) => d)
   .handler(async ({ data }) => {
     const user = await requireAdmin();
     return callAppsScript<{ ok: boolean; error?: string; ledgerId?: string }>("recordStaffAdvance", { ...data, username: user.username });

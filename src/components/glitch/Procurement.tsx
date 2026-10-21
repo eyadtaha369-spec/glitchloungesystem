@@ -792,7 +792,10 @@ function businessDayLabelForTs(ts: number): string {
 // or shift for. Shows up afterward in Reports' Advances & Monthly
 // Loans panel, and is deducted from Net Profit only at month-end.
 function AdvancesForm() {
-  const { recordStaffAdvance } = useStore();
+  const { recordStaffAdvance, activeShift } = useStore();
+  // Where the money came from: Monthly Revenue (default, never touches a
+  // drawer) or the active shift's Cash Drawer.
+  const [advSource, setAdvSource] = useState<"monthly_payment" | "cash_drawer">("monthly_payment");
   const [recipientName, setRecipientName] = useState("");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -808,11 +811,17 @@ function AdvancesForm() {
     setResult(null);
     if (!recipientName.trim()) { setResult({ kind: "err", text: "Enter the employee/recipient's name." }); return; }
     if (!(parseFloat(amount) > 0)) { setResult({ kind: "err", text: "Enter a valid advance amount." }); return; }
+    if (advSource === "cash_drawer" && !activeShift) { setResult({ kind: "err", text: "No active shift — open a shift to pay from the cash drawer, or choose Monthly Revenue." }); return; }
     setSubmitting(true);
     try {
-      const res = await recordStaffAdvance({ recipientName: recipientName.trim(), amount: parseFloat(amount), reason: reason.trim() || undefined, date });
+      const res = await recordStaffAdvance({ recipientName: recipientName.trim(), amount: parseFloat(amount), reason: reason.trim() || undefined, date, paymentSource: advSource });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Could not log this advance." }); return; }
-      setResult({ kind: "ok", text: `Logged — ${fmtMoney(parseFloat(amount))} to ${recipientName.trim()}. Deducted only from Monthly Net Profit at month-end, never from today's shift.` });
+      setResult({
+        kind: "ok",
+        text: advSource === "cash_drawer"
+          ? `Logged — ${fmtMoney(parseFloat(amount))} to ${recipientName.trim()}, paid from the cash drawer (reduces this shift's expected cash). Counted once in Monthly Advances & Deductions.`
+          : `Logged — ${fmtMoney(parseFloat(amount))} to ${recipientName.trim()}. Deducted only from Monthly Net Profit at month-end, never from today's shift.`,
+      });
       reset();
     } catch (e) {
       setResult({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong — please try again." });
@@ -823,9 +832,35 @@ function AdvancesForm() {
 
   return (
     <div>
-      <div className="mb-4 text-xs text-muted-foreground bg-black/5 border border-black/8 rounded-lg p-3" dir="rtl">
-        مستقلة تماماً عن إيراد اليوم — لا يتم خصمها من درج النقدية الخاص بالشيفت الحالي أو من صافي المبيعات اليومية.
-        تُخصم فقط من الإيرادات/الأرباح الشهرية في نهاية الشهر.
+      <div className="mb-4">
+        <label className="text-xs uppercase tracking-widest text-muted-foreground">Paid From / طريقة الدفع</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-1">
+          {([
+            ["monthly_payment", "Monthly Revenue / خصم من إيراد الشهر"],
+            ["cash_drawer", "Cash Drawer / من درج النقدية"],
+          ] as const).map(([src, label]) => (
+            <button
+              key={src}
+              type="button"
+              onClick={() => setAdvSource(src)}
+              className={`text-xs py-2.5 px-3 rounded-lg border transition ${
+                advSource === src
+                  ? "bg-black/20 border-black/60 text-[#2b2416] font-semibold"
+                  : "bg-black/5 border-black/10 text-muted-foreground hover:bg-black/8"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1.5" dir="auto">
+          {advSource === "cash_drawer"
+            ? "تُخصم من درج نقدية الشيفت الحالي (تقلل النقدية المتوقعة) وتُحتسب مرة واحدة فقط في إجمالي السلف والخصومات الشهرية."
+            : "مستقلة تماماً عن إيراد اليوم — لا تُخصم من درج النقدية أو من صافي المبيعات اليومية. تُخصم فقط من الإيرادات/الأرباح الشهرية في نهاية الشهر."}
+        </p>
+        {advSource === "cash_drawer" && !activeShift && (
+          <p className="text-[11px] text-[oklch(0.62_0.24_25)] mt-1.5">No active shift — open one first to pay from the drawer.</p>
+        )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
@@ -838,7 +873,7 @@ function AdvancesForm() {
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Date — تاريخ الحركة</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={cairoDateLabel(Date.now())} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={cairoDateLabel(Date.now())} disabled={advSource === "cash_drawer"} title={advSource === "cash_drawer" ? "Drawer payments are always dated now" : undefined} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono disabled:opacity-50" />
         </div>
         <div>
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Notes / Reason — السبب / البيان (optional)</label>

@@ -3289,9 +3289,14 @@ function doPost(e) {
           if (!editExpAmt || editExpAmt <= 0) return json_({ ok: false, error: "Amount must be greater than zero." });
           editExpSafePatch.amount = editExpAmt;
         }
-        if (editExpPatch.category !== undefined) editExpSafePatch.category = editExpPatch.category;
+        // A staff advance's category and payment source are fixed at
+        // creation (flipping a Monthly Revenue advance to the drawer here
+        // would leave it with paidFromDrawer but no shift) -- only
+        // amount, description and date can change.
+        const editExpIsAdvance = editExpBefore.type === "staffAdvance";
+        if (editExpPatch.category !== undefined && !editExpIsAdvance) editExpSafePatch.category = editExpPatch.category;
         if (editExpPatch.description !== undefined) editExpSafePatch.description = editExpPatch.description;
-        if (editExpPatch.paymentSource !== undefined) {
+        if (editExpPatch.paymentSource !== undefined && !editExpIsAdvance) {
           if (editExpValidSources.indexOf(editExpPatch.paymentSource) === -1) return json_({ ok: false, error: "Invalid payment source." });
           editExpSafePatch.paymentSource = editExpPatch.paymentSource;
           if (editExpBefore.paymentStatus !== "unpaid") {
@@ -4605,9 +4610,11 @@ function doPost(e) {
         const advResult = recordStaffAdvance_(body);
         if (!advResult.ok) return json_(advResult);
         logActivity_({
-          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED",
+          actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED", shiftId: advResult.shiftId,
           description: body.username + " logged an advance of " + Number(body.amount).toFixed(2) + " EGP to " + body.recipientName
-            + " (السلف والخصومات الشهرية — deducted only from Monthly P&L at month-end)",
+            + (advResult.fromDrawer
+              ? " (paid from the cash drawer — reduces this shift's expected cash; deducted from Monthly P&L at month-end)"
+              : " (السلف والخصومات الشهرية — Monthly Revenue, deducted only from Monthly P&L at month-end)"),
         });
         return json_({ ok: true, ledgerId: advResult.entry.id });
       }
@@ -5092,22 +5099,38 @@ function recordStaffAdvance_(body) {
     return { ok: false, error: "Enter a recipient name and a valid amount." };
   }
   if (body.date && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return { ok: false, error: "Invalid date." };
-  // cairoMiddayTimestamp_, not new Date(body.date + "T00:00:00") -- see
-  // that helper's comment for the date-shifting bug this avoids.
-  const ts = body.date ? cairoMiddayTimestamp_(body.date) : Date.now();
-  if (isNaN(ts)) return { ok: false, error: "Invalid date." };
+  // Payment source: "monthly_payment" (default -- خصم من إيراد الشهر,
+  // never touches a drawer) or "cash_drawer" (paid out of the ACTIVE
+  // shift's till, so it reduces that shift's Expected Cash and shows in
+  // its shift expenses, but is still deducted from P&L only once, via
+  // the Monthly Advances line -- isOperationalExpense excludes
+  // staffAdvance, so there's no double count).
+  const fromDrawer = body.paymentSource === "cash_drawer";
+  let ts;
+  let shiftId = null;
+  if (fromDrawer) {
+    const st = getState_();
+    if (!st.activeShiftId) return { ok: false, error: "No active shift — open a shift before paying an advance from the cash drawer, or choose Monthly Revenue." };
+    shiftId = st.activeShiftId;
+    ts = Date.now(); // cash leaves the drawer now, never backdated
+  } else {
+    // cairoMiddayTimestamp_, not new Date(body.date + "T00:00:00") -- see
+    // that helper's comment for the date-shifting bug this avoids.
+    ts = body.date ? cairoMiddayTimestamp_(body.date) : Date.now();
+    if (isNaN(ts)) return { ok: false, error: "Invalid date." };
+  }
   const entry = {
     id: newId_("ledg"), ts: ts, amount: Number(body.amount), direction: "outflow", type: "staffAdvance",
-    category: "Staff/Supplier Advance (سلفة)",
+    category: "Staff Advance / سلف العاملين",
     description: "سلفة - " + body.recipientName + (body.reason ? " — " + body.reason : ""),
     supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-    paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
-    paymentSource: null, paymentStatus: "paid",
-    expenseDate: formatDateLabel_(ts),
-    expenseScope: "monthly",
+    paidFromDrawer: fromDrawer, shiftId: shiftId, materialId: null, qty: null, unitCost: null,
+    paymentSource: fromDrawer ? "cash_drawer" : "monthly_payment", paymentStatus: "paid",
+    expenseDate: fromDrawer ? expenseDateForShift_(shiftId, ts) : formatDateLabel_(ts),
+    expenseScope: fromDrawer ? "daily_shift" : "monthly",
   };
   appendObject_("Ledger", entry);
-  return { ok: true, entry: entry };
+  return { ok: true, entry: entry, shiftId: shiftId, fromDrawer: fromDrawer };
 }
 
 // Settling a deferred ("آجل") supplier invoice — خيارات طريقة الخصم

@@ -344,6 +344,9 @@ interface StoreContextValue {
     amount: number;
     reason?: string;
     date?: string;
+    // Default "monthly_payment" (Monthly Revenue). "cash_drawer" pays it
+    // out of the active shift's till.
+    paymentSource?: "monthly_payment" | "cash_drawer";
   }) => Promise<{ ok: boolean; error?: string; ledgerId?: string }>;
   supplierBalances: Record<string, number>;
   refreshSupplierBalances: () => Promise<void>;

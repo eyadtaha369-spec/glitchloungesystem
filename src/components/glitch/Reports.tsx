@@ -1379,8 +1379,21 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
   // there's nothing to "amend" about a plain settlement) but they ARE
   // deletable, routed to deleteSupplierPayment instead of deleteExpense
   // since it's a different table (SupplierPayments + its own Ledger row).
-  const allRows = useMemo(() => [...rangeExpenseEntries, ...rangeSupplierPayments].sort((a, b) => b.ts - a.ts), [rangeExpenseEntries, rangeSupplierPayments]);
+  // Staff advances are listed here too (with a tag), so an orphaned or
+  // wrong one can be edited/deleted from the main Expenses History table.
+  // They are NOT part of the day's expense totals (isOperationalExpense
+  // excludes them -- they're deducted once, via Monthly Advances &
+  // Deductions), which is why the PDF reports them as a separate line.
+  const rangeAdvances = useMemo(
+    () => state.ledger.filter((l) => isMonthlyAdvance_(l) && l.status === "approved").filter((l) => expenseMatchesRange_(l, rangeShiftIds, from, to, startDate, endDate)),
+    [state.ledger, rangeShiftIds, from, to, startDate, endDate],
+  );
+  const allRows = useMemo(
+    () => [...rangeExpenseEntries, ...rangeSupplierPayments, ...rangeAdvances].sort((a, b) => b.ts - a.ts),
+    [rangeExpenseEntries, rangeSupplierPayments, rangeAdvances],
+  );
   const isPayment = (l: LedgerEntry) => l.type === "supplierPayment";
+  const isAdvance = (l: LedgerEntry) => l.type === "staffAdvance";
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -1416,12 +1429,13 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
         ],
         rows: allRows.map((l) => [
           l.id.slice(0, 12),
-          (l.description || l.category) + (l.backdated ? " (backdated)" : "") + (isPayment(l) ? " (supplier payment)" : ""),
+          (l.description || l.category) + (l.backdated ? " (backdated)" : "") + (isPayment(l) ? " (supplier payment)" : "") + (isAdvance(l) ? " (advance)" : ""),
           fmtMoney(Number(l.amount)), l.paymentSource ?? "—", new Date(l.ts).toLocaleString(),
         ]),
         summaryLines: [
           { label: "Entries", value: String(allRows.length) },
-          { label: "Total", value: fmtMoney(allRows.reduce((a, l) => a + Number(l.amount), 0)) },
+          { label: "Total expenses (excl. advances)", value: fmtMoney(allRows.filter((l) => !isAdvance(l)).reduce((a, l) => a + Number(l.amount), 0)) },
+          { label: "Advances (deducted monthly)", value: fmtMoney(rangeAdvances.reduce((a, l) => a + Number(l.amount), 0)) },
         ],
         filenameBase: "Expenses_History",
         startDate, endDate,
@@ -1472,7 +1486,12 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
                         ({l.expenseScope === "monthly" ? "monthly consolidated" : "daily shift"} payment)
                       </span>
                     ) : null}
-                    {!isPayment(l) && l.expenseScope === "monthly" ? (
+                    {isAdvance(l) ? (
+                      <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.65_0.24_305)]">
+                        (advance — {l.paymentSource === "cash_drawer" ? "paid from cash drawer" : "monthly revenue"}; counted in Monthly Advances &amp; Deductions)
+                      </span>
+                    ) : null}
+                    {!isPayment(l) && !isAdvance(l) && l.expenseScope === "monthly" ? (
                       <span className="ml-1.5 text-[10px] uppercase tracking-widest text-[oklch(0.7_0.19_260)]">
                         (monthly consolidated purchase)
                       </span>
@@ -1507,7 +1526,7 @@ function ExpensesHistoryPanel({ isAdmin }: { isAdmin: boolean }) {
       {deleteTarget && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)}>
           <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.62_0.24_25/0.5)] p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this {isPayment(deleteTarget) ? "supplier payment" : "expense"}?</h3>
+            <h3 className="text-base font-bold mb-2 text-[oklch(0.62_0.24_25)]">Delete this {isPayment(deleteTarget) ? "supplier payment" : isAdvance(deleteTarget) ? "advance" : "expense"}?</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Permanently removes <strong>{deleteTarget.description || deleteTarget.category}</strong> ({fmtMoney(Number(deleteTarget.amount))}).
               {isPayment(deleteTarget) ? " The supplier's outstanding balance goes back up by this amount." : (deleteTarget.shiftId ? " If its shift is already closed, that shift's expected cash and discrepancy will be recalculated immediately." : "")} This can't be undone.
@@ -1547,6 +1566,10 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const isUnpaid = entry.paymentStatus === "unpaid";
+  // A staff advance keeps its category and payment source (fixed at
+  // creation, also enforced server-side) -- only amount, description and
+  // date are editable.
+  const isAdvance = entry.type === "staffAdvance";
   const dateChanged = expenseDate !== (entry.expenseDate || cairoDateLabel(entry.ts));
 
   const submit = async () => {
@@ -1559,9 +1582,9 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
     try {
       const res = await editExpense(entry.id, {
         amount: amt,
-        category,
+        category: isAdvance ? undefined : category,
         description: description.trim(),
-        paymentSource: !isUnpaid && paymentSource ? (paymentSource as PaymentSource) : undefined,
+        paymentSource: !isAdvance && !isUnpaid && paymentSource ? (paymentSource as PaymentSource) : undefined,
         expenseDate: dateChanged ? expenseDate : undefined,
       });
       if (!res.ok) { setErr(res.error ?? "Could not save changes."); return; }
@@ -1575,7 +1598,7 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
     <div className="fixed inset-0 z-[200] flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto bg-black/70 backdrop-blur-sm" onClick={() => !submitting && onClose()}>
       <div className="w-full max-w-lg max-h-[85vh] flex flex-col glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)] my-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/8 shrink-0">
-          <h3 className="text-lg font-bold">Edit Expense{entry.shiftId ? <span className="ml-2 text-xs font-mono text-muted-foreground">Shift #{entry.shiftId.slice(0, 14)}</span> : null}</h3>
+          <h3 className="text-lg font-bold">{isAdvance ? "Edit Advance" : "Edit Expense"}{entry.shiftId ? <span className="ml-2 text-xs font-mono text-muted-foreground">Shift #{entry.shiftId.slice(0, 14)}</span> : null}</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-[#2b2416]"><X className="w-5 h-5" /></button>
         </div>
 
@@ -1596,7 +1619,7 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
                 className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono"
               />
             </div>
-            <div>
+            {!isAdvance && <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Category</label>
               <select
                 value={category} onChange={(e) => setCategory(e.target.value)}
@@ -1605,10 +1628,10 @@ function ExpenseEditModal({ entry, onClose }: { entry: LedgerEntry; onClose: () 
                 {!EDITABLE_EXPENSE_CATEGORIES.includes(category) && <option value={category}>{category}</option>}
                 {EDITABLE_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
-            </div>
+            </div>}
           </div>
 
-          {isUnpaid ? (
+          {isAdvance ? null : isUnpaid ? (
             <div className="text-xs text-muted-foreground bg-black/[0.03] rounded-lg px-3 py-2">
               This entry is unpaid (a debt) — Payment Source isn't set until it's settled via Settle Expense.
             </div>
@@ -2805,22 +2828,34 @@ function MonthlyExpensesLedger() {
 // belongs here permanently. The date picker only scopes the PDF export
 // and the "this range" total. Deliberately never shown in Daily
 // Expenses or any shift's drawer -- see isMonthlyAdvance_.
+// Legacy advances (logged before the Cash Drawer option existed) have no
+// paymentSource and were always Monthly Revenue.
+function advanceSourceLabel(l: LedgerEntry): string {
+  return l.paymentSource === "cash_drawer" ? "Cash Drawer / درج النقدية" : "Monthly Revenue / إيراد الشهر";
+}
+
 function AdvancesLedgerPanel() {
   const { state, deleteExpense } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
+  const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LedgerEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const { startDate, setStartDate, endDate, setEndDate, generating, setGenerating, today } = useSectionDateRangeMonthToDate();
 
   const advances = useMemo(
-    () => state.ledger.filter(isMonthlyAdvance_).sort((a, b) => b.ts - a.ts),
+    () => state.ledger.filter((l) => isMonthlyAdvance_(l) && l.status === "approved").sort((a, b) => b.ts - a.ts),
     [state.ledger],
   );
   const allTimeTotal = advances.reduce((a, l) => a + Number(l.amount), 0);
 
   const { from, to } = useMemo(() => rangeBusinessDayBounds(startDate, endDate), [startDate, endDate]);
-  const rangeAdvances = useMemo(() => advances.filter((l) => l.ts >= from && l.ts <= to), [advances, from, to]);
+  // expenseMatchesRange_ so an edited/backdated advance lands under the
+  // date it was assigned, consistent with Expenses History and the P&L.
+  const rangeAdvances = useMemo(
+    () => advances.filter((l) => expenseMatchesRange_(l, new Set<string>(), from, to, startDate, endDate)),
+    [advances, from, to, startDate, endDate],
+  );
   const rangeTotal = rangeAdvances.reduce((a, l) => a + Number(l.amount), 0);
   const rangeLabel = formatRangeLabel(startDate, endDate);
 
@@ -2845,9 +2880,9 @@ function AdvancesLedgerPanel() {
         rangeLabel,
         columns: [
           { header: "Date" }, { header: "Recipient" }, { header: "Description" },
-          { header: "Amount EGP", align: "right" }, { header: "Logged By" },
+          { header: "Amount EGP", align: "right" }, { header: "Paid From" }, { header: "Logged By" },
         ],
-        rows: rangeAdvances.map((l) => [new Date(l.ts).toLocaleDateString(), l.description?.split(" - ")[1]?.split(" — ")[0] ?? "—", l.description || "—", fmtMoney(Number(l.amount)), l.staffUsername]),
+        rows: rangeAdvances.map((l) => [new Date(l.ts).toLocaleDateString(), l.description?.split(" - ")[1]?.split(" — ")[0] ?? "—", l.description || "—", fmtMoney(Number(l.amount)), advanceSourceLabel(l), l.staffUsername]),
         summaryLines: [
           { label: "Advances", value: String(rangeAdvances.length) },
           { label: "Total", value: fmtMoney(rangeTotal) },
@@ -2869,15 +2904,16 @@ function AdvancesLedgerPanel() {
         <div className="flex items-center gap-2">
           <HandCoins className="w-5 h-5 text-[oklch(0.65_0.24_305)]" />
           <div>
-            <h2 className="text-lg font-semibold">Advances &amp; Monthly Loans</h2>
+            <h2 className="text-lg font-semibold">Monthly Advances &amp; Deductions</h2>
             <p className="text-xs text-muted-foreground" dir="rtl">السلف والخصومات الشهرية</p>
           </div>
         </div>
         <div className="text-sm font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(allTimeTotal)} all-time</div>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        مستقلة تماماً عن إيراد اليوم — never deducted from today's shift cash drawer or Daily Net Sales. Deducted
-        only from Monthly Gross Revenue / Net Profit, at the end of the month, under "إجمالي السلف والخصومات الشهرية".
+        Every staff advance logged, whether paid from Monthly Revenue or from a shift's Cash Drawer. Either way it is
+        deducted once, from Monthly Gross Revenue / Net Profit under "إجمالي السلف والخصومات الشهرية" (a Cash Drawer
+        advance also reduces that shift's Expected Cash, and never touches Daily Net Sales).
         Logged from the <strong>Procurement</strong> page, under the "السلف والخصومات الشهرية" tab.
       </p>
 
@@ -2902,6 +2938,7 @@ function AdvancesLedgerPanel() {
                 <th className="pb-2 pt-3 pl-3 pr-3">Date</th>
                 <th className="pb-2 pt-3 pr-3">Description</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Amount EGP</th>
+                <th className="pb-2 pt-3 pr-3">Paid From</th>
                 <th className="pb-2 pt-3 pr-3">Logged By</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Actions</th>
               </tr>
@@ -2912,8 +2949,12 @@ function AdvancesLedgerPanel() {
                   <td className="py-2 pl-3 pr-3 font-mono">{new Date(l.ts).toLocaleDateString()}</td>
                   <td className="py-2 pr-3" dir="auto">{l.description || "—"}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold text-[oklch(0.65_0.24_305)]">{fmtMoney(Number(l.amount))}</td>
+                  <td className="py-2 pr-3 text-xs">{advanceSourceLabel(l)}</td>
                   <td className="py-2 pr-3">{l.staffUsername}</td>
                   <td className="py-2 pr-3 text-right">
+                    <button onClick={() => setEditingEntry(l)} title="Edit" className="w-7 h-7 mr-1.5 inline-flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-black/10">
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
                     <button onClick={() => { setDeleteTarget(l); setDeleteErr(null); }} title="Delete" className="w-7 h-7 inline-flex items-center justify-center rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)] hover:text-[oklch(0.62_0.24_25)]">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -2924,6 +2965,8 @@ function AdvancesLedgerPanel() {
           </table>
         </div>
       )}
+
+      {editingEntry && <ExpenseEditModal entry={editingEntry} onClose={() => setEditingEntry(null)} />}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)}>

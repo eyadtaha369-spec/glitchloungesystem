@@ -969,25 +969,43 @@ Object.assign(handlers, {
       return { ok: false, error: "Enter a recipient name and a valid amount." };
     }
     if (body.date && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return { ok: false, error: "Invalid date." };
-    // cairoMiddayTimestamp_, not new Date(body.date + "T00:00:00") -- see
-    // that helper (in ./lib/shifts) for the date-shifting bug this avoids.
-    const ts = body.date ? cairoMiddayTimestamp_(body.date) : Date.now();
-    if (Number.isNaN(ts)) return { ok: false, error: "Invalid date." };
+    // Payment source: "monthly_payment" (default -- خصم من إيراد الشهر,
+    // never touches a drawer) or "cash_drawer" (paid out of the ACTIVE
+    // shift's till, so it reduces that shift's Expected Cash and shows in
+    // its shift expenses, but is still deducted from P&L only once, via
+    // the Monthly Advances line -- isOperationalExpense excludes
+    // staffAdvance, so there's no double count).
+    const fromDrawer = body.paymentSource === "cash_drawer";
+    let ts;
+    let shiftId = null;
+    if (fromDrawer) {
+      const st = getState_();
+      if (!st.activeShiftId) return { ok: false, error: "No active shift — open a shift before paying an advance from the cash drawer, or choose Monthly Revenue." };
+      shiftId = st.activeShiftId;
+      ts = Date.now(); // cash leaves the drawer now, never backdated
+    } else {
+      // cairoMiddayTimestamp_, not new Date(body.date + "T00:00:00") -- see
+      // that helper (in ./lib/shifts) for the date-shifting bug this avoids.
+      ts = body.date ? cairoMiddayTimestamp_(body.date) : Date.now();
+      if (Number.isNaN(ts)) return { ok: false, error: "Invalid date." };
+    }
     const entry = {
       id: newId_("ledg"), ts, amount: Number(body.amount), direction: "outflow", type: "staffAdvance",
-      category: "Staff/Supplier Advance (سلفة)",
+      category: "Staff Advance / سلف العاملين",
       description: "سلفة - " + body.recipientName + (body.reason ? " — " + body.reason : ""),
       supplierId: null, staffUsername: body.username, status: "approved", receiptUrl: null,
-      paidFromDrawer: false, shiftId: null, materialId: null, qty: null, unitCost: null,
-      paymentSource: null, paymentStatus: "paid",
-      expenseDate: formatDateLabel_(ts),
-      expenseScope: "monthly",
+      paidFromDrawer: fromDrawer, shiftId, materialId: null, qty: null, unitCost: null,
+      paymentSource: fromDrawer ? "cash_drawer" : "monthly_payment", paymentStatus: "paid",
+      expenseDate: fromDrawer ? expenseDateForShift_(shiftId, ts) : formatDateLabel_(ts),
+      expenseScope: fromDrawer ? "daily_shift" : "monthly",
     };
     appendObject_("Ledger", entry);
     logActivity_({
-      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED",
+      actorUsername: body.username, actorRole: "admin", actionType: "EXPENSE_LOGGED", shiftId,
       description: body.username + " logged an advance of " + Number(body.amount).toFixed(2) + " EGP to " + body.recipientName
-        + " (السلف والخصومات الشهرية — deducted only from Monthly P&L at month-end)",
+        + (fromDrawer
+          ? " (paid from the cash drawer — reduces this shift's expected cash; deducted from Monthly P&L at month-end)"
+          : " (السلف والخصومات الشهرية — Monthly Revenue, deducted only from Monthly P&L at month-end)"),
     });
     return { ok: true, ledgerId: entry.id };
   },
@@ -1509,9 +1527,14 @@ Object.assign(handlers, {
       if (!amt || amt <= 0) return { ok: false, error: "Amount must be greater than zero." };
       safePatch.amount = amt;
     }
-    if (patch.category !== undefined) safePatch.category = patch.category;
+    // A staff advance's category and payment source are fixed at creation
+    // (flipping a Monthly Revenue advance to the drawer here would leave
+    // it with paidFromDrawer but no shift) -- only amount, description
+    // and date can change.
+    const isAdvanceEdit = before.type === "staffAdvance";
+    if (patch.category !== undefined && !isAdvanceEdit) safePatch.category = patch.category;
     if (patch.description !== undefined) safePatch.description = patch.description;
-    if (patch.paymentSource !== undefined) {
+    if (patch.paymentSource !== undefined && !isAdvanceEdit) {
       if (validSources.indexOf(patch.paymentSource) === -1) return { ok: false, error: "Invalid payment source." };
       safePatch.paymentSource = patch.paymentSource;
       // An unpaid (debt) entry has no payment source to begin with --
