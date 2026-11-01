@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import logo from "@/assets/glitch-logo-mark.png";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtMoney, computeStaffCartPreview, getOutOfStockReason, MENU_CATEGORIES } from "@/lib/glitch-store";
+import { useStore, fmtMoney, computeStaffCartPreview, MENU_CATEGORIES } from "@/lib/glitch-store";
 import type { MenuItem, MenuCategory, StaffOrder, StockItem } from "@/lib/glitch-store";
 import { Users, Plus, Minus, X, Printer, Trash2, Gift } from "lucide-react";
 
@@ -374,38 +374,14 @@ function StaffItemPickerModal({ menu, stock, onClose, onPick }: { menu: MenuItem
         <div className="flex-1 overflow-y-auto p-6">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {itemsInCategory.map((m) => {
-              const { outOfStock, missingIngredient } = getOutOfStockReason(m, stock);
+              // Never blocked on stock -- shortfalls are tracked as negative stock.
               return (
                 <button
-                  key={m.id} onClick={() => !outOfStock && onPick(m.id)}
-                  disabled={outOfStock}
-                  className={`relative flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition overflow-hidden ${
-                    outOfStock
-                      ? "bg-black/5 border-[oklch(0.62_0.24_25/0.4)] opacity-60 cursor-not-allowed"
-                      : "bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
-                  }`}
+                  key={m.id} onClick={() => onPick(m.id)}
+                  className="relative flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition overflow-hidden bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
                 >
                   <span className="text-lg font-bold leading-tight">{m.name}</span>
                   <span className="text-2xl font-mono font-black text-[oklch(0.78_0.2_155)]">{fmtMoney(m.price)}</span>
-                  {outOfStock && (
-                    <div
-                      className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center px-3"
-                      style={{ background: "rgba(20,4,4,0.72)", boxShadow: "inset 0 0 30px oklch(0.62 0.24 25 / 0.6)" }}
-                    >
-                      <span
-                        className="text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full text-white"
-                        style={{ background: "oklch(0.62 0.24 25)", boxShadow: "0 0 16px oklch(0.62 0.24 25 / 0.9)" }}
-                      >
-                        Out of Stock
-                      </span>
-                      {missingIngredient && (
-                        <span className="text-[11px] font-bold text-white/90">Missing {missingIngredient}</span>
-                      )}
-                      <span className="text-[11px] font-bold text-white/70" dir="rtl">
-                        غير متوفر{missingIngredient ? ` — نفاد ${missingIngredient}` : ""}
-                      </span>
-                    </div>
-                  )}
                 </button>
               );
             })}

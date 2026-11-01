@@ -542,13 +542,12 @@ function materialReserved_(rooms, menu, materialId) {
 // stays "reserved but not yet consumed" — every active order's
 // ingredients are already reflected in materialRemaining_ the moment
 // they're added.
+// Stock NEVER blocks a sale any more: if an ingredient is short, the sale
+// still goes through and the shortfall is deducted as negative stock
+// (consumeFifo_ records the over-consumption). So this only checks that
+// the menu item exists.
 function bizCanFulfill_(state, batches, menuItemId, addQty) {
-  const item = state.menu.find((m) => m.id === menuItemId);
-  if (!item) return false;
-  return item.ingredients.every((ing) => {
-    const remaining = materialRemaining_(batches, ing.stockId);
-    return remaining - ing.qty * addQty >= -1e-9;
-  });
+  return !!state.menu.find((m) => m.id === menuItemId);
 }
 
 // Two lines for the same menu item only merge into one when their
@@ -700,7 +699,34 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
     remaining -= take;
     touched.push(b.id);
   }
-  return { cost: cost, shortfall: remaining, touched: touched };
+  // NEVER block a sale for lack of stock: whatever the batches couldn't
+  // cover is recorded as NEGATIVE stock (over-consumption) on the newest
+  // batch -- or on a dedicated "overdraw" batch if the material has none.
+  // The balance is the sum of all batches, so stock added later nets
+  // against it automatically.
+  const shortfallQty = Math.max(0, Math.round(remaining * 1e6) / 1e6);
+  if (shortfallQty > 1e-9) {
+    const newest = batches.filter((b) => b.materialId === materialId)
+      .sort((a, b) => Number(b.purchasedAt) - Number(a.purchasedAt))[0];
+    let overUnitCost = newest ? Number(newest.unitCost) || 0 : 0;
+    if (newest) {
+      newest.qtyRemaining = Math.round((Number(newest.qtyRemaining) - shortfallQty) * 1e6) / 1e6;
+      touched.push(newest.id);
+    } else {
+      const mat = readObjects_("RawMaterials").find((m) => m.id === materialId);
+      overUnitCost = mat ? Number(mat.unitCost) || 0 : 0;
+      const debt = {
+        id: "batch-overdraw-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), materialId: materialId, supplierId: null,
+        qtyPurchased: 0, qtyRemaining: -shortfallQty, unitCost: overUnitCost, purchasedAt: Date.now(), source: "overdraw",
+      };
+      appendObject_("Batches", debt);
+      batches.push(debt);
+      touched.push(debt.id);
+    }
+    cost += shortfallQty * overUnitCost;
+    remaining = 0;
+  }
+  return { cost: cost, shortfall: shortfallQty, touched: touched };
 }
 
 // Counterpart to consumeFifo_ — adds stock BACK. See the matching
@@ -2105,12 +2131,8 @@ function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
     const menuItem = state.menu.find((m) => m.id === req.menuItemId);
     if (!menuItem) return { ok: false, error: "Item not found", state: state };
     if (!req.qty || req.qty <= 0) return { ok: false, error: "Invalid quantity for " + menuItem.name, state: state };
-    const insufficientIng = menuItem.ingredients.find((ing) => {
-      const remaining = materialRemaining_(batches, ing.stockId);
-      const reserved = materialReserved_(state.rooms, state.menu, ing.stockId);
-      return remaining - reserved - ing.qty * req.qty < -1e-9;
-    });
-    if (insufficientIng) return { ok: false, error: "Insufficient stock for " + menuItem.name, state: state };
+    // No stock check: a staff order goes through even when ingredients are
+    // short, and the shortfall is deducted as negative stock.
 
     let freeQty = 0;
     if (staffId && state.activeShiftId) {

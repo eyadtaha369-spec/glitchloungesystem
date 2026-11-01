@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts, isLowStock, getOutOfStockReason } from "@/lib/glitch-store";
+import { useEffect, useState } from "react";
+import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts, isLowStock } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
@@ -20,17 +20,6 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
   const available = roomsOnly.length - activeRooms.length;
 
   const stockAlerts = state.stock.filter(isLowStock);
-  // Cross-reference: for each low-stock ingredient, which menu items
-  // does it break — the exact "which specific inventory ingredient
-  // caused the item outage" sync this card needs to show.
-  const affectedMenuItemsByStockId = useMemo(() => {
-    const map = new Map<string, string[]>();
-    stockAlerts.forEach((s) => {
-      const affected = state.menu.filter((m) => m.ingredients.some((ing) => ing.stockId === s.id) && getOutOfStockReason(m, state.stock).outOfStock);
-      map.set(s.id, affected.map((m) => m.name));
-    });
-    return map;
-  }, [stockAlerts, state.menu, state.stock]);
   const [stockPanelOpen, setStockPanelOpen] = useState(false);
   const bookingAlerts = upcomingBookingAlerts(state.eventBookings);
   const [bookingPanelOpen, setBookingPanelOpen] = useState(false);
@@ -163,21 +152,16 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
           <div className="space-y-3">
             {stockAlerts.map((s) => {
               const remaining = s.initialStock - s.used;
-              const affected = affectedMenuItemsByStockId.get(s.id) ?? [];
               return (
                 <div key={s.id} className="bg-white/70 rounded-xl p-4 border border-black/10">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <span className="font-bold">{s.name}</span>
                     <span className="text-xs font-mono text-[oklch(0.62_0.24_25)] font-bold">
-                      {remaining <= 0 ? "Out of stock" : `${remaining.toFixed(2)} ${s.unit} remaining (min ${s.minStock})`}
+                      {remaining < -0.005
+                        ? `Overdrawn by ${Math.abs(remaining).toFixed(2)} ${s.unit} (sold without stock)`
+                        : remaining <= 0 ? "Empty — POS still sells, stock goes negative" : `${remaining.toFixed(2)} ${s.unit} remaining (min ${s.minStock})`}
                     </span>
                   </div>
-                  {affected.length > 0 && (
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      <span className="font-semibold text-black">Menu items now Out of Stock because of this:</span>{" "}
-                      {affected.join(", ")}
-                    </div>
-                  )}
                 </div>
               );
             })}

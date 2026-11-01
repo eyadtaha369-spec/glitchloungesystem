@@ -370,6 +370,11 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
                 <span className="font-semibold text-blue-900">{baseUnitName}</span>
               </div>
             )}
+            {material && (state.stock.find((x) => x.id === material.id)?.systemBalance ?? 0) < -0.005 && (
+              <p className="mt-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-md p-2">
+                Currently OVERDRAWN by {fmtQty(Math.abs(state.stock.find((x) => x.id === material.id)?.systemBalance ?? 0))} {baseUnitName} (sold without stock). This purchase will cover that first.
+              </p>
+            )}
             <p className="mt-2 text-xs font-semibold text-blue-900">
               {material
                 ? enteredQty > 0 && factor > 0

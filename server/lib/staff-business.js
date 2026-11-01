@@ -1,5 +1,5 @@
 const { pushActivity_, newId_ } = require("./util");
-const { materialRemaining_, materialReserved_, consumeFifo_ } = require("./state");
+const { consumeFifo_ } = require("./state");
 const { readObjects_, appendObject_, updateObjectById_ } = require("../db");
 
 function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
@@ -24,12 +24,8 @@ function bizSubmitStaffOrder_(state, batches, staffId, staffName, items) {
     const menuItem = state.menu.find((m) => m.id === req.menuItemId);
     if (!menuItem) return { ok: false, error: "Item not found", state };
     if (!req.qty || req.qty <= 0) return { ok: false, error: "Invalid quantity for " + menuItem.name, state };
-    const insufficientIng = menuItem.ingredients.find((ing) => {
-      const remaining = materialRemaining_(batches, ing.stockId);
-      const reserved = materialReserved_(state.rooms, state.menu, ing.stockId);
-      return remaining - reserved - ing.qty * req.qty < -1e-9;
-    });
-    if (insufficientIng) return { ok: false, error: "Insufficient stock for " + menuItem.name, state };
+    // No stock check: a staff order goes through even when ingredients are
+    // short, and the shortfall is deducted as negative stock.
 
     // Inventory below is driven by req.qty as a whole (both lines
     // together, when split), NOT by whichever price applies — the free

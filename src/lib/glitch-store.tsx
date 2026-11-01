@@ -1773,14 +1773,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Pure client-side helpers — non-authoritative, just for instant UI feedback.
   // Every mutation is re-validated on the server regardless of what these return.
-  const canFulfill: StoreContextValue["canFulfill"] = (menuItemId, qty) => {
-    const item = appState.menu.find((m) => m.id === menuItemId);
-    if (!item) return false;
-    return item.ingredients.every((ing) => {
-      const stk = appState.stock.find((s) => s.id === ing.stockId);
-      if (!stk) return false;
-      return stk.initialStock - stk.used >= ing.qty * qty;
-    });
+  const canFulfill: StoreContextValue["canFulfill"] = (menuItemId) => {
+    // Stock never blocks a sale: shortfalls are deducted as negative stock.
+    return !!appState.menu.find((m) => m.id === menuItemId);
   };
   const computeElapsed = (room: Room, asOf?: number) => {
     if (!room.startedAt || room.status !== "active") return 0;
@@ -1976,21 +1971,16 @@ export function isLowStock(s: StockItem): boolean {
 // wrongly show Out of Stock after enough real usage accumulated.
 // This checks only what actually matters for placing THIS order:
 // is there enough of this ingredient left for one more unit.
-export function getOutOfStockReason(item: MenuItem, stock: StockItem[], qty = 1): { outOfStock: boolean; missingIngredient: string | null } {
-  for (const ing of item.ingredients) {
-    const material = stock.find((s) => s.id === ing.stockId);
-    // An ingredient reference that doesn't resolve to a real inventory
-    // row (e.g. the material was since deleted or recreated with a new
-    // id) is skipped, not treated as out of stock — a stale/unlinked
-    // recipe link should never itself block ordering an otherwise
-    // available item.
-    if (!material) continue;
-    const remaining = material.initialStock - material.used;
-    if (remaining <= 1e-9 || remaining < ing.qty * qty) {
-      return { outOfStock: true, missingIngredient: material.name };
-    }
-  }
+export function getOutOfStockReason(_item: MenuItem, _stock: StockItem[], _qty = 1): { outOfStock: boolean; missingIngredient: string | null } {
+  // POS never blocks or labels an item "Out of Stock" any more -- selling
+  // past zero is allowed and tracked as negative (overdrawn) stock.
   return { outOfStock: false, missingIngredient: null };
+}
+
+// Negative balance = sold without stock logged. Compared at 2 decimals so
+// float dust never counts as "overdrawn".
+export function isOverdrawn(s: StockItem): boolean {
+  return Math.round((s.initialStock - s.used) * 100) / 100 < 0;
 }
 
 // Appends selected modifiers to an order line's display name, exactly

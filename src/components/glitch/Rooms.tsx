@@ -11,7 +11,7 @@ import roomIcon7 from "@/assets/room-icons/room-7.webp";
 import roomIcon8 from "@/assets/room-icons/room-8.webp";
 import roomIconVip from "@/assets/room-icons/room-vip.webp";
 import { printSmart } from "@/lib/print";
-import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, getOutOfStockReason, formatOrderLineName, MODIFIER_GROUPS, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
+import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, formatOrderLineName, MODIFIER_GROUPS, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2, Trash2 } from "lucide-react";
 
 // A flat, neon-outline gamepad glyph — matching a generic controller
@@ -1763,40 +1763,17 @@ function MenuPickerModal({ room, onClose, onOrder, canFulfill, state }: {
         <div className="flex-1 overflow-y-auto p-6">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {itemsInCategory.map((m: MenuItem) => {
-              const { outOfStock, missingIngredient } = getOutOfStockReason(m, state.stock);
-              const ok = !outOfStock && canFulfill(m.id, 1);
+              // POS never blocks on stock: every item is always clickable. If an
+              // ingredient runs short the sale still goes through and the
+              // shortfall is tracked as negative stock in Inventory.
               return (
                 <button
                   key={m.id}
-                  disabled={!ok}
                   onClick={() => handleItemClick(m)}
-                  className={`relative flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition overflow-hidden ${
-                    ok
-                      ? "bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
-                      : "bg-black/5 border-[oklch(0.62_0.24_25/0.4)] opacity-60 cursor-not-allowed"
-                  }`}
+                  className="relative flex flex-col items-start gap-2 p-5 rounded-2xl text-left border-2 transition overflow-hidden bg-black/5 border-black/10 hover:border-[oklch(0.7_0.19_260/0.6)] hover:bg-[oklch(0.7_0.19_260/0.15)] active:scale-95"
                 >
                   <span className="text-lg font-bold leading-tight">{m.name}</span>
                   <span className="text-2xl font-mono font-black text-[oklch(0.78_0.2_155)]">{fmtMoney(m.price)}</span>
-                  {!ok && (
-                    <div
-                      className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center px-3"
-                      style={{ background: "rgba(20,4,4,0.72)", boxShadow: "inset 0 0 30px oklch(0.62 0.24 25 / 0.6)" }}
-                    >
-                      <span
-                        className="text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full text-white"
-                        style={{ background: "oklch(0.62 0.24 25)", boxShadow: "0 0 16px oklch(0.62 0.24 25 / 0.9)" }}
-                      >
-                        Out of Stock
-                      </span>
-                      {missingIngredient && (
-                        <span className="text-[11px] font-bold text-white/90">Missing {missingIngredient}</span>
-                      )}
-                      <span className="text-[11px] font-bold text-white/70" dir="rtl">
-                        غير متوفر{missingIngredient ? ` — نفاد ${missingIngredient}` : ""}
-                      </span>
-                    </div>
-                  )}
                 </button>
               );
             })}

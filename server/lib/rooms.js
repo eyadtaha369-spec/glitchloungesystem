@@ -1,5 +1,5 @@
 const { pushActivity_, newId_ } = require("./util");
-const { materialRemaining_, materialReserved_, consumeFifo_, restoreFifo_ } = require("./state");
+const { consumeFifo_, restoreFifo_ } = require("./state");
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
 
@@ -108,13 +108,12 @@ function bizStartRoom_(state, roomId, rateMode) {
 // ingredients are already reflected in materialRemaining_ the moment
 // they're added. So this only needs to check what's actually left,
 // not track reservations across other active rooms separately.
+// Stock NEVER blocks a sale any more: if an ingredient is short, the sale
+// still goes through and the shortfall is deducted as negative stock
+// (consumeFifo_ records the over-consumption). So this only checks that
+// the menu item exists.
 function bizCanFulfill_(state, batches, menuItemId, addQty) {
-  const item = state.menu.find((m) => m.id === menuItemId);
-  if (!item) return false;
-  return item.ingredients.every((ing) => {
-    const remaining = materialRemaining_(batches, ing.stockId);
-    return remaining - ing.qty * addQty >= -1e-9;
-  });
+  return !!state.menu.find((m) => m.id === menuItemId);
 }
 
 // Two lines for the same menu item only merge into one when their

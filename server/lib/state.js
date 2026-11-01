@@ -83,7 +83,35 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
     remaining -= take;
     touched.push(b.id);
   }
-  return { cost, touched, shortfall: Math.max(0, remaining) };
+  // NEVER block a sale for lack of stock: whatever the batches couldn't
+  // cover is recorded as NEGATIVE stock (over-consumption) on the newest
+  // batch -- or on a dedicated "overdraw" batch if the material has none --
+  // so raw materials keep being deducted in the background. The balance is
+  // simply the sum of all batches, so stock added later (purchase, restock,
+  // physical-count re-alignment) automatically nets against it.
+  const shortfall = Math.max(0, Math.round(remaining * 1e6) / 1e6);
+  if (shortfall > 1e-9) {
+    const newest = batches.filter((b) => b.materialId === materialId)
+      .sort((a, b) => Number(b.purchasedAt) - Number(a.purchasedAt))[0];
+    let unitCost = newest ? Number(newest.unitCost) || 0 : 0;
+    if (newest) {
+      newest.qtyRemaining = Math.round((Number(newest.qtyRemaining) - shortfall) * 1e6) / 1e6;
+      touched.push(newest.id);
+    } else {
+      const mat = readObjects_("RawMaterials").find((m) => m.id === materialId);
+      unitCost = mat ? Number(mat.unitCost) || 0 : 0;
+      const debt = {
+        id: "batch-overdraw-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), materialId, supplierId: null,
+        qtyPurchased: 0, qtyRemaining: -shortfall, unitCost, purchasedAt: Date.now(), source: "overdraw",
+      };
+      appendObject_("Batches", debt);
+      batches.push(debt);
+      touched.push(debt.id);
+    }
+    cost += shortfall * unitCost;
+    remaining = 0;
+  }
+  return { cost, touched, shortfall };
 }
 // Counterpart to consumeFifo_ — adds stock BACK (an order line's
 // quantity was reduced, or a void reason means nothing was actually

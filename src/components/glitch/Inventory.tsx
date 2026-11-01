@@ -715,7 +715,8 @@ function StockTable() {
   // when no physical count has been entered yet for that specific item,
   // since a null actualCountValue would otherwise make it silently
   // undercount rather than reflect the best available number.
-  const totalInventoryValue = state.stock.reduce((a, s) => a + (s.actualStock !== null ? s.actualStock : s.systemBalance) * s.lastPurchaseCost, 0);
+  const totalInventoryValue = state.stock.reduce((a, s) => a + Math.max(0, s.actualStock !== null ? s.actualStock : s.systemBalance) * s.lastPurchaseCost, 0);
+  const overdrawn = state.stock.filter((s) => r2(s.systemBalance) < 0);
   const filteredStock = state.stock.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()));
   const [rolloverConfirmOpen, setRolloverConfirmOpen] = useState(false);
   const [realignOpen, setRealignOpen] = useState(false);
@@ -767,6 +768,20 @@ function StockTable() {
           </div>
         </div>
       </div>
+
+      {overdrawn.length > 0 && (
+        <div className="mb-4 rounded-xl border-2 border-red-400 bg-red-50 p-3">
+          <div className="text-sm font-bold text-red-800">⚠ Overdrawn stock / مخزون بالسالب — sold without stock logged</div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {overdrawn.map((s) => (
+              <span key={s.id} className="text-xs font-mono font-bold px-2 py-1 rounded-full bg-white border border-red-300 text-red-700">
+                {s.name}: {fmt2(s.systemBalance)} {s.unit}
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-red-900 mt-1.5">POS keeps selling and deducting. Add the missing stock in Procurement, or enter the real count with Stock Re-alignment — the new stock automatically cancels out the negative balance.</p>
+        </div>
+      )}
 
       {rolloverConfirmOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => !rolloverRunning && setRolloverConfirmOpen(false)}>
@@ -860,19 +875,21 @@ function StockTable() {
                 const remainingR = r2(s.systemBalance);
                 const varianceQty = hasActualCount ? r2(r2(s.actualStock!) - remainingR) : null;
                 const varianceValue = varianceQty !== null ? r2(varianceQty * s.lastPurchaseCost) : null;
-                const status = remainingR <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.62_0.24_25)" }
+                const isNegative = remainingR < 0;
+                const status = isNegative ? { label: "بالسالب", labelEn: "Overdrawn", color: "#dc2626" }
+                  : remainingR === 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.62_0.24_25)" }
                   : remainingR < s.minStock ? { label: "قليل", labelEn: "Low", color: "#000000" }
                   : { label: "متوفر", labelEn: "Available", color: "oklch(0.78_0.2_155)" };
                 return (
-                  <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
-                    <td className="py-2 px-2 font-semibold">{s.name}</td>
+                  <tr key={s.id} className={`border-b border-black/8 hover:bg-black/5 ${isNegative ? "bg-red-50/60" : ""}`}>
+                    <td className="py-2 px-2 font-semibold">{s.name}{isNegative && <span className="ml-2 text-[10px] font-bold uppercase text-red-700">Overdrawn</span>}</td>
                     <td className="py-2 px-2">
                       <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/25 border border-black/50 text-[#2b2416]">{s.unit}</span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-muted-foreground">{fmt2(s.openingStock)}</td>
                     <td className="py-2 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{fmt2(s.purchasesIn)}</td>
                     <td className="py-2 px-2 text-right font-mono text-[oklch(0.62_0.24_25)]">-{fmt2(s.salesWasteOut)}</td>
-                    <td className="py-2 px-2 text-right font-mono font-bold">{fmt2(s.systemBalance)}</td>
+                    <td className={`py-2 px-2 text-right font-mono font-bold ${isNegative ? "text-red-600 bg-red-50" : ""}`} title={isNegative ? "Overdrawn: sold more than the stock logged" : undefined}>{fmt2(s.systemBalance)}</td>
                     <td className="py-2 px-2 text-right">
                       <button
                         onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: r2(s.remaining), input: s.actualStock !== null ? String(r2(s.actualStock)) : "" })}
@@ -898,7 +915,7 @@ function StockTable() {
                       </span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.lastPurchaseCost)}</td>
-                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(r2(remainingR * s.lastPurchaseCost))}</td>
+                    <td className="py-2 px-2 text-right font-mono">{isNegative ? <span className="text-red-600" title="Negative stock has no value">{fmtMoney(0)}</span> : fmtMoney(r2(remainingR * s.lastPurchaseCost))}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: r2(s.remaining), category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}

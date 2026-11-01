@@ -77,7 +77,7 @@ export function StockRealignModal({ onClose }: { onClose: () => void }) {
                     return (
                       <tr key={s.id} className="border-b border-black/8">
                         <td className="py-1.5 px-2 font-semibold">{s.name} <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-black/10 border border-black/20 ml-1">{s.unit}</span></td>
-                        <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">{fmtQty(s.systemBalance)}</td>
+                        <td className={`py-1.5 px-2 text-right font-mono ${s.systemBalance < -0.005 ? "font-bold text-red-600" : "text-muted-foreground"}`}>{fmtQty(s.systemBalance)}{s.systemBalance < -0.005 ? " ⚠" : ""}</td>
                         <td className="py-1.5 px-2 text-right">
                           <input type="number" inputMode="decimal" min="0" step="any" value={raw} onChange={(e) => setCounts({ ...counts, [s.id]: e.target.value })} className={`w-28 text-right font-mono bg-white border-2 rounded-lg px-2 py-1 ${bad ? "border-red-500" : "border-blue-300"}`} />
                         </td>
@@ -129,7 +129,7 @@ export function StockTraceModal({ target, onClose }: { target: { id: string; nam
   const sourceLabel = useMemo(() => ({
     stockedBatch: "Purchase (stocked batch)", dailyFresh: "Purchase / expense", restock: "Restock", openingStock: "Opening stock",
     supplierInvoice: "Supplier invoice", invoice: "Supplier invoice", orderRestore: "Order change returned to stock",
-    auditAdjustment: "Audit surplus", auditBaseline: "Re-alignment surplus",
+    auditAdjustment: "Audit surplus", auditBaseline: "Re-alignment surplus", overdraw: "Sold without stock (overdrawn)",
   } as Record<string, string>), []);
   const u = target.unit;
   const sm = trace?.summary;
@@ -150,7 +150,7 @@ export function StockTraceModal({ target, onClose }: { target: { id: string; nam
                 <Stat label="Stock added (purchases / opening)" value={`+${fmtQty(sm.added)} ${u}`} tone="good" />
                 <Stat label="Returned / audit surplus" value={`+${fmtQty(sm.returned)} ${u}`} tone="good" />
                 <Stat label="Total used up" value={`-${fmtQty(sm.totalUsed)} ${u}`} tone="bad" />
-                <Stat label="In stock now" value={`${fmtQty(trace.remaining)} ${u}`} />
+                <Stat label={trace.remaining < 0 ? "OVERDRAWN now" : "In stock now"} value={`${fmtQty(trace.remaining)} ${u}`} tone={trace.remaining < 0 ? "bad" : undefined} />
               </div>
               <div className="rounded-lg border border-black/10 p-3 space-y-1 font-mono text-xs">
                 <div className="font-sans text-sm font-bold mb-1">Where the {fmtQty(sm.totalUsed)} {u} used went</div>
