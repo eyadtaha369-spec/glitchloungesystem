@@ -18,6 +18,16 @@ function cairoDateLabel(ts: number): string {
   return CAIRO_TZ_FORMATTER.format(new Date(ts));
 }
 
+// Display rounding for every stock quantity: batch math accumulates
+// float noise (0.020000000000000184, -32.480000000000004), which must
+// never reach the screen. r2 rounds to 2 decimals (and kills "-0");
+// fmt2 is the same thing as a fixed 2-decimal string.
+const r2 = (n: number): number => {
+  const v = Math.round((Number(n) || 0) * 100) / 100;
+  return v === 0 ? 0 : v;
+};
+const fmt2 = (n: number): string => r2(n).toFixed(2);
+
 export function InventoryPage() {
   const {
     state, addMenuItem, updateMenuItem, deleteMenuItem, setActualCash,
@@ -690,7 +700,7 @@ function ArchiveStockTable({ month, label, rows, loading }: { month: string; lab
 }
 
 function StockTable() {
-  const { state, adjustStock, setAbsoluteStock, updateRawMaterial, setActualStock, rolloverInventory } = useStore();
+  const { state, adjustStock, updateRawMaterial, setActualStock, rolloverInventory } = useStore();
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [actualStockTarget, setActualStockTarget] = useState<{ id: string; name: string; unit: string; systemRemaining: number; input: string } | null>(null);
   const [editTarget, setEditTarget] = useState<{ id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string; lastPurchaseCost: number; openingStock: number } | null>(null);
@@ -845,10 +855,13 @@ function StockTable() {
                 // Value both compare/derive from Remaining (the
                 // calculated figure), not from whatever's in Actual Stock.
                 const hasActualCount = s.actualStock !== null;
-                const varianceQty = hasActualCount ? Math.round((s.actualStock! - s.systemBalance) * 100) / 100 : null;
-                const varianceValue = varianceQty !== null ? Math.round(varianceQty * s.lastPurchaseCost * 100) / 100 : null;
-                const status = s.systemBalance <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.62_0.24_25)" }
-                  : s.systemBalance < s.minStock ? { label: "قليل", labelEn: "Low", color: "#000000" }
+                // Variance is always measured against the ROUNDED remaining,
+                // so what's on screen is exactly what the math used.
+                const remainingR = r2(s.systemBalance);
+                const varianceQty = hasActualCount ? r2(r2(s.actualStock!) - remainingR) : null;
+                const varianceValue = varianceQty !== null ? r2(varianceQty * s.lastPurchaseCost) : null;
+                const status = remainingR <= 0 ? { label: "نَفَد", labelEn: "Out", color: "oklch(0.62_0.24_25)" }
+                  : remainingR < s.minStock ? { label: "قليل", labelEn: "Low", color: "#000000" }
                   : { label: "متوفر", labelEn: "Available", color: "oklch(0.78_0.2_155)" };
                 return (
                   <tr key={s.id} className="border-b border-black/8 hover:bg-black/5">
@@ -856,25 +869,25 @@ function StockTable() {
                     <td className="py-2 px-2">
                       <span className="text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-1 rounded bg-black/25 border border-black/50 text-[#2b2416]">{s.unit}</span>
                     </td>
-                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.openingStock}</td>
-                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{s.purchasesIn}</td>
-                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.62_0.24_25)]">-{s.salesWasteOut}</td>
-                    <td className="py-2 px-2 text-right font-mono font-bold">{s.systemBalance}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{fmt2(s.openingStock)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.78_0.2_155)]">+{fmt2(s.purchasesIn)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-[oklch(0.62_0.24_25)]">-{fmt2(s.salesWasteOut)}</td>
+                    <td className="py-2 px-2 text-right font-mono font-bold">{fmt2(s.systemBalance)}</td>
                     <td className="py-2 px-2 text-right">
                       <button
-                        onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
+                        onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: r2(s.remaining), input: s.actualStock !== null ? String(r2(s.actualStock)) : "" })}
                         className="font-mono hover:underline decoration-dotted"
                       >
-                        {hasActualCount ? s.actualStock : <span className="text-muted-foreground">— enter —</span>}
+                        {hasActualCount ? fmt2(s.actualStock!) : <span className="text-muted-foreground">— enter —</span>}
                       </button>
                     </td>
                     <td className={`py-2 px-2 text-right font-mono ${varianceQty === null ? "text-muted-foreground" : varianceQty < 0 ? "text-[oklch(0.62_0.24_25)]" : varianceQty > 0 ? "text-[oklch(0.78_0.2_155)]" : "text-muted-foreground"}`}>
-                      {varianceQty === null ? "—" : varianceQty > 0 ? `+${varianceQty}` : varianceQty}
+                      {varianceQty === null ? "—" : varianceQty > 0 ? `+${fmt2(varianceQty)}` : fmt2(varianceQty)}
                     </td>
                     <td className={`py-2 px-2 text-right font-mono ${varianceValue === null ? "text-muted-foreground" : varianceValue < 0 ? "text-[oklch(0.62_0.24_25)]" : varianceValue > 0 ? "text-[oklch(0.78_0.2_155)]" : "text-muted-foreground"}`}>
                       {varianceValue === null ? "—" : varianceValue > 0 ? `+${fmtMoney(varianceValue)}` : fmtMoney(varianceValue)}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{s.minStock}</td>
+                    <td className="py-2 px-2 text-right font-mono text-muted-foreground">{fmt2(s.minStock)}</td>
                     <td className="py-2 px-2 text-center">
                       <span
                         className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border"
@@ -885,10 +898,10 @@ function StockTable() {
                       </span>
                     </td>
                     <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.lastPurchaseCost)}</td>
-                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(s.systemBalance * s.lastPurchaseCost)}</td>
+                    <td className="py-2 px-2 text-right font-mono">{fmtMoney(r2(remainingR * s.lastPurchaseCost))}</td>
                     <td className="py-2 px-2 text-right whitespace-nowrap">
                       <button
-                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: s.remaining, category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}
+                        onClick={() => setEditTarget({ id: s.id, name: s.name, unit: s.unit, unitCost: s.unitCost, minStock: s.minStock, remaining: r2(s.remaining), category: s.category, storageLocation: s.storageLocation, lastPurchaseCost: s.lastPurchaseCost, openingStock: s.openingStock })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/15 border border-black/40 text-white hover:bg-black/25 mr-1.5"
                         title="Edit this entry"
                       >
@@ -909,7 +922,7 @@ function StockTable() {
                         <History className="w-3.5 h-3.5 inline" />
                       </button>
                       <button
-                        onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: s.remaining, input: s.actualStock !== null ? String(s.actualStock) : "" })}
+                        onClick={() => setActualStockTarget({ id: s.id, name: s.name, unit: s.unit, systemRemaining: r2(s.remaining), input: s.actualStock !== null ? String(r2(s.actualStock)) : "" })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/8 text-muted-foreground hover:text-[#2b2416]"
                         title="Record a physical count (الجرد الفعلي)"
                       >
@@ -931,23 +944,23 @@ function StockTable() {
         <ActualStockModal target={actualStockTarget} setActualStock={setActualStock} onClose={() => setActualStockTarget(null)} />
       )}
       {editTarget && (
-        <EditMaterialModal target={editTarget} updateRawMaterial={updateRawMaterial} setAbsoluteStock={setAbsoluteStock} onClose={() => setEditTarget(null)} />
+        <EditMaterialModal target={editTarget} updateRawMaterial={updateRawMaterial} onClose={() => setEditTarget(null)} />
       )}
     </div>
   );
 }
 
-function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClose }: {
+function EditMaterialModal({ target, updateRawMaterial, onClose }: {
   target: { id: string; name: string; unit: string; unitCost: number; minStock: number; remaining: number; category: string; storageLocation: string; lastPurchaseCost: number; openingStock: number };
   updateRawMaterial: ReturnType<typeof useStore>["updateRawMaterial"];
-  setAbsoluteStock: ReturnType<typeof useStore>["setAbsoluteStock"];
   onClose: () => void;
 }) {
+  const { realignStock } = useStore();
   const [name, setName] = useState(target.name);
   const [unit, setUnit] = useState(target.unit);
   const [unitCost, setUnitCost] = useState(String(target.unitCost));
   const [minStock, setMinStock] = useState(String(target.minStock));
-  const [quantity, setQuantity] = useState(String(target.remaining));
+  const [quantity, setQuantity] = useState(r2(target.remaining).toFixed(2));
   const [category, setCategory] = useState(target.category);
   const [storageLocation, setStorageLocation] = useState(target.storageLocation);
   const [lastPurchaseCost, setLastPurchaseCost] = useState(String(target.lastPurchaseCost));
@@ -961,7 +974,7 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
   // the instant a sale/void/other change happens while this modal is
   // open; that's fine for a preview, but must never be what's actually
   // sent to the server — that was the bug.
-  const qtyDeltaPreview = isNaN(newQty) ? 0 : Math.round((newQty - target.remaining) * 100) / 100;
+  const qtyDeltaPreview = isNaN(newQty) ? 0 : r2(r2(newQty) - r2(target.remaining));
   const valuationPreview = (isNaN(newQty) ? target.remaining : newQty) * (parseFloat(unitCost) || 0);
 
   const submit = async () => {
@@ -985,11 +998,13 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
         const patchRes = await updateRawMaterial(target.id, patch);
         if (!patchRes.ok) { setErr(patchRes.error ?? "Update failed"); return; }
       }
-      // Always call this when the quantity field was touched, even if it
-      // happens to match the stale preview — the server decides the real
-      // delta from the live number, not this component.
-      if (newQty !== target.remaining) {
-        const res = await setAbsoluteStock(target.id, newQty, "Edited via Inventory Edit modal");
+      // The physical count IS the new stock: the server sets the system
+      // balance to exactly this number (and records it as the Actual
+      // Stock + an INVENTORY_AUDIT_ADJUSTMENT log), computing the
+      // difference itself from the live balance -- no maths against the
+      // Opening Balance is needed or done here.
+      if (r2(newQty) !== r2(target.remaining)) {
+        const res = await realignStock([{ materialId: target.id, actualStock: r2(newQty) }], "Edited via Inventory Edit modal");
         if (!res.ok) { setErr(res.error ?? "Quantity correction failed"); return; }
       }
       onClose();
@@ -1008,41 +1023,45 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
         <div className="p-4 space-y-3">
           <div>
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Raw Material Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+            <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="rounded-xl border-2 border-blue-400 bg-blue-50 p-3">
+            <label className="block text-xs font-bold uppercase tracking-widest text-blue-900">Actual Physical Count / الجرد الفعلي الحاضر ({unit || target.unit})</label>
+            <input type="number" inputMode="decimal" step="any" min="0" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="mt-1.5 w-full bg-white text-[#2b2416] border-2 border-blue-500 focus:border-blue-700 focus:outline-none rounded-lg px-3 py-2.5 text-xl font-mono font-bold" />
+            <p className="text-[11px] font-semibold text-blue-900 mt-1.5">
+              Type what is really on the shelf (e.g. 2). Saving sets the current stock to exactly this — no need to calculate against the Opening Balance.
+              System showed {fmt2(target.remaining)} {target.unit}.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Opening Balance (رصيد بداية الفترة)</label>
-              <input type="number" step="0.01" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              <input type="number" step="0.01" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono" />
               <p className="text-[10px] text-muted-foreground mt-1">Changing this moves real stock by the same amount — it's not just a label.</p>
             </div>
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted-foreground">Current Stock Quantity</label>
-              <input type="number" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
-            </div>
-            <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit of Measurement</label>
-              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g. g, kg, ml, L, pcs, box, علبة..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g. g, kg, ml, L, pcs, box, علبة..." className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost</label>
-              <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono" />
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Min Alert Threshold</label>
-              <input type="number" step="0.01" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              <input type="number" step="0.01" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono" />
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Category (الفئة)</label>
-              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Beverages, Dairy..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Beverages, Dairy..." className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Storage Location (مكان التخزين)</label>
-              <input value={storageLocation} onChange={(e) => setStorageLocation(e.target.value)} placeholder="e.g. Shelf A2, Fridge 1..." className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm" />
+              <input value={storageLocation} onChange={(e) => setStorageLocation(e.target.value)} placeholder="e.g. Shelf A2, Fridge 1..." className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs uppercase tracking-widest text-muted-foreground">Last Purchase Cost (تكلفة آخر شراء)</label>
-              <input type="number" step="0.01" value={lastPurchaseCost} onChange={(e) => setLastPurchaseCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+              <input type="number" step="0.01" value={lastPurchaseCost} onChange={(e) => setLastPurchaseCost(e.target.value)} className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono" />
               <p className="text-[10px] text-muted-foreground mt-1">Normally auto-updates from Procurement/restock — edit here only to correct a mistake.</p>
             </div>
           </div>
@@ -1050,7 +1069,7 @@ function EditMaterialModal({ target, updateRawMaterial, setAbsoluteStock, onClos
           <div className="rounded-lg bg-black/5 border border-black/8 p-3 text-xs font-mono space-y-1">
             {qtyDeltaPreview !== 0 && !isNaN(newQty) && (
               <div className={`flex justify-between font-bold ${qtyDeltaPreview < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                <span>Quantity Correction (est.)</span><span>{qtyDeltaPreview > 0 ? "+" : ""}{qtyDeltaPreview} {unit}</span>
+                <span>Quantity Correction (est.)</span><span>{qtyDeltaPreview > 0 ? "+" : ""}{fmt2(qtyDeltaPreview)} {unit}</span>
               </div>
             )}
             <div className="flex justify-between text-muted-foreground">
@@ -1091,8 +1110,8 @@ function ActualStockModal({ target, setActualStock, onClose }: {
 
   const num = parseFloat(value);
   const valid = !isNaN(num) && num >= 0;
-  const variance = valid ? Math.round((num - target.systemRemaining) * 100) / 100 : 0;
-  const hasVariance = Math.abs(variance) > 1e-9;
+  const variance = valid ? r2(r2(num) - r2(target.systemRemaining)) : 0;
+  const hasVariance = Math.abs(variance) > 0;
   const canContinue = valid && (!hasVariance || !!reason);
 
   // Open/active checks are still accumulating orders and consuming
@@ -1131,7 +1150,7 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                   Warning: There are {openChecksCount} open unbilled check{openChecksCount === 1 ? "" : "s"}. Closing them first ensures accurate inventory deduction.
                 </div>
               )}
-              <div className="text-xs text-muted-foreground">System-calculated remaining: <span className="font-mono font-bold">{target.systemRemaining} {target.unit}</span></div>
+              <div className="text-xs text-muted-foreground">System-calculated remaining: <span className="font-mono font-bold">{fmt2(target.systemRemaining)} {target.unit}</span></div>
               <div>
                 <label className="text-xs uppercase tracking-widest text-muted-foreground">
                   Physically Counted Quantity ({target.unit})
@@ -1139,19 +1158,19 @@ function ActualStockModal({ target, setActualStock, onClose }: {
                 <input
                   type="number" step="0.01" autoFocus value={value}
                   onChange={(e) => setValue(e.target.value)}
-                  className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-3 text-lg font-mono text-center"
+                  className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/40 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-3 text-lg font-mono font-bold text-center"
                 />
               </div>
               {valid && hasVariance && (
                 <>
                   <div className={`text-sm font-bold text-center ${variance < 0 ? "text-[oklch(0.62_0.24_25)]" : "text-[oklch(0.78_0.2_155)]"}`}>
-                    {variance < 0 ? `${Math.abs(variance)} ${target.unit} Deficit (عجز)` : `+${variance} ${target.unit} Surplus`}
+                    {variance < 0 ? `${fmt2(Math.abs(variance))} ${target.unit} Deficit (عجز)` : `+${fmt2(variance)} ${target.unit} Surplus`}
                   </div>
                   <div>
                     <label className="text-xs uppercase tracking-widest text-muted-foreground">Reason for Variance (required)</label>
                     <select
                       value={reason} onChange={(e) => setReason(e.target.value as StockAuditVarianceReason)}
-                      className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
+                      className="mt-1 w-full bg-white text-[#2b2416] border-2 border-black/30 focus:border-blue-600 focus:outline-none rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="">Select a reason...</option>
                       {(Object.entries(STOCK_AUDIT_VARIANCE_REASON_LABELS) as [StockAuditVarianceReason, string][]).map(([key, label]) => (

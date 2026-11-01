@@ -1195,7 +1195,11 @@ Object.assign(handlers, {
     if (isNaN(actual) || actual < 0) return { ok: false, error: "Enter a valid quantity" };
     const batches = readObjects_("Batches");
     const remaining = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
-    const variance = Math.round((actual - remaining) * 100) / 100;
+    // variance is measured against the ROUNDED remaining (what the screen
+    // shows); the actual batch adjustment uses the precise difference so
+    // the balance lands on the counted number exactly, no float residue.
+    const variance = Math.round((Math.round(actual * 100) / 100 - Math.round(remaining * 100) / 100) * 100) / 100;
+    const preciseDiff = Math.round((actual - remaining) * 1e6) / 1e6;
     const reasonLabels = {
       unrecordedWastage: "Unrecorded Wastage", unbilledConsumption: "Unbilled Consumption",
       entryError: "Entry Error", shiftDiscrepancy: "Shift Discrepancy", other: "Other",
@@ -1214,11 +1218,11 @@ Object.assign(handlers, {
     // from reality exactly as before.
     const touchedBatchIds = [];
     let newBatch = null;
-    if (variance < -1e-9) {
-      const res = consumeFifo_(batches, body.materialId, Math.abs(variance));
+    if (preciseDiff < -1e-9) {
+      const res = consumeFifo_(batches, body.materialId, Math.abs(preciseDiff));
       touchedBatchIds.push(...res.touched);
-    } else if (variance > 1e-9) {
-      const res = restoreFifo_(batches, body.materialId, variance, Number(material.unitCost) || 0, Date.now(), "auditAdjustment");
+    } else if (preciseDiff > 1e-9) {
+      const res = restoreFifo_(batches, body.materialId, preciseDiff, Number(material.unitCost) || 0, Date.now(), "auditAdjustment");
       newBatch = res.newBatch;
     }
     touchedBatchIds.forEach((id) => {

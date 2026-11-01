@@ -2416,8 +2416,9 @@ function readRestockLog_() {
 function computeStockView_(materials, batches) {
   return materials.map((m) => {
     const matBatches = batches.filter((b) => b.materialId === m.id);
-    const initialStock = matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0);
-    const remaining = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
+    const snap6 = (n) => Math.round(n * 1e6) / 1e6;
+    const initialStock = snap6(matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0));
+    const remaining = snap6(matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0));
     const unitCost = Number(m.unitCost) || 0;
     const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
     // "Current epoch" = the most recently added batch (i.e. since the last
@@ -2440,7 +2441,7 @@ function computeStockView_(materials, batches) {
       name: m.name,
       unit: m.unit,
       initialStock: initialStock,
-      used: initialStock - remaining,
+      used: snap6(initialStock - remaining),
       minStock: Number(m.minStockAlert) || 0,
       unitCost: unitCost,
       remaining: remaining,
@@ -2451,7 +2452,7 @@ function computeStockView_(materials, batches) {
       actualStockUpdatedAt: m.actualStockUpdatedAt || null,
       actualStockUpdatedBy: m.actualStockUpdatedBy || null,
       variance: actualStock === null ? null : Math.round((actualStock - remaining) * 100) / 100,
-      openingStock: openingStock, purchasesIn: purchasesIn, salesWasteOut: initialStock - remaining, systemBalance: remaining,
+      openingStock: openingStock, purchasesIn: purchasesIn, salesWasteOut: snap6(initialStock - remaining), systemBalance: remaining,
       actualCountValue: actualStock === null ? null : Math.round(actualStock * unitCost * 100) / 100,
       category: m.category || "", storageLocation: m.storageLocation || "", lastPurchaseCost: Number(m.lastPurchaseCost) || unitCost,
     };
@@ -3832,7 +3833,11 @@ function doPost(e) {
 
         const batches = readObjects_("Batches");
         const remaining = batches.filter((b) => b.materialId === body.materialId).reduce((a, b) => a + Number(b.qtyRemaining), 0);
-        const variance = Math.round((actual - remaining) * 100) / 100;
+        // variance is measured against the ROUNDED remaining (what the screen
+        // shows); the actual batch adjustment uses the precise difference so
+        // the balance lands on the counted number exactly, no float residue.
+        const variance = Math.round((Math.round(actual * 100) / 100 - Math.round(remaining * 100) / 100) * 100) / 100;
+        const preciseDiff = Math.round((actual - remaining) * 1e6) / 1e6;
         const now = Date.now();
         const reasonLabels = {
           unrecordedWastage: "Unrecorded Wastage", unbilledConsumption: "Unbilled Consumption",
@@ -3849,12 +3854,12 @@ function doPost(e) {
         let cost = 0;
         const touchedBatchIds = [];
         let newBatch = null;
-        if (variance < -1e-9) {
-          const res = consumeFifo_(batches, body.materialId, Math.abs(variance));
+        if (preciseDiff < -1e-9) {
+          const res = consumeFifo_(batches, body.materialId, Math.abs(preciseDiff));
           cost = res.cost;
           touchedBatchIds.push.apply(touchedBatchIds, res.touched);
-        } else if (variance > 1e-9) {
-          const res = restoreFifo_(batches, body.materialId, variance, Number(material.unitCost) || 0, now, "auditAdjustment");
+        } else if (preciseDiff > 1e-9) {
+          const res = restoreFifo_(batches, body.materialId, preciseDiff, Number(material.unitCost) || 0, now, "auditAdjustment");
           newBatch = res.newBatch;
         }
         touchedBatchIds.forEach(function (id) {

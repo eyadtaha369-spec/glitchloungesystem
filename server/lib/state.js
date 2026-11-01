@@ -76,7 +76,9 @@ function consumeFifo_(batches, materialId, qtyNeeded) {
   for (const b of matBatches) {
     if (remaining <= 1e-9) break;
     const take = Math.min(remaining, Number(b.qtyRemaining));
-    b.qtyRemaining = Number(b.qtyRemaining) - take;
+    // Snap to 6 decimals so float noise (0.1+0.2 style) can't accumulate
+    // into a stray 1.8e-16 "remaining" that later prints as a long decimal.
+    b.qtyRemaining = Math.round((Number(b.qtyRemaining) - take) * 1e6) / 1e6;
     cost += take * Number(b.unitCost);
     remaining -= take;
     touched.push(b.id);
@@ -109,8 +111,9 @@ function writeBatchesBack_(batches, touchedBatchIds) {
 function computeStockView_(materials, batches) {
   return materials.map((m) => {
     const matBatches = batches.filter((b) => b.materialId === m.id);
-    const initialStock = matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0);
-    const remaining = matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0);
+    const snap6 = (n) => Math.round(n * 1e6) / 1e6;
+    const initialStock = snap6(matBatches.reduce((a, b) => a + Number(b.qtyPurchased), 0));
+    const remaining = snap6(matBatches.reduce((a, b) => a + Number(b.qtyRemaining), 0));
     const unitCost = Number(m.unitCost) || 0;
     const actualStock = (m.actualStock === null || m.actualStock === undefined || m.actualStock === "") ? null : Number(m.actualStock);
     const newest = matBatches.reduce((a, b) => (!a || Number(b.purchasedAt) > Number(a.purchasedAt) ? b : a), null);
@@ -128,9 +131,9 @@ function computeStockView_(materials, batches) {
     // apart from each other.
     const openingStock = Number(m.openingStock) || 0;
     const purchasesIn = Math.round((initialStock - openingStock) * 1e6) / 1e6;
-    const salesWasteOut = initialStock - remaining;
+    const salesWasteOut = snap6(initialStock - remaining);
     return {
-      id: m.id, name: m.name, unit: m.unit, initialStock, used: initialStock - remaining,
+      id: m.id, name: m.name, unit: m.unit, initialStock, used: snap6(initialStock - remaining),
       minStock: Number(m.minStockAlert) || 0, unitCost, remaining, totalValue: Math.round(remaining * unitCost * 100) / 100,
       usedSinceRestock: newest ? Number(newest.qtyPurchased) - Number(newest.qtyRemaining) : 0,
       lastRestockAt: newest ? Number(newest.purchasedAt) : null,
