@@ -2212,6 +2212,110 @@ const WASTE_INVOICE_REASONS = {
 // the virtual table, deducting their recipe ingredients). This wastes a
 // RAW MATERIAL directly — spoiled coffee beans, an expired carton of
 // milk — with no menu item or recipe involved at all.
+// "Stock Re-alignment" -- admin bulk physical-count override. Sets each
+// counted material's system balance to EXACTLY the physical count: a
+// deficit consumes batches oldest-first (like a sale would), a surplus
+// adds one new "auditBaseline" batch. The count also becomes the
+// material's Actual Stock, so the variance reads zero and every future
+// POS sale / recipe FIFO deduction starts from this number. Validated in
+// full BEFORE anything is written (all-or-nothing). Returns one row per
+// material so the caller can write INVENTORY_AUDIT_ADJUSTMENT log lines.
+function bizRealignStock_(counts, username) {
+  if (!Array.isArray(counts) || counts.length === 0) return { ok: false, error: "Enter at least one physical count." };
+  const materials = readObjects_("RawMaterials");
+  const batches = readObjects_("Batches");
+  const seen = {};
+  const plan = [];
+  for (let i = 0; i < counts.length; i++) {
+    const c = counts[i] || {};
+    const material = materials.find((m) => m.id === c.materialId);
+    if (!material) return { ok: false, error: "Material not found: " + c.materialId };
+    if (seen[material.id]) return { ok: false, error: material.name + " appears twice." };
+    seen[material.id] = true;
+    const actual = Number(c.actualStock);
+    if (c.actualStock === "" || c.actualStock === null || c.actualStock === undefined || !isFinite(actual) || actual < 0 || actual > 1e7) {
+      return { ok: false, error: "Invalid count for " + material.name + "." };
+    }
+    plan.push({ material, actual });
+  }
+  const now = Date.now();
+  const results = [];
+  plan.forEach((p) => {
+    const m = p.material;
+    const before = batches.filter((b) => b.materialId === m.id).reduce((a, b) => a + (Number(b.qtyRemaining) || 0), 0);
+    const variance = Math.round((p.actual - before) * 1e6) / 1e6;
+    if (variance < -1e-9) {
+      const res = consumeFifo_(batches, m.id, Math.abs(variance));
+      writeBatchesBack_(batches, res.touched);
+    } else if (variance > 1e-9) {
+      const res = restoreFifo_(batches, m.id, variance, Number(m.unitCost) || 0, now, "auditBaseline");
+      appendObject_("Batches", res.newBatch);
+    }
+    updateObjectById_("RawMaterials", m.id, { actualStock: p.actual, actualStockUpdatedAt: now, actualStockUpdatedBy: username });
+    const unitCost = Number(m.unitCost) || 0;
+    results.push({
+      materialId: m.id, materialName: m.name, unit: m.unit, expectedStock: before, actualStock: p.actual,
+      variance, unitCost, varianceValue: Math.round(Math.abs(variance) * unitCost * 100) / 100,
+    });
+  });
+  return { ok: true, results };
+}
+
+// Where did the stock go? Read-only trace for ONE material: every batch
+// ever created for it (by source), plus what the recorded orders should
+// have consumed (closed sessions + open rooms, using the CURRENT recipe)
+// versus what the batches say was actually used. Whatever isn't
+// explained by orders/waste invoices/audit write-offs is reported as
+// "unexplained" -- that's the number to chase (wrong unit on entry,
+// recipe edited after the fact, staff meals, waste/marketing, etc.).
+const TRACE_ADDED_SOURCES_ = { restock: 1, openingStock: 1, dailyFresh: 1, stockedBatch: 1, invoice: 1, supplierInvoice: 1 };
+const TRACE_RETURN_SOURCES_ = { orderRestore: 1, auditAdjustment: 1, auditBaseline: 1 };
+function bizStockTrace_(materialId) {
+  const material = readObjects_("RawMaterials").find((m) => m.id === materialId);
+  if (!material) return { ok: false, error: "Material not found" };
+  const state = getState_();
+  const recipeQty = {};
+  (state.menu || []).forEach((item) => {
+    const q = (item.ingredients || []).filter((i) => i.stockId === materialId).reduce((a, i) => a + (Number(i.qty) || 0), 0);
+    if (q > 0) recipeQty[item.id] = { name: item.name, perUnit: q };
+  });
+  const batches = readObjects_("Batches").filter((b) => b.materialId === materialId)
+    .sort((a, b) => Number(a.purchasedAt) - Number(b.purchasedAt))
+    .map((b) => ({ id: b.id, ts: Number(b.purchasedAt) || 0, source: b.source || "purchase", qtyPurchased: Number(b.qtyPurchased) || 0, qtyRemaining: Number(b.qtyRemaining) || 0, unitCost: Number(b.unitCost) || 0 }));
+  const orderRows = [];
+  const pushOrders = (orders, ts, ref) => {
+    (orders || []).forEach((o) => {
+      const r = recipeQty[o.menuItemId];
+      if (r) orderRows.push({ ts, ref, itemName: r.name, orderQty: Number(o.qty) || 0, perUnit: r.perUnit, consumed: r.perUnit * (Number(o.qty) || 0) });
+    });
+  };
+  readSessions_().forEach((s) => pushOrders(s.orders, s.endedAt, "Order #" + (s.orderNumber || s.id)));
+  (state.rooms || []).forEach((r) => pushOrders(r.orders, Date.now(), "Open: " + r.name));
+  orderRows.sort((a, b) => b.ts - a.ts);
+  const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+  const added = sum(batches.filter((b) => TRACE_ADDED_SOURCES_[b.source] || !TRACE_RETURN_SOURCES_[b.source]), (b) => b.qtyPurchased);
+  const returned = sum(batches.filter((b) => TRACE_RETURN_SOURCES_[b.source]), (b) => b.qtyPurchased);
+  const remaining = sum(batches, (b) => b.qtyRemaining);
+  const totalUsed = added + returned - remaining;
+  const byOrders = sum(orderRows, (r) => r.consumed);
+  const wasteInvoices = readObjects_("WasteInvoices").filter((w) => w.materialId === materialId);
+  const byWaste = sum(wasteInvoices, (w) => Number(w.wastedQty) || 0);
+  const audits = readObjects_("ActivityLogs").filter((l) => (l.actionType === "ACTUAL_STOCK_SET" || l.actionType === "INVENTORY_AUDIT_ADJUSTMENT") && l.after).map((l) => {
+    let a = {}; try { a = JSON.parse(l.after); } catch (e) { a = {}; }
+    return { ts: Number(l.ts) || 0, actor: l.actorUsername, ...a };
+  }).filter((a) => a.materialId === materialId);
+  const byAuditWriteOff = sum(audits.filter((a) => a.variance < 0), (a) => Math.abs(a.variance));
+  const unexplained = Math.round((totalUsed - byOrders - byWaste - byAuditWriteOff) * 1e6) / 1e6;
+  return {
+    ok: true, materialName: material.name, unit: material.unit, remaining,
+    summary: { added, returned, totalUsed, byOrders, byWaste, byAuditWriteOff, unexplained },
+    batches, orderRows: orderRows.slice(0, 200), orderRowCount: orderRows.length,
+    wasteInvoices: wasteInvoices.map((w) => ({ ts: Number(w.ts), qty: Number(w.wastedQty), reason: w.reasonLabel })),
+    audits, recipes: Object.keys(recipeQty).map((k) => ({ itemName: recipeQty[k].name, perUnit: recipeQty[k].perUnit })),
+  };
+}
+
+
 function bizSubmitWasteInvoice_(materialId, wastedQty, reason, note, username, shiftId) {
   if (!WASTE_INVOICE_REASONS[reason]) return { ok: false, error: "Select a reason (Spill, Expired, or Training)." };
   const qty = Number(wastedQty) || 0;
@@ -3674,6 +3778,27 @@ function doPost(e) {
         });
         return json_({ ok: true, state: withStockView_(getState_()) });
       }
+
+      case "realignStock": {
+        requireRole_(body.username, ["admin"]);
+        const realignResult = bizRealignStock_(body.counts, body.username);
+        if (!realignResult.ok) return json_({ ok: false, error: realignResult.error });
+        realignResult.results.forEach(function (r) {
+          logActivity_({
+            actorUsername: body.username, actorRole: "admin", actionType: "INVENTORY_AUDIT_ADJUSTMENT",
+            description: r.materialName + ": physical count " + r.actualStock + " " + r.unit + " (system showed " + r.expectedStock + ") — " +
+              (r.variance < 0 ? "DEFICIT of " + Math.abs(r.variance) : r.variance > 0 ? "SURPLUS of " + r.variance : "no variance") + " " + r.unit +
+              (body.note ? " — " + body.note : "") + " [new baseline]",
+            before: { systemRemaining: r.expectedStock },
+            after: Object.assign({}, r, { reason: "auditBaseline", note: body.note || null }),
+          });
+        });
+        return json_({ ok: true, adjusted: realignResult.results.length, state: withStockView_(getState_()) });
+      }
+
+      case "getStockTrace":
+        requireRole_(body.username, ["admin", "cashier"]);
+        return json_(bizStockTrace_(body.materialId));
 
       case "getRestockLog":
         requireRole_(body.username, ["admin", "cashier"]);

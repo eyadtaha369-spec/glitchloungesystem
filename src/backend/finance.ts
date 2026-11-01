@@ -86,6 +86,31 @@ export const setActualStockFn = createServerFn({ method: "POST" })
     return callAppsScript<{ ok: boolean; error?: string; variance?: number; state: AppState }>("setActualStock", { ...data, username: user.username });
   });
 
+// Admin-only bulk physical-count override ("Stock Re-alignment").
+export const realignStockFn = createServerFn({ method: "POST" })
+  .validator((d: { counts: { materialId: string; actualStock: number }[]; note?: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    return callAppsScript<{ ok: boolean; error?: string; adjusted?: number; state: AppState }>("realignStock", { ...data, username: user.username });
+  });
+
+export interface StockTrace {
+  ok: boolean; error?: string; materialName: string; unit: string; remaining: number;
+  summary: { added: number; returned: number; totalUsed: number; byOrders: number; byWaste: number; byAuditWriteOff: number; unexplained: number };
+  batches: { id: string; ts: number; source: string; qtyPurchased: number; qtyRemaining: number; unitCost: number }[];
+  orderRows: { ts: number; ref: string; itemName: string; orderQty: number; perUnit: number; consumed: number }[];
+  orderRowCount: number;
+  wasteInvoices: { ts: number; qty: number; reason: string }[];
+  audits: { ts: number; actor: string; expectedStock?: number; actualStock?: number; variance?: number; reason?: string | null }[];
+  recipes: { itemName: string; perUnit: number }[];
+}
+export const getStockTraceFn = createServerFn({ method: "POST" })
+  .validator((d: { materialId: string }) => d)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    return callAppsScript<StockTrace>("getStockTrace", { ...data, username: user.username });
+  });
+
 export const updateRawMaterialFn = createServerFn({ method: "POST" })
   .validator((d: { id: string; patch: Partial<RawMaterial> }) => d)
   .handler(async ({ data }) => {

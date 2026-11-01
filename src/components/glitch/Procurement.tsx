@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { LedgerEntry, PaymentSource, SupplierLedgerEntry } from "@/lib/glitch-store";
+import { purchaseUnitOptions, sanityWarnings, fmtQty, fmtCost } from "@/lib/stock-entry";
+import { StockEntryConfirmModal } from "./StockEntryConfirm";
 import { CheckCircle2, XCircle, Clock, ShieldAlert, Package, Wallet, CalendarClock, HandCoins, FileBarChart, History, Search, Pencil, Trash2 } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -177,7 +179,14 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
 
   const [materialId, setMaterialId] = useState("");
   const [qty, setQty] = useState("");
-  const [unitCost, setUnitCost] = useState("");
+  // The unit the person BOUGHT in (kg, L, a carton...) -- converted to the
+  // material's base unit before submit, so "5 kg" can never be saved as
+  // 5 grams. Price can be typed as the whole bill or as a per-unit price.
+  const [unitChoice, setUnitChoice] = useState("base");
+  const [packSize, setPackSize] = useState("");
+  const [priceMode, setPriceMode] = useState<"total" | "unit">("total");
+  const [priceInput, setPriceInput] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [supplierId, setSupplierId] = useState("");
   const [description, setDescription] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "unpaid">("paid");
@@ -203,26 +212,53 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
     .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
 
   const material = state.materials.find((m) => m.id === materialId);
-  const total = (parseFloat(qty) || 0) * (parseFloat(unitCost) || 0);
+  const unitOptions = purchaseUnitOptions(material?.unit ?? "");
+  const unitOpt = unitOptions.find((o) => o.id === unitChoice) ?? unitOptions[0];
+  const factor = unitOpt.id === "pack" ? (parseFloat(packSize) || 0) : (unitOpt.factor ?? 1);
+  const enteredQty = parseFloat(qty) || 0;
+  const priceNum = parseFloat(priceInput) || 0;
+  const baseQty = enteredQty * factor; // what actually lands in stock
+  const total = priceMode === "total" ? priceNum : priceNum * enteredQty;
+  const costPerPurchaseUnit = enteredQty > 0 ? total / enteredQty : 0;
+  const costPerBase = baseQty > 0 ? total / baseQty : 0; // sent to the backend as unitCost
+  const baseUnitName = material?.unit ?? "unit";
+  const unitLabel = unitOpt.id === "pack" ? `pack of ${fmtQty(factor)} ${baseUnitName}` : unitOpt.label;
+  const usualCost = material ? (Number(material.lastPurchaseCost) || Number(material.unitCost) || 0) : 0;
+  const warnings = material
+    ? sanityWarnings({
+        materialName: material.name, baseUnit: baseUnitName, enteredQty, enteredUnitLabel: unitLabel,
+        enteredUnitIsBase: unitOpt.id === "base", baseQty, costPerBase, usualCostPerBase: usualCost, total,
+      })
+    : [];
 
   const reset = () => {
-    setMaterialId(""); setQty(""); setUnitCost(""); setSupplierId(""); setDescription(""); setPaymentStatus("paid"); setPaymentSource("");
+    setMaterialId(""); setQty(""); setUnitChoice("base"); setPackSize(""); setPriceMode("total"); setPriceInput(""); setConfirmOpen(false); setSupplierId(""); setDescription(""); setPaymentStatus("paid"); setPaymentSource("");
     setExpenseScope("daily_shift");
     setTargetMode("current"); setTargetShiftId("");
   };
 
-  const submit = async () => {
+  // Step 1: validate, then show the plain-words confirmation. Nothing is
+  // saved until the person confirms there.
+  const requestSubmit = () => {
     setResult(null);
-    if (!materialId || !qty || !unitCost) { setResult({ kind: "err", text: "Material, quantity, and unit cost are required." }); return; }
+    if (!materialId || !(enteredQty > 0) || !(priceNum > 0)) { setResult({ kind: "err", text: "Material, quantity, and a price greater than zero are required." }); return; }
+    if (unitOpt.id === "pack" && !(factor > 0)) { setResult({ kind: "err", text: `Enter how many ${baseUnitName} are in one pack.` }); return; }
     if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
     if (isAdmin && targetMode === "past" && !targetShiftId) { setResult({ kind: "err", text: "Select which closed shift this purchase belongs to." }); return; }
+    setConfirmOpen(true);
+  };
+
+  const submit = async () => {
+    setResult(null);
     setSubmitting(true);
     try {
       const res = await submitPurchase({
         purchaseType,
         materialId,
-        qty: parseFloat(qty),
-        unitCost: parseFloat(unitCost),
+        // Always sent in the material's BASE unit (what stock, recipes and
+        // POS deductions are all measured in), cost per base unit.
+        qty: baseQty,
+        unitCost: costPerBase,
         supplierId: supplierId || undefined,
         category: TYPE_LABEL[purchaseType],
         description,
@@ -231,7 +267,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         expenseScope: paymentSource === "monthly_payment" ? "monthly" : showExpenseScope ? expenseScope : undefined,
         targetShiftId: isAdmin && targetMode === "past" ? targetShiftId : undefined,
       });
-      if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
+      if (!res.ok) { setConfirmOpen(false); setResult({ kind: "err", text: res.error ?? "Submission failed" }); return; }
       setResult({
         kind: "ok",
         text: isAdmin && targetMode === "past"
@@ -244,6 +280,7 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
       });
       reset();
     } catch (e) {
+      setConfirmOpen(false);
       // A genuine unexpected failure (network drop, etc.) — without this,
       // the button would silently stop spinning with no message at all.
       setResult({ kind: "err", text: e instanceof Error ? e.message : "Something went wrong — please try again." });
@@ -316,13 +353,56 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
             {state.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
-        <div>
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity {material ? `(${material.unit})` : ""}</label>
-          <input type="number" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Cost</label>
-          <input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* QUANTITY -- blue block, always shows the unit it is typed in */}
+          <div className="rounded-xl border-2 border-blue-300 bg-blue-50/70 p-3">
+            <label className="text-xs font-bold uppercase tracking-widest text-blue-800">Quantity / الكمية — how much did you receive?</label>
+            <div className="mt-1.5 flex gap-2">
+              <input type="number" inputMode="decimal" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" className="min-w-0 flex-1 bg-white border border-blue-300 rounded-lg px-3 py-2 text-lg font-mono font-bold" />
+              <select value={unitOpt.id} onChange={(e) => setUnitChoice(e.target.value)} disabled={!material} className="w-44 bg-white border border-blue-300 rounded-lg px-2 py-2 text-sm font-bold text-blue-900">
+                {unitOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            {unitOpt.id === "pack" && (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className="font-semibold text-blue-900">1 pack =</span>
+                <input type="number" inputMode="decimal" min="0" step="any" value={packSize} onChange={(e) => setPackSize(e.target.value)} className="w-24 bg-white border border-blue-300 rounded-lg px-2 py-1.5 font-mono" />
+                <span className="font-semibold text-blue-900">{baseUnitName}</span>
+              </div>
+            )}
+            <p className="mt-2 text-xs font-semibold text-blue-900">
+              {material
+                ? enteredQty > 0 && factor > 0
+                  ? `Stock will increase by ${fmtQty(baseQty)} ${baseUnitName}`
+                  : `Stock is counted in ${baseUnitName}`
+                : "Pick a material first to see its unit"}
+            </p>
+          </div>
+          {/* PRICE -- amber block, total bill or per-unit price */}
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50/70 p-3">
+            <label className="text-xs font-bold uppercase tracking-widest text-amber-900">Price in EGP / السعر</label>
+            <div className="mt-1.5 grid grid-cols-2 gap-1">
+              <button type="button" onClick={() => setPriceMode("total")} className={`text-xs font-bold py-1.5 rounded-md border ${priceMode === "total" ? "bg-amber-500 text-white border-amber-600" : "bg-white border-amber-300 text-amber-900"}`}>Total Cost / الإجمالي</button>
+              <button type="button" onClick={() => setPriceMode("unit")} className={`text-xs font-bold py-1.5 rounded-md border ${priceMode === "unit" ? "bg-amber-500 text-white border-amber-600" : "bg-white border-amber-300 text-amber-900"}`}>Unit Cost / سعر الوحدة</button>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input type="number" inputMode="decimal" min="0" step="any" value={priceInput} onChange={(e) => setPriceInput(e.target.value)} placeholder="0.00" className="min-w-0 flex-1 bg-white border border-amber-300 rounded-lg px-3 py-2 text-lg font-mono font-bold" />
+              <span className="text-xs font-bold text-amber-900 whitespace-nowrap">{priceMode === "total" ? "EGP total" : `EGP per ${unitOpt.id === "pack" ? "pack" : unitOpt.label}`}</span>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-amber-900">
+              {priceMode === "total" ? "The whole bill for this quantity." : "The price of ONE " + (unitOpt.id === "pack" ? "pack" : unitOpt.label) + " — not the whole bill."}
+            </p>
+          </div>
+          {/* Live calculation so an absurd price or quantity jumps out */}
+          <div className={`md:col-span-2 rounded-lg border p-3 font-mono text-sm ${warnings.length ? "border-red-300 bg-red-50" : "border-black/10 bg-black/[0.03]"}`}>
+            <div className="flex flex-wrap gap-x-6 gap-y-1">
+              <span>Total: <b>{fmtMoney(total)}</b></span>
+              {enteredQty > 0 && <span>Per {unitOpt.id === "pack" ? "pack" : unitOpt.label}: <b>EGP {fmtCost(costPerPurchaseUnit)}</b></span>}
+              <span>Cost per {baseUnitName}: <b className="text-base">{costPerBase > 0 ? `EGP ${fmtCost(costPerBase)}` : "—"}</b></span>
+              {usualCost > 0 && <span className="text-muted-foreground">Usual: EGP {fmtCost(usualCost)} / {baseUnitName}</span>}
+            </div>
+            {warnings.map((w, i) => <p key={i} className="mt-1.5 text-xs font-semibold text-red-700">⚠ {w}</p>)}
+          </div>
         </div>
         <div className="md:col-span-2">
           <label className="text-xs uppercase tracking-widest text-muted-foreground">Description (optional)</label>
@@ -421,11 +501,6 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
         )}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 text-sm font-mono">
-        <span className="text-muted-foreground">Total:</span>
-        <span className="font-bold text-lg">{fmtMoney(total)}</span>
-      </div>
-
       {result && (
         <div className={`mt-4 text-sm p-3 rounded-lg border ${result.kind === "ok" ? "bg-[oklch(0.78_0.2_155/0.1)] border-[oklch(0.78_0.2_155/0.4)] text-[oklch(0.78_0.2_155)]" : "bg-[oklch(0.62_0.24_25/0.1)] border-[oklch(0.62_0.24_25/0.4)] text-[oklch(0.62_0.24_25)]"}`}>
           {result.text}
@@ -433,12 +508,26 @@ function MaterialPurchaseForm({ purchaseType }: { purchaseType: "dailyFresh" | "
       )}
 
       <button
-        onClick={submit}
+        onClick={requestSubmit}
         disabled={submitting}
         className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
       >
-        {submitting ? "Submitting..." : isAdmin ? "Submit & Approve" : "Submit for Approval"}
+        {submitting ? "Submitting..." : isAdmin ? "Review & Approve" : "Review & Submit for Approval"}
       </button>
+
+      {confirmOpen && material && (
+        <StockEntryConfirmModal
+          busy={submitting}
+          totalLabel={fmtMoney(total)}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => void submit()}
+          lines={[{
+            sentence: `You are adding ${fmtQty(enteredQty)} ${unitLabel} of ${material.name} at EGP ${fmtCost(costPerPurchaseUnit)} each. Total: ${fmtMoney(total)}. Confirm?`,
+            detail: `Stock goes up by ${fmtQty(baseQty)} ${baseUnitName} (cost EGP ${fmtCost(costPerBase)} per ${baseUnitName}).`,
+            warnings,
+          }]}
+        />
+      )}
     </div>
   );
 }
@@ -476,11 +565,20 @@ function ExpenseSubmitForm() {
   // FixedMonthlyCostFormModal's own Inventory Sync fields exactly, down
   // to the amount being derived (never separately entered) once linked.
   const [linkInventory, setLinkInventory] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [materialId, setMaterialId] = useState("");
   const [qty, setQty] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const material = state.materials.find((m) => m.id === materialId);
   const inventoryTotal = (parseFloat(qty) || 0) * (parseFloat(unitCost) || 0);
+  const invUsualCost = material ? (Number(material.lastPurchaseCost) || Number(material.unitCost) || 0) : 0;
+  const invWarnings = linkInventory && material
+    ? sanityWarnings({
+        materialName: material.name, baseUnit: material.unit, enteredQty: parseFloat(qty) || 0, enteredUnitLabel: material.unit,
+        enteredUnitIsBase: true, baseQty: parseFloat(qty) || 0, costPerBase: parseFloat(unitCost) || 0,
+        usualCostPerBase: invUsualCost, total: inventoryTotal,
+      })
+    : [];
 
   const reset = () => {
     setItemName(""); setCategory(""); setAmount(""); setNotes(""); setSupplierId(""); setPaymentStatus("paid"); setPaymentSource("");
@@ -488,7 +586,7 @@ function ExpenseSubmitForm() {
     setLinkInventory(false); setMaterialId(""); setQty(""); setUnitCost("");
   };
 
-  const submit = async () => {
+  const submit = async (confirmed = false) => {
     setResult(null);
     if (!itemName) { setResult({ kind: "err", text: "Item/expense description is required." }); return; }
     if (linkInventory) {
@@ -500,6 +598,10 @@ function ExpenseSubmitForm() {
     }
     if (paymentStatus === "paid" && !paymentSource) { setResult({ kind: "err", text: "Select a payment source, or mark this Unpaid instead." }); return; }
     if (isAdmin && targetMode === "past" && !targetShiftId) { setResult({ kind: "err", text: "Select which closed shift this expense belongs to." }); return; }
+    // A stock-linked expense changes inventory, so it gets the same
+    // plain-words confirmation as a Stock Purchase before anything saves.
+    if (linkInventory && !confirmed) { setConfirmOpen(true); return; }
+    setConfirmOpen(false);
     setSubmitting(true);
     const displayTotal = linkInventory ? inventoryTotal : parseFloat(amount);
     try {
@@ -649,14 +751,19 @@ function ExpenseSubmitForm() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs uppercase tracking-widest text-muted-foreground">Quantity {material ? `(${material.unit})` : ""}</label>
-                  <input type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                  <label className="block text-xs font-bold uppercase tracking-widest text-blue-800 rounded-t-md bg-blue-100 px-2 py-1">Quantity / الكمية {material ? `· in ${material.unit}` : ""}</label>
+                  <input type="number" inputMode="decimal" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-b-lg px-3 py-2 text-base font-mono font-bold" />
                 </div>
                 <div>
-                  <label className="text-xs uppercase tracking-widest text-muted-foreground">Unit Price</label>
-                  <input type="number" min="0" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="mt-1 w-full bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm font-mono" />
+                  <label className="block text-xs font-bold uppercase tracking-widest text-amber-900 rounded-t-md bg-amber-100 px-2 py-1">Unit Price / سعر الوحدة {material ? `· EGP per ${material.unit}` : ""}</label>
+                  <input type="number" inputMode="decimal" min="0" step="any" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} className="w-full bg-white border-2 border-amber-300 rounded-b-lg px-3 py-2 text-base font-mono font-bold" />
                 </div>
               </div>
+              <div className={`rounded-lg border p-2 font-mono text-xs ${invWarnings.length ? "border-red-300 bg-red-50" : "border-black/10 bg-white/60"}`}>
+                Total: <b>{fmtMoney(inventoryTotal)}</b> · Cost per {material?.unit ?? "unit"}: <b>{(parseFloat(unitCost) || 0) > 0 ? `EGP ${fmtCost(parseFloat(unitCost))}` : "—"}</b>
+                {invWarnings.map((w, i) => <p key={i} className="mt-1 font-semibold text-red-700">⚠ {w}</p>)}
+              </div>
+              <p className="text-[11px] font-semibold text-amber-900">Enter Quantity and Unit Price in the material's own unit ({material?.unit ?? "shown above"}). Bought in kg or liters? Use Stock Purchase, which converts for you.</p>
               <p className="text-[11px] text-muted-foreground">
                 Adds {qty || "0"} {material?.unit ?? ""} of {material?.name ?? "the selected material"} to stock
                 {isAdmin ? " immediately" : " once an admin approves this"}, and shows up in Inventory's stock-movement history — same as a Daily Expense material purchase.
@@ -740,12 +847,24 @@ function ExpenseSubmitForm() {
       )}
 
       <button
-        onClick={submit}
+        onClick={() => void submit()}
         disabled={submitting}
         className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
       >
         {submitting ? "Submitting..." : isAdmin && targetMode === "past" ? "Add to Closed Shift" : isAdmin ? "Submit & Approve" : "Submit for Approval"}
       </button>
+      {confirmOpen && linkInventory && material && (
+        <StockEntryConfirmModal
+          busy={submitting}
+          totalLabel={fmtMoney(inventoryTotal)}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => void submit(true)}
+          lines={[{
+            sentence: `You are adding ${fmtQty(parseFloat(qty) || 0)} ${material.unit} of ${material.name} at EGP ${fmtCost(parseFloat(unitCost) || 0)} each. Total: ${fmtMoney(inventoryTotal)}. Confirm?`,
+            warnings: invWarnings,
+          }]}
+        />
+      )}
     </div>
   );
 }
@@ -924,6 +1043,7 @@ function SupplierInvoiceForm() {
   const [items, setItems] = useState<InvoiceLineItem[]>([{ tracked: true, materialId: "", itemName: "", qty: "", unitPrice: "" }]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const supplier = state.suppliers.find((s) => s.id === supplierId);
   const total = items.reduce((a, it) => a + (parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0), 0);
@@ -939,7 +1059,19 @@ function SupplierInvoiceForm() {
     setItems([{ tracked: true, materialId: "", itemName: "", qty: "", unitPrice: "" }]);
   };
 
-  const submit = async () => {
+  // Per-line plain-words summary + sanity warnings for the stock (tracked)
+  // lines, shown in the confirmation step before anything is saved.
+  const trackedLines = items
+    .filter((it) => it.tracked && it.materialId && parseFloat(it.qty) > 0)
+    .map((it) => {
+      const m = state.materials.find((x) => x.id === it.materialId);
+      const q = parseFloat(it.qty) || 0;
+      const price = parseFloat(it.unitPrice) || 0;
+      return { it, m, q, price };
+    })
+    .filter((l) => !!l.m);
+
+  const submit = async (confirmed = false) => {
     setResult(null);
     if (!supplierId) { setResult({ kind: "err", text: "Select a supplier." }); return; }
     const validItems = items.filter((it) => (it.tracked ? !!it.materialId : !!it.itemName.trim()) && parseFloat(it.qty) > 0);
@@ -956,6 +1088,8 @@ function SupplierInvoiceForm() {
     }
     const invoiceTotal = validItems.reduce((a, it) => a + parseFloat(it.qty) * parseFloat(it.unitPrice), 0);
     if (!(invoiceTotal > 0)) { setResult({ kind: "err", text: "The invoice total can't be 0.00 — check the quantities and unit prices." }); return; }
+    if (trackedLines.length > 0 && !confirmed) { setConfirmOpen(true); return; }
+    setConfirmOpen(false);
     setSubmitting(true);
     try {
       const res = await submitPurchaseInvoice({
@@ -1013,7 +1147,15 @@ function SupplierInvoiceForm() {
 
       <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Line Items</div>
       <div className="space-y-2">
+        <div className="hidden md:grid grid-cols-[1fr_100px_120px_110px_32px] gap-2 px-2 text-[10px] font-bold uppercase tracking-widest">
+          <span className="text-muted-foreground">Item / البند</span>
+          <span className="text-blue-800">Quantity / الكمية</span>
+          <span className="text-amber-900">Unit Price / سعر الوحدة</span>
+          <span className="text-right text-muted-foreground">Line Total</span>
+          <span />
+        </div>
         {items.map((it, idx) => {
+          const lineMaterial = it.tracked ? state.materials.find((m) => m.id === it.materialId) : undefined;
           const subtotal = (parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0);
           return (
             <div key={idx} className="bg-black/5 border border-black/8 rounded-lg p-2 space-y-2">
@@ -1043,9 +1185,14 @@ function SupplierInvoiceForm() {
                     className="bg-white/70 border border-black/10 rounded-lg px-3 py-2 text-sm"
                   />
                 )}
-                <input type="number" step="0.01" placeholder="Qty" value={it.qty} onChange={(e) => updateItem(idx, { qty: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
-                <input type="number" step="0.01" placeholder="Unit price" value={it.unitPrice} onChange={(e) => updateItem(idx, { unitPrice: e.target.value })} className="bg-white/70 border border-black/10 rounded-lg px-2 py-2 text-sm font-mono" />
-                <div className="text-sm font-mono font-semibold text-right px-1">{fmtMoney(subtotal)}</div>
+                <input type="number" inputMode="decimal" step="any" placeholder={lineMaterial ? `Qty (${lineMaterial.unit})` : "Qty"} value={it.qty} onChange={(e) => updateItem(idx, { qty: e.target.value })} className="bg-white border-2 border-blue-300 rounded-lg px-2 py-2 text-sm font-mono font-bold" />
+                <input type="number" inputMode="decimal" step="any" placeholder={lineMaterial ? `EGP / ${lineMaterial.unit}` : "Unit price"} value={it.unitPrice} onChange={(e) => updateItem(idx, { unitPrice: e.target.value })} className="bg-white border-2 border-amber-300 rounded-lg px-2 py-2 text-sm font-mono font-bold" />
+                <div className="text-sm font-mono font-semibold text-right px-1">
+                  {fmtMoney(subtotal)}
+                  {lineMaterial && (parseFloat(it.qty) || 0) > 0 && (parseFloat(it.unitPrice) || 0) > 0 && (
+                    <div className="text-[10px] font-normal text-muted-foreground">{fmtQty(parseFloat(it.qty))} {lineMaterial.unit} @ {fmtCost(parseFloat(it.unitPrice))}</div>
+                  )}
+                </div>
                 <button type="button" onClick={() => removeLine(idx)} disabled={items.length === 1} className="text-muted-foreground hover:text-[oklch(0.62_0.24_25)] disabled:opacity-30 justify-self-center">
                   <XCircle className="w-4 h-4" />
                 </button>
@@ -1136,12 +1283,27 @@ function SupplierInvoiceForm() {
       )}
 
       <button
-        onClick={submit}
+        onClick={() => void submit()}
         disabled={submitting}
         className="mt-4 w-full py-3 rounded-lg bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.65_0.24_305)] text-[#2b2416] font-semibold text-sm disabled:opacity-60"
       >
         {submitting ? "Submitting..." : "Save Invoice"}
       </button>
+      {confirmOpen && (
+        <StockEntryConfirmModal
+          busy={submitting}
+          totalLabel={fmtMoney(total)}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => void submit(true)}
+          lines={trackedLines.map((l) => ({
+            sentence: `You are adding ${fmtQty(l.q)} ${l.m!.unit} of ${l.m!.name} at EGP ${fmtCost(l.price)} each. Total: ${fmtMoney(l.q * l.price)}.`,
+            warnings: sanityWarnings({
+              materialName: l.m!.name, baseUnit: l.m!.unit, enteredQty: l.q, enteredUnitLabel: l.m!.unit, enteredUnitIsBase: true,
+              baseQty: l.q, costPerBase: l.price, usualCostPerBase: Number(l.m!.lastPurchaseCost) || Number(l.m!.unitCost) || 0, total: l.q * l.price,
+            }),
+          }))}
+        />
+      )}
     </div>
   );
 }

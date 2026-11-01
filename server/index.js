@@ -31,7 +31,7 @@ const { formatDateLabel_, businessDayLabelForTs_, cairoMiddayTimestamp_, bizOpen
 const { bizComputeShiftFinancials_, bizBuildShiftReconciliation_ } = require("./lib/reconciliation");
 const { bizTransferZone_, bizSplitBill_ } = require("./lib/transfer-split");
 const { VOID_REASONS, applyVoid_ } = require("./lib/voids");
-const { adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
+const { bizRealignStock_, bizStockTrace_, adjustStock_, bizRestockMaterial_, bizSubmitWasteInvoice_, bizRolloverInventory_ } = require("./lib/inventory");
 const { resetMenuAndRecipes_ } = require("./lib/menu-reset");
 const { bizDeletePurchase_, bizUpdatePurchase_, bizDeleteSupplierInvoice_, bizForceDeleteSupplierInvoice_, bizUpdateSupplierInvoice_, findLinkedBatch, batchIsUntouched } = require("./lib/procurement-edit");
 const { bizSubmitPurchaseInvoice_, bizRecordSupplierPayment_, bizDeleteSupplierPayment_, bizClearExpensesLedger_, bizGetSupplierBalances_, bizGetSupplierLedger_, bizResyncSupplierPaymentExpenses_ } = require("./lib/supplier-invoices");
@@ -900,6 +900,27 @@ Object.assign(handlers, {
       after: { qtyAdded: result.qtyAdded, carryover: result.carryover, newTotal: result.newTotal, unitCost: result.unitCost },
     });
     return { ok: true, state: withStockView_(getState_()) };
+  },
+  // Admin-only bulk physical-count override ("Stock Re-alignment").
+  realignStock(body) {
+    requireRole_(body.username, ["admin"]);
+    const result = bizRealignStock_(body.counts, body.username);
+    if (!result.ok) return { ok: false, error: result.error };
+    result.results.forEach((r) => {
+      logActivity_({
+        actorUsername: body.username, actorRole: "admin", actionType: "INVENTORY_AUDIT_ADJUSTMENT",
+        description: r.materialName + ": physical count " + r.actualStock + " " + r.unit + " (system showed " + r.expectedStock + ") — "
+          + (r.variance < 0 ? "DEFICIT of " + Math.abs(r.variance) : r.variance > 0 ? "SURPLUS of " + r.variance : "no variance") + " " + r.unit
+          + (body.note ? " — " + body.note : "") + " [new baseline]",
+        before: { systemRemaining: r.expectedStock },
+        after: Object.assign({}, r, { reason: "auditBaseline", note: body.note || null }),
+      });
+    });
+    return { ok: true, adjusted: result.results.length, state: withStockView_(getState_()) };
+  },
+  getStockTrace(body) {
+    requireRole_(body.username, ["admin", "cashier"]);
+    return bizStockTrace_(body.materialId);
   },
   getRestockLog(body) {
     requireRole_(body.username, ["admin", "cashier"]);

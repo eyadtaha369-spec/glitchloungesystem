@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore, fmtMoney, monthKey, computeMenuItemCost, MENU_CATEGORIES, WASTE_INVOICE_REASON_LABELS, STOCK_AUDIT_VARIANCE_REASON_LABELS, MODIFIER_GROUPS, type MenuItem, type MenuCategory, type Session, type WasteInvoice, type WasteInvoiceReason, type InventorySnapshot, type StockAuditVarianceReason } from "@/lib/glitch-store";
 import { printSmart } from "@/lib/print";
+import { StockRealignModal, StockTraceModal } from "./StockRealign";
 import { generateInventoryAuditReportPdf } from "@/lib/inventory-audit-pdf";
 import { generateSectionReportPdf } from "@/lib/section-report-pdf";
 import { generateBaristaRecipePdf } from "@/lib/barista-recipe-pdf";
-import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, AlertTriangle, History, FileBarChart, FileDown, Search, Printer } from "lucide-react";
+import { Plus, Trash2, Download, DollarSign, TrendingUp, TrendingDown, Check, RotateCcw, Pencil, X, Save, AlertOctagon, AlertTriangle, History, FileBarChart, FileDown, Search, Printer, Scale } from "lucide-react";
 
 // This café operates in Africa/Cairo local time regardless of the
 // viewing browser/SSR's own timezone — same reasoning and
@@ -466,7 +467,7 @@ function StockVarianceAuditPanel() {
 
   const rows = useMemo<StockAuditLogRow[]>(() => {
     return state.activityLogs
-      .filter((l) => l.actionType === "ACTUAL_STOCK_SET")
+      .filter((l) => (l.actionType === "ACTUAL_STOCK_SET" || l.actionType === "INVENTORY_AUDIT_ADJUSTMENT"))
       .map((l) => {
         let after: Partial<StockAuditLogRow> = {};
         try { after = JSON.parse(l.after || "{}"); } catch { /* legacy/unparseable entry, skip below */ }
@@ -707,6 +708,8 @@ function StockTable() {
   const totalInventoryValue = state.stock.reduce((a, s) => a + (s.actualStock !== null ? s.actualStock : s.systemBalance) * s.lastPurchaseCost, 0);
   const filteredStock = state.stock.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()));
   const [rolloverConfirmOpen, setRolloverConfirmOpen] = useState(false);
+  const [realignOpen, setRealignOpen] = useState(false);
+  const [traceTarget, setTraceTarget] = useState<{ id: string; name: string; unit: string } | null>(null);
   const [rolloverRunning, setRolloverRunning] = useState(false);
   const [rolloverErr, setRolloverErr] = useState<string | null>(null);
 
@@ -732,6 +735,15 @@ function StockTable() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          {state.currentUser?.role === "admin" && (
+            <button
+              onClick={() => setRealignOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold uppercase tracking-wide hover:bg-blue-700"
+              title="Enter the real physical count and reset the system stock to match"
+            >
+              <Scale className="w-3.5 h-3.5" /> Stock Re-alignment / إعادة ضبط المخزون
+            </button>
+          )}
           <button
             onClick={() => setRolloverConfirmOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black/15 border border-black/50 text-white text-xs font-bold uppercase tracking-wide hover:bg-black/25"
@@ -883,6 +895,13 @@ function StockTable() {
                         <Pencil className="w-3.5 h-3.5 inline mr-1" />Edit
                       </button>
                       <button
+                        onClick={() => setTraceTarget({ id: s.id, name: s.name, unit: s.unit })}
+                        className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-blue-50 border border-blue-300 text-blue-800 hover:bg-blue-100 mr-1.5"
+                        title="Where did the units go? Stock added vs consumed by orders"
+                      >
+                        Trace
+                      </button>
+                      <button
                         onClick={() => setHistoryTarget({ id: s.id, name: s.name, unit: s.unit })}
                         className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-black/5 border border-black/10 hover:bg-black/8 text-muted-foreground hover:text-[#2b2416] mr-1.5"
                         title="History"
@@ -906,6 +925,8 @@ function StockTable() {
       )}
 
       {historyTarget && <MaterialHistoryModal target={historyTarget} onClose={() => setHistoryTarget(null)} />}
+      {traceTarget && <StockTraceModal target={traceTarget} onClose={() => setTraceTarget(null)} />}
+      {realignOpen && <StockRealignModal onClose={() => setRealignOpen(false)} />}
       {actualStockTarget && (
         <ActualStockModal target={actualStockTarget} setActualStock={setActualStock} onClose={() => setActualStockTarget(null)} />
       )}
@@ -1512,7 +1533,10 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                     <option value="">select stock...</option>
                     {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
                   </select>
-                  <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
+                  <div className="flex items-center gap-1.5">
+                    <input type="number" placeholder="qty per unit" value={ing.qty} onChange={(e) => setIngs(ings.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="min-w-0 flex-1 bg-white/70 rounded px-2 py-1.5 text-sm border border-black/10" />
+                    {ing.stockId && <span className="text-[10px] font-bold font-mono uppercase px-1.5 py-1 rounded bg-black/10 border border-black/20" title="Recipe quantities are in the material's own stock unit">{state.stock.find((x) => x.id === ing.stockId)?.unit}</span>}
+                  </div>
                   <button onClick={() => setIngs(ings.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.62_0.24_25)]">Remove</button>
                 </div>
               );
@@ -1565,7 +1589,10 @@ function RecipeManager({ onAdd, onUpdate, onDelete }: {
                           <option value="">select stock...</option>
                           {state.stock.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
                         </select>
-                        <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="bg-white/70 rounded px-2 py-1 text-xs border border-black/10" />
+                        <div className="flex items-center gap-1">
+                          <input type="number" placeholder="qty" value={ing.qty} onChange={(e) => setEditIngs(editIngs.map((x, i) => i === idx ? { ...x, qty: +e.target.value } : x))} className="min-w-0 flex-1 bg-white/70 rounded px-2 py-1 text-xs border border-black/10" />
+                          {ing.stockId && <span className="text-[10px] font-bold font-mono uppercase px-1.5 py-0.5 rounded bg-black/10 border border-black/20" title="Recipe quantities are in the material's own stock unit">{state.stock.find((x) => x.id === ing.stockId)?.unit}</span>}
+                        </div>
                         <button onClick={() => setEditIngs(editIngs.filter((_, i) => i !== idx))} className="text-xs text-muted-foreground hover:text-[oklch(0.62_0.24_25)]">Remove</button>
                       </div>
                     );

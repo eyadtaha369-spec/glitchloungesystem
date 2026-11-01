@@ -79,7 +79,7 @@ import {
 } from "@/backend/state";
 import {
   getRawMaterialsFn, addRawMaterialFn, bulkAddRawMaterialsFn, updateRawMaterialFn, deleteRawMaterialFn, adjustStockFn, setAbsoluteStockFn,
-  restockMaterialFn, getRestockLogFn, setActualStockFn, submitWasteInvoiceFn, getWasteInvoicesFn,
+  restockMaterialFn, getRestockLogFn, setActualStockFn, realignStockFn, getStockTraceFn, submitWasteInvoiceFn, getWasteInvoicesFn,
   resetMenuAndRecipesFn,
   getSuppliersFn, addSupplierFn, updateSupplierFn, deleteSupplierFn,
   getRecurringExpensesFn, addRecurringExpenseFn, updateRecurringExpenseFn, deleteRecurringExpenseFn,
@@ -90,6 +90,7 @@ import {
   deletePurchaseFn, updatePurchaseFn, deleteSupplierInvoiceFn, forceDeleteSupplierInvoiceFn, clearExpensesLedgerFn, addFixedMonthlyCostFn, updateFixedMonthlyCostFn, deleteFixedMonthlyCostFn, updateSupplierInvoiceFn, deleteSupplierPaymentFn, migrateToCloudFn,
   getLedgerFn, getShiftExpensesFn, getPendingApprovalsFn, approvePurchaseFn, rejectPurchaseFn,
 } from "@/backend/finance";
+import type { StockTrace } from "@/backend/finance";
 import {
   requestVoidFn, getVoidRequestsFn, approveVoidFn, denyVoidFn, setFraudThresholdFn, setGeofenceConfigFn, verifyAdminAuthFn, reconcileUnapprovedVoidFn,
 } from "@/backend/void";
@@ -223,6 +224,8 @@ interface StoreContextValue {
   setAbsoluteStock: (materialId: string, targetQty: number, note?: string) => Promise<{ ok: boolean; error?: string; before?: number; after?: number; delta?: number }>;
   restockMaterial: (materialId: string, qtyAdded: number, unitCost?: number) => Promise<{ ok: boolean; error?: string }>;
   setActualStock: (materialId: string, actualStock: number, reason?: string) => Promise<{ ok: boolean; error?: string; variance?: number }>;
+  realignStock: (counts: { materialId: string; actualStock: number }[], note?: string) => Promise<{ ok: boolean; error?: string; adjusted?: number }>;
+  getStockTrace: (materialId: string) => Promise<StockTrace>;
   refreshRestockLog: () => Promise<void>;
   submitWasteInvoice: (materialId: string, wastedQty: number, reason: WasteInvoiceReason, note?: string) => Promise<{ ok: boolean; error?: string; invoice?: WasteInvoice }>;
   wasteInvoices: WasteInvoice[];
@@ -1063,6 +1066,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
+  const realignStock: StoreContextValue["realignStock"] = async (counts, note) => {
+    return withPending("realignStock", async () => {
+      try {
+        const res = await realignStockFn({ data: { counts, note } });
+        if (res.ok) setAppState(res.state);
+        return { ok: res.ok, error: res.error, adjusted: res.adjusted };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Could not save the physical count." };
+      }
+    });
+  };
+  const getStockTrace: StoreContextValue["getStockTrace"] = async (materialId) => {
+    return getStockTraceFn({ data: { materialId } });
+  };
   const resetMenuAndRecipes: StoreContextValue["resetMenuAndRecipes"] = async (password) => {
     return withPending("resetMenuAndRecipes", async () => {
       const res = await resetMenuAndRecipesFn({ data: { password } });
@@ -1781,7 +1798,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRoomRate, renameRoom, addOwnerTable, deleteOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, moveSessionToShift, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, attachOrphanedToShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,
-    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
+    addRawMaterial, bulkAddRawMaterials, updateRawMaterial, deleteRawMaterial, adjustStock, setAbsoluteStock, realignStock, getStockTrace, restockMaterial, refreshRestockLog, setActualStock, resetMenuAndRecipes,
     submitWasteInvoice, wasteInvoices, refreshWasteInvoices,
     addSupplier, updateSupplier, deleteSupplier,
     addRecurringExpense, updateRecurringExpense, deleteRecurringExpense, logRecurringExpensePayment,
