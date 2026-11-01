@@ -5,19 +5,8 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell, BarChart, Bar,
 } from "recharts";
+import { businessDayLabelForTs, cairoHour, daysInMonthLabel } from "@/lib/business-day";
 import { BarChart3, TrendingUp, Clock, Calendar, Percent, ShoppingBag } from "lucide-react";
-
-function startOfDay(ts: number) {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-function startOfMonth(ts: number) {
-  const d = new Date(ts);
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
 
 // Same exclusion rule used throughout Reports.tsx — waste/comp voids,
 // staff consumption, unpaid entries, and supplier-debt settlements are
@@ -53,9 +42,21 @@ const PIE_COLORS = [
 export function AnalyticsPage() {
   const { state } = useStore();
 
-  const monthStart = useMemo(() => startOfMonth(Date.now()), []);
-  const monthSessions = useMemo(() => state.sessions.filter((s) => s.endedAt >= monthStart), [state.sessions, monthStart]);
-  const monthExpenseEntries = useMemo(() => state.ledger.filter((l) => isOperationalExpense(l) && l.ts >= monthStart), [state.ledger, monthStart]);
+  // Everything below is grouped by BUSINESS-DAY LABEL (YYYY-MM-DD,
+  // Cairo, 8 AM cutoff) -- never by browser-local calendar day -- so
+  // days 29/30/31 always land on their own date.
+  const shiftLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    state.shifts.forEach((sh) => m.set(sh.id, businessDayLabelForTs(sh.openedAt)));
+    return m;
+  }, [state.shifts]);
+  const sessionDay = (s: Session): string => (s.shiftId && shiftLabelById.get(s.shiftId)) || businessDayLabelForTs(s.endedAt);
+  const entryDay = (l: LedgerEntry): string => l.expenseDate || (l.shiftId && shiftLabelById.get(l.shiftId)) || businessDayLabelForTs(l.ts);
+
+  const currentMonth = businessDayLabelForTs(Date.now()).slice(0, 7);
+  const currentYear = Number(currentMonth.slice(0, 4));
+  const monthSessions = useMemo(() => state.sessions.filter((s) => sessionDay(s).slice(0, 7) === currentMonth), [state.sessions, shiftLabelById, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  const monthExpenseEntries = useMemo(() => state.ledger.filter((l) => isOperationalExpense(l) && entryDay(l).slice(0, 7) === currentMonth), [state.ledger, shiftLabelById, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- KPI cards (scoped to this calendar month) ----
   const monthRevenue = monthSessions.reduce((a, s) => a + s.total, 0);
@@ -67,7 +68,7 @@ export function AnalyticsPage() {
   const hourlyTotals = useMemo(() => {
     const totals = Array.from({ length: 24 }, (_, h) => ({ hour: h, revenue: 0, roomRevenue: 0, itemRevenue: 0, orders: 0 }));
     monthSessions.forEach((s) => {
-      const h = new Date(s.endedAt).getHours();
+      const h = cairoHour(s.endedAt);
       totals[h].revenue += s.total;
       totals[h].roomRevenue += s.timeCost;
       totals[h].itemRevenue += s.total - s.timeCost;
@@ -79,40 +80,40 @@ export function AnalyticsPage() {
 
   // ---- Revenue by Day of Month (this calendar month) ----
   const dayOfMonthTotals = useMemo(() => {
-    const daysInThisMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const daysInThisMonth = daysInMonthLabel(currentMonth);
     const totals = Array.from({ length: daysInThisMonth }, (_, i) => ({ day: i + 1, revenue: 0, roomRevenue: 0, itemRevenue: 0 }));
     monthSessions.forEach((s) => {
-      const d = new Date(s.endedAt).getDate();
+      const d = Number(sessionDay(s).slice(8, 10));
       totals[d - 1].revenue += s.total;
       totals[d - 1].roomRevenue += s.timeCost;
       totals[d - 1].itemRevenue += s.total - s.timeCost;
     });
     return totals;
-  }, [monthSessions]);
+  }, [monthSessions, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
   const peakDay = useMemo(() => dayOfMonthTotals.reduce((a, b) => (b.revenue > a.revenue ? b : a), dayOfMonthTotals[0]), [dayOfMonthTotals]);
 
   // ---- Revenue by Month (this calendar year) ----
   const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const monthOfYearTotals = useMemo(() => {
-    const thisYear = new Date().getFullYear();
+    const thisYear = currentYear;
     const totals = MONTH_NAMES.map((name) => ({ month: name, revenue: 0, roomRevenue: 0, itemRevenue: 0 }));
     state.sessions.forEach((s) => {
-      const d = new Date(s.endedAt);
-      if (d.getFullYear() !== thisYear) return;
-      const m = d.getMonth();
+      const day = sessionDay(s);
+      if (Number(day.slice(0, 4)) !== thisYear) return;
+      const m = Number(day.slice(5, 7)) - 1;
       totals[m].revenue += s.total;
       totals[m].roomRevenue += s.timeCost;
       totals[m].itemRevenue += s.total - s.timeCost;
     });
     return totals;
-  }, [state.sessions]);
+  }, [state.sessions, shiftLabelById]); // eslint-disable-line react-hooks/exhaustive-deps
   const peakMonth = useMemo(() => monthOfYearTotals.reduce((a, b) => (b.revenue > a.revenue ? b : a), monthOfYearTotals[0]), [monthOfYearTotals]);
 
   // ---- Revenue by Year (every year with any recorded activity) ----
   const yearTotals = useMemo(() => {
     const map = new Map<number, { revenue: number; roomRevenue: number; itemRevenue: number }>();
     state.sessions.forEach((s) => {
-      const y = new Date(s.endedAt).getFullYear();
+      const y = Number(sessionDay(s).slice(0, 4));
       const entry = map.get(y) ?? { revenue: 0, roomRevenue: 0, itemRevenue: 0 };
       entry.revenue += s.total;
       entry.roomRevenue += s.timeCost;
@@ -120,13 +121,13 @@ export function AnalyticsPage() {
       map.set(y, entry);
     });
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]).map(([year, v]) => ({ year: String(year), ...v }));
-  }, [state.sessions]);
+  }, [state.sessions, shiftLabelById]); // eslint-disable-line react-hooks/exhaustive-deps
   const peakYear = useMemo(() => (yearTotals.length ? yearTotals.reduce((a, b) => (b.revenue > a.revenue ? b : a), yearTotals[0]) : null), [yearTotals]);
 
   const dailyTotals = useMemo(() => {
     const map = new Map<string, number>();
     monthSessions.forEach((s) => {
-      const key = new Date(startOfDay(s.endedAt)).toLocaleDateString();
+      const key = sessionDay(s);
       map.set(key, (map.get(key) ?? 0) + s.total);
     });
     return map;
@@ -269,7 +270,7 @@ export function AnalyticsPage() {
           <h2 className="text-lg font-semibold">Revenue by Month</h2>
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          {new Date().getFullYear()} — the highest-grossing month is labeled directly on the chart.
+          {currentYear} — the highest-grossing month is labeled directly on the chart.
         </p>
         <ResponsiveContainer width="100%" height={360}>
           <LineChart data={monthOfYearTotals} margin={{ top: 30, left: 8, right: 16 }}>

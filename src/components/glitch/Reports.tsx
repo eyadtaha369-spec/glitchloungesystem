@@ -7,6 +7,7 @@ import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-st
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft, HandCoins } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
 import { SearchableMaterialSelect } from "./Procurement";
+import { businessDayBounds, cairoDateLabel, daysInMonthLabel } from "@/lib/business-day";
 
 // What counts as a real, same-day operational expense — used
 // consistently everywhere "Daily Expenses" is computed on this page.
@@ -173,13 +174,8 @@ function isFixedMonthlyCostEntry_(l: LedgerEntry): boolean {
 // that entire shift to the previous business day over a few minutes
 // of natural variance. The window stays a consistent 24 hours long,
 // just shifted 30 minutes earlier to absorb that variance.
-const BUSINESS_DAY_START_HOUR = 8;
-const BUSINESS_DAY_GRACE_MINUTES = 30;
-function businessDayBounds(dateStr: string) {
-  const from = new Date(dateStr + "T00:00:00").getTime() + BUSINESS_DAY_START_HOUR * 3600000 - BUSINESS_DAY_GRACE_MINUTES * 60000;
-  const to = from + 86400000 - 1; // 24 hours later, minus 1ms
-  return { from, to };
-}
+// businessDayBounds now lives in @/lib/business-day (Cairo-pinned,
+// DST-safe, label-driven) and is imported above.
 
 // This café operates in Africa/Cairo local time, regardless of the
 // timezone the viewing browser (or an SSR render) happens to be set
@@ -190,13 +186,6 @@ function businessDayBounds(dateStr: string) {
 // own machine is set to a different timezone than the café's would
 // otherwise land on the wrong default date the moment their local
 // midnight and Cairo's don't line up.
-const CAIRO_TZ_FORMATTER = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
-});
-function cairoDateLabel(ts: number): string {
-  return CAIRO_TZ_FORMATTER.format(new Date(ts));
-}
-
 // Generalizes businessDayBounds to a closed [startDateStr, endDateStr]
 // range — every section below now has its own independent date-range
 // picker (rather than sharing one page-level date), and each one's own
@@ -337,7 +326,7 @@ function expenseMatchesRange_(l: LedgerEntry, rangeShiftIds: Set<string>, from: 
 function monthBusinessDayBounds(monthStr: string): { from: number; to: number } {
   const [y, m] = monthStr.split("-").map(Number);
   const firstDay = `${monthStr}-01`;
-  const lastDayNum = new Date(y, m, 0).getDate();
+  const lastDayNum = daysInMonthLabel(monthStr);
   const lastDay = `${monthStr}-${String(lastDayNum).padStart(2, "0")}`;
   return { from: businessDayBounds(firstDay).from, to: businessDayBounds(lastDay).to };
 }
@@ -959,8 +948,7 @@ function MonthlyItemSalesPanel() {
     setGenerating(true);
     try {
       const monthLabel = formatMonthYearLabel(month);
-      const [y, m] = month.split("-").map(Number);
-      const lastDayNum = new Date(y, m, 0).getDate();
+      const lastDayNum = daysInMonthLabel(month);
       const startDate = `${month}-01`;
       const endDate = `${month}-${String(lastDayNum).padStart(2, "0")}`;
 
@@ -1971,7 +1959,7 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
   const { monthStart, monthEnd, monthLabel } = useMemo(() => {
     const [y, m] = selectedMonth.split("-").map(Number);
     const firstDay = `${selectedMonth}-01`;
-    const lastDayNum = new Date(y, m, 0).getDate();
+    const lastDayNum = daysInMonthLabel(selectedMonth);
     const lastDay = `${selectedMonth}-${String(lastDayNum).padStart(2, "0")}`;
     const start = businessDayBounds(firstDay).from;
     const end = businessDayBounds(lastDay).to;
@@ -3218,8 +3206,7 @@ function MonthlyShiftsExportPanel() {
     setGenerating(true);
     try {
       const monthLabel = formatMonthYearLabel(month);
-      const [y, m] = month.split("-").map(Number);
-      const lastDayNum = new Date(y, m, 0).getDate();
+      const lastDayNum = daysInMonthLabel(month);
       const startDate = `${month}-01`;
       const endDate = `${month}-${String(lastDayNum).padStart(2, "0")}`;
 
