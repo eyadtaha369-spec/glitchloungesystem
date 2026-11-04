@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS Sessions (
   ordersDiscountAmount REAL, ordersDiscountLabel TEXT,
   splitBill INTEGER, paymentMethod TEXT,
   cashAmount REAL, visaAmount REAL, instapayAmount REAL, shiftId TEXT,
-  rateSegments TEXT
+  rateSegments TEXT,
+  subtotal REAL, vatAmount REAL, vatRate REAL
 );
 
 CREATE TABLE IF NOT EXISTS Shifts (
@@ -164,7 +165,8 @@ CREATE TABLE IF NOT EXISTS BusinessDays (
   id TEXT PRIMARY KEY,
   label TEXT, openedAt INTEGER, closedAt INTEGER, totalRevenue REAL,
   totalCash REAL, totalVisa REAL, totalInstapay REAL, totalExpenses REAL,
-  netProfit REAL, shiftCount INTEGER, closedBy TEXT
+  netProfit REAL, shiftCount INTEGER, closedBy TEXT,
+  vatTotal REAL, netSales REAL
 );
 
 -- Admin dashboard's daily cash reconciliation snapshots. dateLabel is the
@@ -177,7 +179,8 @@ CREATE TABLE IF NOT EXISTS DailyReconciliations (
   id TEXT PRIMARY KEY,
   shiftId TEXT, dateLabel TEXT, recordedAt INTEGER, recordedBy TEXT,
   totalRevenue REAL, instapayTotal REAL, visaTotal REAL, expensesTotal REAL,
-  expectedCash REAL, actualCash REAL, variance REAL
+  expectedCash REAL, actualCash REAL, variance REAL,
+  vatTotal REAL, netSales REAL
 );
 
 -- Indexes on the columns every report/lookup actually filters by —

@@ -40,6 +40,8 @@ export function generateShiftReportPdf({ shift, sessions, ledger }: ShiftReportD
 
   // ---- Derived figures (identical logic to ShiftCard's own reconciliation breakdown) ----
   const grossSales = sessions.reduce((a, s) => a + s.total, 0);
+  const vatCollected = sessions.reduce((a, s) => a + (Number(s.vatAmount) || 0), 0);
+  const netSalesTotal = grossSales - vatCollected;
   const totalDiscounts = sessions.reduce((a, s) => a + (s.discountAmount || 0), 0);
   const cashCollected = sessions.reduce((a, s) => a + s.cashAmount, 0);
   const visaCollected = sessions.reduce((a, s) => a + s.visaAmount, 0);
@@ -135,7 +137,9 @@ export function generateShiftReportPdf({ shift, sessions, ledger }: ShiftReportD
   // ---- Financial Summary ----
   sectionTitle("Financial Summary");
   kvRow("Opening Balance", fmt(shift.openingBalance));
-  kvRow("Gross Sales", fmt(grossSales));
+  kvRow("Subtotal (Net Sales)", fmt(netSalesTotal));
+  kvRow("VAT 14%", fmt(vatCollected));
+  kvRow("Grand Total (incl. VAT)", fmt(grossSales), { bold: true });
   kvRow("Total Discounts", "-" + fmt(totalDiscounts));
   kvRow("Total Expenses (Drawer)", "-" + fmt(totalExpenses));
   kvRow("Expected Cash", expectedCash !== null ? fmt(expectedCash) : "—", { bold: true });

@@ -181,7 +181,7 @@ function sheetObjectHeaders_(name) {
     SupplierPayments: ["id", "supplierId", "ts", "amount", "paymentSource", "note", "recordedBy", "ledgerEntryId", "invoiceId"],
     VoidRequests: ["id", "ts", "roomId", "roomName", "menuItemId", "itemName", "qty", "unitPrice", "billValue", "reason", "status", "cashierUsername", "waiterName", "shiftId", "approvedBy", "approvedAt", "cogs", "applied", "applyError"],
     ActivityLogs: ["id", "ts", "actorUsername", "actorRole", "actionType", "location", "riskLevel", "description", "before", "after", "shiftId"],
-    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId", "rateSegments"],
+    Sessions: ["id", "orderNumber", "roomId", "roomName", "startedAt", "endedAt", "durationSec", "timeCost", "orders", "ordersCost", "total", "cogs", "discountAmount", "discountLabel", "timeDiscountAmount", "timeDiscountLabel", "ordersDiscountAmount", "ordersDiscountLabel", "splitBill", "paymentMethod", "cashAmount", "visaAmount", "instapayAmount", "shiftId", "rateSegments", "subtotal", "vatAmount", "vatRate"],
     Shifts: ["id", "cashierUsername", "openedAt", "closedAt", "openingBalance", "closingActualCash", "expectedCash", "discrepancy", "forced", "openedLat", "openedLng", "closedLat", "closedLng", "businessDayId", "kotCounter"],
     StaffOrders: ["id", "ts", "staffName", "items", "totalAmount", "cogs", "processedBy", "shiftId"],
     StaffMembers: ["id", "name", "active"],
@@ -190,8 +190,8 @@ function sheetObjectHeaders_(name) {
     RestockLog: ["id", "ts", "materialId", "materialName", "qtyAdded", "carryoverAdded", "newTotal", "unitCost", "performedBy"],
     WasteInvoices: ["id", "invoiceNumber", "ts", "materialId", "materialName", "unit", "wastedQty", "reason", "reasonLabel", "note", "unitCost", "totalCost", "loggedBy", "shiftId"],
     InventorySnapshots: ["id", "month", "archivedAt", "materialId", "materialName", "unit", "category", "openingBalance", "purchasesIn", "salesWasteOut", "finalSystemBalance", "finalActualCount", "unitCost", "totalValue", "archivedBy"],
-    BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy"],
-    DailyReconciliations: ["id", "shiftId", "dateLabel", "recordedAt", "recordedBy", "totalRevenue", "instapayTotal", "visaTotal", "expensesTotal", "expectedCash", "actualCash", "variance"],
+    BusinessDays: ["id", "label", "openedAt", "closedAt", "totalRevenue", "totalCash", "totalVisa", "totalInstapay", "totalExpenses", "netProfit", "shiftCount", "closedBy", "vatTotal", "netSales"],
+    DailyReconciliations: ["id", "shiftId", "dateLabel", "recordedAt", "recordedBy", "totalRevenue", "instapayTotal", "visaTotal", "expensesTotal", "expectedCash", "actualCash", "variance", "vatTotal", "netSales"],
   };
   return map[name];
 }
@@ -200,6 +200,16 @@ function sheetObjectHeaders_(name) {
 // serialize on their own — JSON-encode/decode just that one field. A
 // single session's own JSON is small (one order list), nowhere near the
 // per-cell limit that broke the old single-blob-holds-everything design.
+// 14% Value Added Tax, charged ON TOP of the check (exclusive). Menu prices,
+// room rates and time charges are unchanged: the check's net amount is the
+// SUBTOTAL, VAT is 14% of it, GRAND TOTAL is the sum (all rounded to 2dp).
+const VAT_RATE = 0.14;
+function vatBreakdown_(netAmount) {
+  const subtotal = Math.round((Number(netAmount) || 0) * 100) / 100;
+  const vatAmount = Math.round(subtotal * VAT_RATE * 100) / 100;
+  const total = Math.round((subtotal + vatAmount) * 100) / 100;
+  return { subtotal: subtotal, vatAmount: vatAmount, total: total, vatRate: VAT_RATE };
+}
 function sessionToRow_(s) {
   return {
     id: s.id, orderNumber: s.orderNumber || 0, roomId: s.roomId, roomName: s.roomName, startedAt: s.startedAt, endedAt: s.endedAt,
@@ -212,6 +222,8 @@ function sessionToRow_(s) {
     paymentMethod: s.paymentMethod, cashAmount: s.cashAmount, visaAmount: s.visaAmount,
     instapayAmount: s.instapayAmount, shiftId: s.shiftId,
     rateSegments: JSON.stringify(s.rateSegments || []),
+    // 14% VAT breakdown. total = subtotal + vatAmount (the grand total paid).
+    subtotal: s.subtotal == null ? s.total : s.subtotal, vatAmount: s.vatAmount || 0, vatRate: s.vatRate || 0,
   };
 }
 function rowToSession_(r) {
@@ -224,6 +236,9 @@ function rowToSession_(r) {
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
     timeDiscountAmount: Number(r.timeDiscountAmount) || 0, timeDiscountLabel: r.timeDiscountLabel || null,
     ordersDiscountAmount: Number(r.ordersDiscountAmount) || 0, ordersDiscountLabel: r.ordersDiscountLabel || null,
+    // Sales made before VAT existed have no VAT columns: they read as VAT-free (subtotal === total).
+    vatAmount: Number(r.vatAmount) || 0, vatRate: Number(r.vatRate) || 0,
+    subtotal: (r.subtotal === null || r.subtotal === undefined) ? Number(r.total) || 0 : Number(r.subtotal),
   });
 }
 function readSessions_() {
@@ -1106,7 +1121,11 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     discountAmount = Math.round(preDiscountTotal * 0.25 * 100) / 100;
     discountLabel = "Owner Discount (25%)";
   }
-  const total = preDiscountTotal - discountAmount;
+  // 14% VAT on top of the discounted check: Subtotal + VAT = Grand Total.
+  const vat = vatBreakdown_(preDiscountTotal - discountAmount);
+  const subtotal = vat.subtotal;
+  const vatAmount = vat.vatAmount;
+  const total = vat.total;
 
   const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
@@ -1156,6 +1175,9 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     orders: room.orders,
     ordersCost: ordersCost,
     total: total,
+    subtotal: subtotal,
+    vatAmount: vatAmount,
+    vatRate: vat.vatRate,
     cogs: cogs,
     discountAmount: discountAmount,
     discountLabel: discountLabel,
@@ -1425,7 +1447,9 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     discountAmount = 0;
     discountLabel = null;
   }
-  splitTotal = preDiscountSplitTotal - discountAmount;
+  // 14% VAT on top of this sub-bill: Subtotal + VAT = Grand Total.
+  const splitVat = vatBreakdown_(preDiscountSplitTotal - discountAmount);
+  splitTotal = splitVat.total;
 
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
   if (method === "cash") {
@@ -1467,6 +1491,9 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     orders: splitOrders,
     ordersCost: preDiscountSplitTotal,
     total: splitTotal,
+    subtotal: splitVat.subtotal,
+    vatAmount: splitVat.vatAmount,
+    vatRate: splitVat.vatRate,
     cogs: cogs,
     discountAmount: discountAmount,
     discountLabel: discountLabel,
@@ -1756,13 +1783,15 @@ function recomputeExpenseDate_(entry, shiftsById) {
 // dates and midnight. See server/lib/reconciliation.js for the full
 // reasoning.
 function bizComputeShiftFinancials_(sessions, ledger, shiftId) {
-  if (!shiftId) return { shiftId: null, totalRevenue: 0, expensesTotal: 0 };
+  if (!shiftId) return { shiftId: null, totalRevenue: 0, vatTotal: 0, netSales: 0, expensesTotal: 0 };
   const shiftSessions = sessions.filter(function (s) { return s.shiftId === shiftId; });
   const totalRevenue = shiftSessions.reduce(function (a, s) { return a + (Number(s.total) || 0); }, 0);
+  const vatTotal = Math.round(shiftSessions.reduce(function (a, s) { return a + (Number(s.vatAmount) || 0); }, 0) * 100) / 100;
+  const netSales = Math.round((totalRevenue - vatTotal) * 100) / 100;
   const expensesTotal = ledger
     .filter(function (l) { return l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && l.shiftId === shiftId; })
     .reduce(function (a, l) { return a + (Number(l.amount) || 0); }, 0);
-  return { shiftId: shiftId, totalRevenue: totalRevenue, expensesTotal: expensesTotal };
+  return { shiftId: shiftId, totalRevenue: totalRevenue, vatTotal: vatTotal, netSales: netSales, expensesTotal: expensesTotal };
 }
 
 function bizBuildShiftReconciliation_(sessions, ledger, shiftId, actualCash, instapayTotal, visaTotal, recordedBy) {
@@ -1787,6 +1816,8 @@ function bizBuildShiftReconciliation_(sessions, ledger, shiftId, actualCash, ins
     recordedAt: now,
     recordedBy: recordedBy,
     totalRevenue: financials.totalRevenue,
+    vatTotal: financials.vatTotal,
+    netSales: financials.netSales,
     instapayTotal: instapay,
     visaTotal: visa,
     expensesTotal: financials.expensesTotal,
@@ -2015,6 +2046,8 @@ function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   const bdSessions = sessions.filter((s) => s.shiftId && shiftIds.indexOf(s.shiftId) !== -1);
 
   const totalRevenue = bdSessions.reduce((a, s) => a + s.total, 0);
+  const vatTotal = bdSessions.reduce((a, s) => a + (Number(s.vatAmount) || 0), 0);
+  const netSales = totalRevenue - vatTotal;
   const totalCash = bdSessions.reduce((a, s) => a + s.cashAmount, 0);
   const totalVisa = bdSessions.reduce((a, s) => a + s.visaAmount, 0);
   const totalInstapay = bdSessions.reduce((a, s) => a + s.instapayAmount, 0);
@@ -2029,11 +2062,13 @@ function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   const totalExpenses = ledger
     .filter((l) => l.direction === "outflow" && l.status === "approved" && l.ts >= windowStart && l.ts <= now)
     .reduce((a, l) => a + Number(l.amount), 0);
-  const netProfit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+  const netProfit = Math.round((netSales - totalExpenses) * 100) / 100;
 
   updateObjectById_("BusinessDays", bdId, {
     closedAt: now,
     totalRevenue: Math.round(totalRevenue * 100) / 100,
+    vatTotal: Math.round(vatTotal * 100) / 100,
+    netSales: Math.round(netSales * 100) / 100,
     totalCash: Math.round(totalCash * 100) / 100,
     totalVisa: Math.round(totalVisa * 100) / 100,
     totalInstapay: Math.round(totalInstapay * 100) / 100,
@@ -2046,7 +2081,7 @@ function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   state.businessDayId = null;
   pushActivity_(state, "Business day closed by " + username + " — " + totalRevenue.toFixed(2) + " EGP" + " revenue across " + bdShifts.length + " shift(s)");
   return {
-    ok: true, state: state, businessDayId: bdId, totalRevenue: totalRevenue, totalCash: totalCash,
+    ok: true, state: state, businessDayId: bdId, totalRevenue: totalRevenue, vatTotal: vatTotal, netSales: netSales, totalCash: totalCash,
     totalVisa: totalVisa, totalInstapay: totalInstapay, totalExpenses: totalExpenses, netProfit: netProfit, shiftCount: bdShifts.length,
   };
 }

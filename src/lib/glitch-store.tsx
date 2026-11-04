@@ -1917,13 +1917,15 @@ export function isToday(ts: number) {
 // approved drawer expenses are auto-calculated. Returns zeros with no
 // active shift, since there's nothing to reconcile without one.
 export function computeShiftFinancials(sessions: Session[], ledger: LedgerEntry[], activeShiftId: string | null) {
-  if (!activeShiftId) return { totalRevenue: 0, expensesTotal: 0 };
+  if (!activeShiftId) return { totalRevenue: 0, vatTotal: 0, netSales: 0, expensesTotal: 0 };
   const shiftSessions = sessions.filter((s) => s.shiftId === activeShiftId);
   const totalRevenue = shiftSessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
+  const vatTotal = Math.round(shiftSessions.reduce((a, s) => a + (Number(s.vatAmount) || 0), 0) * 100) / 100;
+  const netSales = Math.round((totalRevenue - vatTotal) * 100) / 100;
   const expensesTotal = ledger
     .filter((l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && l.shiftId === activeShiftId)
     .reduce((a, l) => a + (Number(l.amount) || 0), 0);
-  return { totalRevenue, expensesTotal };
+  return { totalRevenue, vatTotal, netSales, expensesTotal };
 }
 // Recipe-based unit cost for a menu item: Sum(ingredient qty in recipe
 // * that material's last purchase price). stock.unitCost IS the last

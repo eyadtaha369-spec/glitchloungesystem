@@ -217,7 +217,12 @@ export interface Session {
   rateSegments: { rateMode: "single" | "multi"; hourlyRate: number; durationSec: number }[];
   orders: OrderLine[];
   ordersCost: number;
+  // Grand total = money collected = subtotal + 14% VAT. Older sessions
+  // (pre-VAT) have no subtotal/vatAmount: read them as VAT-free.
   total: number;
+  subtotal?: number;
+  vatAmount?: number;
+  vatRate?: number;
   cogs: number;
   discountAmount: number;
   discountLabel: string | null;
@@ -268,6 +273,8 @@ export interface DailyReconciliation {
   recordedAt: number;
   recordedBy: string;
   totalRevenue: number;
+  vatTotal?: number;
+  netSales?: number;
   instapayTotal: number;
   visaTotal: number;
   expensesTotal: number;
@@ -305,6 +312,8 @@ export interface BusinessDay {
   openedAt: number;
   closedAt: number | null;
   totalRevenue: number;
+  vatTotal?: number;
+  netSales?: number;
   totalCash: number;
   totalVisa: number;
   totalInstapay: number;

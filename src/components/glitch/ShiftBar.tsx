@@ -18,6 +18,7 @@ export function ShiftBar() {
   const shiftSessions = activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id) : [];
   const cashSalesOnly = shiftSessions.reduce((a, s) => a + s.cashAmount, 0);
   const shiftRevenue = shiftSessions.reduce((a, s) => a + s.total, 0);
+  const shiftVat = shiftSessions.reduce((a, s) => a + (Number(s.vatAmount) || 0), 0);
 
   const handleOpen = async () => {
     setErr(null);
@@ -137,6 +138,7 @@ export function ShiftBar() {
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Shift Revenue</div>
           <div className="mt-1 font-mono font-bold text-lg">{fmtMoney(shiftRevenue)}</div>
+          <div className="text-[10px] font-mono text-muted-foreground">incl. VAT 14% {fmtMoney(shiftVat)}</div>
           <div className="text-[9px] text-muted-foreground/70 mt-0.5">Whole shift, since {new Date(activeShift.openedAt).toLocaleDateString()}</div>
         </div>
         <div className="bg-white/60 rounded-lg p-3 border border-black/8">

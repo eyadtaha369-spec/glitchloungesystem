@@ -11,6 +11,7 @@ import roomIcon7 from "@/assets/room-icons/room-7.webp";
 import roomIcon8 from "@/assets/room-icons/room-8.webp";
 import roomIconVip from "@/assets/room-icons/room-vip.webp";
 import { printSmart } from "@/lib/print";
+import { vatBreakdown, sessionVat } from "@/lib/vat";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, formatOrderLineName, MODIFIER_GROUPS, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2, Trash2 } from "lucide-react";
 
@@ -775,7 +776,12 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
   const checkoutDiscountAmount = hasManualDiscount
     ? timeDiscountPreview + ordersDiscountPreview
     : room.isOwnerTable ? Math.round(checkoutPreDiscountTotal * 0.25 * 100) / 100 : 0;
-  const checkoutTotal = checkoutPreDiscountTotal - checkoutDiscountAmount;
+  // Exclusive 14% VAT on top of the net subtotal; grand total is what the
+  // customer pays (and what mixed-payment amounts must add up to).
+  const checkoutVatBreakdown = vatBreakdown(checkoutPreDiscountTotal - checkoutDiscountAmount);
+  const checkoutSubtotal = checkoutVatBreakdown.subtotal;
+  const checkoutVat = checkoutVatBreakdown.vatAmount;
+  const checkoutTotal = checkoutVatBreakdown.total;
 
   const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
   const secondaryAmount = parseFloat(secondaryInput) || 0;
@@ -1047,6 +1053,16 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
           </>
         )}
       </div>
+      {room.zone !== "waste" && total > 0 && (() => {
+        const v = vatBreakdown(total);
+        return (
+          <div className="mt-2 rounded-lg bg-white/60 border border-black/8 px-3 py-2 text-[11px] font-mono space-y-0.5">
+            <div className="flex justify-between"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(v.subtotal)}</span></div>
+            <div className="flex justify-between"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(v.vatAmount)}</span></div>
+            <div className="flex justify-between font-bold"><span>Grand Total (الإجمالي النهائي)</span><span>{fmtMoney(v.total)}</span></div>
+          </div>
+        );
+      })()}
 
       {/* Split bill breakdown */}
       {split && room.status === "active" && (
@@ -1378,9 +1394,10 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   </div>
                 ))}
 
-                <div className="flex justify-between border-t border-dashed border-black/40 mt-3 pt-2 text-base font-bold receipt-block receipt-total">
-                  <span>Total</span>
-                  <span className="font-mono">{fmtMoney(checkoutPreDiscountTotal)}</span>
+                <div className="border-t border-dashed border-black/40 mt-3 pt-2 receipt-block receipt-total">
+                  <div className="flex justify-between text-sm"><span>Subtotal (الإجمالي الفرعي)</span><span className="font-mono">{fmtMoney(checkoutSubtotal)}</span></div>
+                  <div className="flex justify-between text-sm"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span className="font-mono">{fmtMoney(checkoutVat)}</span></div>
+                  <div className="flex justify-between text-base font-bold mt-1"><span>Grand Total (الإجمالي النهائي)</span><span className="font-mono">{fmtMoney(checkoutTotal)}</span></div>
                 </div>
                 <div className="text-center text-[10px] uppercase tracking-widest mt-3 opacity-70">
                   Preview — payment not yet collected
@@ -1563,15 +1580,19 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 )}
               </div>
 
-              <div className="text-center py-2">
-                <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {checkoutDiscountAmount > 0 ? (
-                    <>Subtotal {fmtMoney(checkoutPreDiscountTotal)} − Discount {fmtMoney(checkoutDiscountAmount)}</>
-                  ) : (
-                    "Total Due"
-                  )}
+<div className="rounded-2xl border border-black/10 bg-white/60 p-4 space-y-1 font-mono text-base">
+                {checkoutDiscountAmount > 0 && (
+                  <>
+                    <div className="flex justify-between text-muted-foreground"><span>Before discount</span><span>{fmtMoney(checkoutPreDiscountTotal)}</span></div>
+                    <div className="flex justify-between text-muted-foreground"><span>Discount</span><span>− {fmtMoney(checkoutDiscountAmount)}</span></div>
+                  </>
+                )}
+                <div className="flex justify-between"><span>Subtotal <span dir="rtl" className="text-xs">(الإجمالي الفرعي)</span></span><span>{fmtMoney(checkoutSubtotal)}</span></div>
+                <div className="flex justify-between"><span>VAT 14% <span dir="rtl" className="text-xs">(ضريبة القيمة المضافة 14%)</span></span><span>{fmtMoney(checkoutVat)}</span></div>
+                <div className="text-center pt-3 border-t border-black/15">
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground">Grand Total <span dir="rtl">(الإجمالي النهائي)</span></div>
+                  <div className="text-6xl font-black mt-1">{fmtMoney(checkoutTotal)}</div>
                 </div>
-                <div className="text-6xl font-mono font-black mt-2">{fmtMoney(checkoutTotal)}</div>
               </div>
               <div className="text-sm uppercase tracking-widest font-bold text-muted-foreground pt-2">Payment Method</div>
               <div className="grid grid-cols-2 gap-3">
@@ -1611,7 +1632,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                       type="number" step="0.01" autoFocus value={secondaryInput}
                       onChange={(e) => setSecondaryInput(e.target.value)}
                       placeholder="0.00"
-                      max={total}
+                      max={checkoutTotal}
                       className={`mt-2 w-full bg-white/80 border-2 rounded-xl px-4 py-4 text-2xl font-mono font-bold text-center outline-none focus:border-[oklch(0.7_0.19_260)] ${secondaryExceedsTotal ? "border-[oklch(0.62_0.24_25/0.6)]" : "border-black/12"}`}
                     />
                   </div>
@@ -1621,7 +1642,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                   </div>
                   {secondaryExceedsTotal && (
                     <div className="text-sm font-mono font-bold text-[oklch(0.62_0.24_25)] px-1">
-                      {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount can't exceed the total ({fmtMoney(total)}).
+                      {paymentOption === "mixed_cash_visa" ? "Visa" : "InstaPay"} amount can't exceed the total ({fmtMoney(checkoutTotal)}).
                     </div>
                   )}
                 </div>
@@ -1982,9 +2003,16 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
               <span>{session.discountLabel ?? "Discount"}</span><span>-{fmtMoney(session.discountAmount)}</span>
             </div>
           )}
-          <div className="border-t border-double border-black/25 mt-2 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
-            <span>TOTAL</span><span>{fmtMoney(session.total)}</span>
-          </div>
+          {(() => {
+            const v = sessionVat(session);
+            return (
+              <div className="border-t border-double border-black/25 mt-2 pt-2 receipt-block receipt-total">
+                <div className="flex justify-between text-sm"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(v.subtotal)}</span></div>
+                <div className="flex justify-between text-sm"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(v.vatAmount)}</span></div>
+                <div className="flex justify-between text-base font-bold mt-1"><span>GRAND TOTAL (الإجمالي النهائي)</span><span>{fmtMoney(v.total)}</span></div>
+              </div>
+            );
+          })()}
           <div className="text-center text-sm font-bold uppercase tracking-widest mt-4">
             Thank you — Game Over.
           </div>
@@ -3042,7 +3070,11 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
     return Math.round(Math.max(0, Math.min(amt, preDiscountSplitTotal)) * 100) / 100;
   })();
   const hasManualDiscount = discountPreview > 0;
-  const splitTotal = preDiscountSplitTotal - (hasManualDiscount ? discountPreview : (room.isOwnerTable ? Math.round(preDiscountSplitTotal * 0.25 * 100) / 100 : 0));
+  const splitDiscount = hasManualDiscount ? discountPreview : (room.isOwnerTable ? Math.round(preDiscountSplitTotal * 0.25 * 100) / 100 : 0);
+  const splitVat = vatBreakdown(preDiscountSplitTotal - splitDiscount);
+  const splitSubtotal = splitVat.subtotal;
+  const splitVatAmount = splitVat.vatAmount;
+  const splitTotal = splitVat.total; // grand total incl. 14% VAT
 
   const isMixed = paymentOption === "mixed_cash_visa" || paymentOption === "mixed_cash_instapay";
   // Cashier enters only the Visa/InstaPay amount — Cash is auto-calculated.
@@ -3130,9 +3162,16 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
                 </div>
               </>
             )}
-            <div className="border-t border-double border-black/25 mt-3 pt-2 flex justify-between text-base font-bold receipt-block receipt-total">
-              <span>SUB-BILL TOTAL</span><span>{fmtMoney(splitReceipt.total)}</span>
-            </div>
+            {(() => {
+              const v = sessionVat(splitReceipt);
+              return (
+                <div className="border-t border-double border-black/25 mt-3 pt-2 receipt-block receipt-total">
+                  <div className="flex justify-between text-sm"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(v.subtotal)}</span></div>
+                  <div className="flex justify-between text-sm"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(v.vatAmount)}</span></div>
+                  <div className="flex justify-between text-base font-bold mt-1"><span>SUB-BILL TOTAL (الإجمالي النهائي)</span><span>{fmtMoney(v.total)}</span></div>
+                </div>
+              );
+            })()}
             <div className="text-center text-sm font-bold uppercase tracking-widest mt-4">Partial Payment — Table Remains Open</div>
           </div>
           <div className="p-4 border-t border-black/10 flex justify-end gap-2 no-print">
@@ -3253,13 +3292,13 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
           )}
         </div>
 
-        <div className="px-4 pb-2 flex justify-between text-sm font-mono">
-          <span className="text-muted-foreground">
-            {(hasManualDiscount || room.isOwnerTable) && preDiscountSplitTotal - splitTotal > 0
-              ? `Subtotal ${fmtMoney(preDiscountSplitTotal)} − Discount ${fmtMoney(preDiscountSplitTotal - splitTotal)}`
-              : "Sub-Bill Total"}
-          </span>
-          <span className="font-bold text-lg">{fmtMoney(splitTotal)}</span>
+        <div className="px-4 pb-2 text-sm font-mono space-y-0.5">
+          {splitDiscount > 0 && (
+            <div className="flex justify-between text-muted-foreground"><span>Before discount {fmtMoney(preDiscountSplitTotal)}</span><span>− {fmtMoney(splitDiscount)}</span></div>
+          )}
+          <div className="flex justify-between"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(splitSubtotal)}</span></div>
+          <div className="flex justify-between"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(splitVatAmount)}</span></div>
+          <div className="flex justify-between"><span className="font-bold">Grand Total (الإجمالي النهائي)</span><span className="font-bold text-lg">{fmtMoney(splitTotal)}</span></div>
         </div>
 
         <div className="px-4 pb-4">

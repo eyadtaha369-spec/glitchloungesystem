@@ -86,6 +86,9 @@ function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   const bdSessions = sessions.filter((s) => s.shiftId && shiftIds.indexOf(s.shiftId) !== -1);
 
   const totalRevenue = bdSessions.reduce((a, s) => a + s.total, 0);
+  // 14% VAT collected is NOT the café's income: split it out so profit is net of VAT.
+  const vatTotal = bdSessions.reduce((a, s) => a + (Number(s.vatAmount) || 0), 0);
+  const netSales = totalRevenue - vatTotal;
   const totalCash = bdSessions.reduce((a, s) => a + s.cashAmount, 0);
   const totalVisa = bdSessions.reduce((a, s) => a + s.visaAmount, 0);
   const totalInstapay = bdSessions.reduce((a, s) => a + s.instapayAmount, 0);
@@ -94,16 +97,16 @@ function bizCloseBusinessDay_(state, sessions, shifts, ledger, username) {
   const windowStart = bdRecord ? bdRecord.openedAt : 0;
   const now = Date.now();
   const totalExpenses = ledger.filter((l) => l.direction === "outflow" && l.status === "approved" && l.ts >= windowStart && l.ts <= now).reduce((a, l) => a + Number(l.amount), 0);
-  const netProfit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+  const netProfit = Math.round((netSales - totalExpenses) * 100) / 100;
 
   return {
     ok: true, state, businessDayId: bdId,
     updates: {
-      closedAt: now, totalRevenue: Math.round(totalRevenue * 100) / 100, totalCash: Math.round(totalCash * 100) / 100,
+      closedAt: now, totalRevenue: Math.round(totalRevenue * 100) / 100, vatTotal: Math.round(vatTotal * 100) / 100, netSales: Math.round(netSales * 100) / 100, totalCash: Math.round(totalCash * 100) / 100,
       totalVisa: Math.round(totalVisa * 100) / 100, totalInstapay: Math.round(totalInstapay * 100) / 100,
       totalExpenses: Math.round(totalExpenses * 100) / 100, netProfit, shiftCount: bdShifts.length, closedBy: username,
     },
-    totalRevenue, totalCash, totalVisa, totalInstapay, totalExpenses, netProfit, shiftCount: bdShifts.length,
+    totalRevenue, vatTotal, netSales, totalCash, totalVisa, totalInstapay, totalExpenses, netProfit, shiftCount: bdShifts.length,
   };
 }
 

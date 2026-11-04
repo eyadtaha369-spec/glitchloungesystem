@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { netSales } from "@/lib/vat";
 import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts, isLowStock } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
@@ -34,7 +35,7 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
   };
 
   const revByRoom = state.rooms.map((r) => {
-    const past = state.sessions.filter((s) => s.roomId === r.id).reduce((a, s) => a + s.total, 0);
+    const past = state.sessions.filter((s) => s.roomId === r.id).reduce((a, s) => a + netSales(s), 0);
     let live = 0;
     if (r.status === "active" && r.startedAt) {
       const dur = computeElapsed(r);
@@ -318,6 +319,11 @@ function DailyReconciliationPanel() {
           icon={DollarSign}
           highlighted
         />
+        <div className="sm:col-span-2 xl:col-span-4 text-xs font-mono text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 -mt-1">
+          <span>Subtotal (الإجمالي الفرعي): {fmtMoney(financials.netSales)}</span>
+          <span>VAT 14% (ضريبة القيمة المضافة 14%): {fmtMoney(financials.vatTotal)}</span>
+          <span>Grand Total (الإجمالي النهائي): {fmtMoney(financials.totalRevenue)}</span>
+        </div>
         <DarkInputCard
           label={t("dashboard.instapayTotal")}
           icon={Smartphone}

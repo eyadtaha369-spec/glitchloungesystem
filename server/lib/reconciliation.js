@@ -14,13 +14,17 @@ const { formatDateLabel_ } = require("./shifts");
 // time. Only Total Revenue and this shift's approved drawer expenses
 // are auto-calculated from the app's own records.
 function bizComputeShiftFinancials_(sessions, ledger, shiftId) {
-  if (!shiftId) return { shiftId: null, totalRevenue: 0, expensesTotal: 0 };
+  if (!shiftId) return { shiftId: null, totalRevenue: 0, vatTotal: 0, netSales: 0, expensesTotal: 0 };
   const shiftSessions = sessions.filter((s) => s.shiftId === shiftId);
+  // totalRevenue = everything COLLECTED (grand totals, incl. VAT) -- this is what the
+  // drawer math uses. vatTotal is the 14% VAT portion of it, netSales the rest.
   const totalRevenue = shiftSessions.reduce((a, s) => a + (Number(s.total) || 0), 0);
+  const vatTotal = Math.round(shiftSessions.reduce((a, s) => a + (Number(s.vatAmount) || 0), 0) * 100) / 100;
+  const netSales = Math.round((totalRevenue - vatTotal) * 100) / 100;
   const expensesTotal = ledger
     .filter((l) => l.status === "approved" && l.paidFromDrawer && l.direction === "outflow" && l.shiftId === shiftId)
     .reduce((a, l) => a + (Number(l.amount) || 0), 0);
-  return { shiftId, totalRevenue, expensesTotal };
+  return { shiftId, totalRevenue, vatTotal, netSales, expensesTotal };
 }
 
 function bizBuildShiftReconciliation_(sessions, ledger, shiftId, actualCash, instapayTotal, visaTotal, recordedBy) {
@@ -45,6 +49,8 @@ function bizBuildShiftReconciliation_(sessions, ledger, shiftId, actualCash, ins
     recordedAt: now,
     recordedBy,
     totalRevenue: financials.totalRevenue,
+    vatTotal: financials.vatTotal,
+    netSales: financials.netSales,
     instapayTotal: instapay,
     visaTotal: visa,
     expensesTotal: financials.expensesTotal,

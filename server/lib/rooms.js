@@ -1,4 +1,4 @@
-const { pushActivity_, newId_ } = require("./util");
+const { pushActivity_, newId_, vatBreakdown_ } = require("./util");
 const { consumeFifo_, restoreFifo_ } = require("./state");
 
 const PAYMENT_METHODS = ["cash", "visa", "mixed_cash_visa", "mixed_cash_instapay"];
@@ -434,7 +434,10 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     discountAmount = Math.round(preDiscountTotal * 0.25 * 100) / 100;
     discountLabel = "Owner Discount (25%)";
   }
-  const total = preDiscountTotal - discountAmount;
+  // 14% VAT on top of the discounted check: Subtotal + VAT = Grand Total.
+  const vat = vatBreakdown_(preDiscountTotal - discountAmount);
+  const subtotal = vat.subtotal, vatAmount = vat.vatAmount;
+  const total = vat.total;
 
   const method = PAYMENT_METHODS.indexOf(paymentMethod) === -1 ? "cash" : paymentMethod;
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
@@ -466,7 +469,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
   state.orderCounter = (state.orderCounter || 0) + 1;
   const session = {
     id: "sess-" + endedAt, orderNumber: state.orderCounter, roomId: room.id, roomName: room.name,
-    startedAt: room.startedAt, endedAt, durationSec, timeCost, orders: room.orders, ordersCost, total, cogs,
+    startedAt: room.startedAt, endedAt, durationSec, timeCost, orders: room.orders, ordersCost, total, subtotal, vatAmount, vatRate: vat.vatRate, cogs,
     discountAmount, discountLabel, timeDiscountAmount, timeDiscountLabel, ordersDiscountAmount, ordersDiscountLabel,
     splitBill: !!splitBill, paymentMethod: method,
     cashAmount, visaAmount, instapayAmount, shiftId: state.activeShiftId || null,

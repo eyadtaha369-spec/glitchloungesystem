@@ -21,6 +21,8 @@ function sessionToRow_(s) {
     // receipt able to show each rate-mode period separately (e.g.
     // "1hr Single + 45min Multi") instead of just the combined total.
     rateSegments: JSON.stringify(s.rateSegments || []),
+    // 14% VAT breakdown. total = subtotal + vatAmount (the grand total paid).
+    subtotal: s.subtotal == null ? s.total : s.subtotal, vatAmount: s.vatAmount || 0, vatRate: s.vatRate || 0,
   };
 }
 function rowToSession_(r) {
@@ -33,6 +35,9 @@ function rowToSession_(r) {
     discountAmount: Number(r.discountAmount) || 0, discountLabel: r.discountLabel || null,
     timeDiscountAmount: Number(r.timeDiscountAmount) || 0, timeDiscountLabel: r.timeDiscountLabel || null,
     ordersDiscountAmount: Number(r.ordersDiscountAmount) || 0, ordersDiscountLabel: r.ordersDiscountLabel || null,
+    // Sales made before VAT existed have no VAT columns: they read as VAT-free (subtotal === total).
+    vatAmount: Number(r.vatAmount) || 0, vatRate: Number(r.vatRate) || 0,
+    subtotal: r.subtotal == null ? Number(r.total) || 0 : Number(r.subtotal),
   });
 }
 function readSessions_() {

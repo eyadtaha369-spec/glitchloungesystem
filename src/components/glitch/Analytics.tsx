@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { netSales } from "@/lib/vat";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
 import type { Session, LedgerEntry } from "@/lib/glitch-store";
 import {
@@ -59,7 +60,7 @@ export function AnalyticsPage() {
   const monthExpenseEntries = useMemo(() => state.ledger.filter((l) => isOperationalExpense(l) && entryDay(l).slice(0, 7) === currentMonth), [state.ledger, shiftLabelById, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- KPI cards (scoped to this calendar month) ----
-  const monthRevenue = monthSessions.reduce((a, s) => a + s.total, 0);
+  const monthRevenue = monthSessions.reduce((a, s) => a + netSales(s), 0);
   const monthExpenses = monthExpenseEntries.reduce((a, l) => a + Number(l.amount), 0);
   const aov = monthSessions.length > 0 ? monthRevenue / monthSessions.length : 0;
   const netProfit = monthRevenue - monthExpenses;
@@ -69,9 +70,9 @@ export function AnalyticsPage() {
     const totals = Array.from({ length: 24 }, (_, h) => ({ hour: h, revenue: 0, roomRevenue: 0, itemRevenue: 0, orders: 0 }));
     monthSessions.forEach((s) => {
       const h = cairoHour(s.endedAt);
-      totals[h].revenue += s.total;
+      totals[h].revenue += netSales(s);
       totals[h].roomRevenue += s.timeCost;
-      totals[h].itemRevenue += s.total - s.timeCost;
+      totals[h].itemRevenue += netSales(s) - s.timeCost;
       totals[h].orders += 1;
     });
     return totals;
@@ -84,9 +85,9 @@ export function AnalyticsPage() {
     const totals = Array.from({ length: daysInThisMonth }, (_, i) => ({ day: i + 1, revenue: 0, roomRevenue: 0, itemRevenue: 0 }));
     monthSessions.forEach((s) => {
       const d = Number(sessionDay(s).slice(8, 10));
-      totals[d - 1].revenue += s.total;
+      totals[d - 1].revenue += netSales(s);
       totals[d - 1].roomRevenue += s.timeCost;
-      totals[d - 1].itemRevenue += s.total - s.timeCost;
+      totals[d - 1].itemRevenue += netSales(s) - s.timeCost;
     });
     return totals;
   }, [monthSessions, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,9 +102,9 @@ export function AnalyticsPage() {
       const day = sessionDay(s);
       if (Number(day.slice(0, 4)) !== thisYear) return;
       const m = Number(day.slice(5, 7)) - 1;
-      totals[m].revenue += s.total;
+      totals[m].revenue += netSales(s);
       totals[m].roomRevenue += s.timeCost;
-      totals[m].itemRevenue += s.total - s.timeCost;
+      totals[m].itemRevenue += netSales(s) - s.timeCost;
     });
     return totals;
   }, [state.sessions, shiftLabelById]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -115,9 +116,9 @@ export function AnalyticsPage() {
     state.sessions.forEach((s) => {
       const y = Number(sessionDay(s).slice(0, 4));
       const entry = map.get(y) ?? { revenue: 0, roomRevenue: 0, itemRevenue: 0 };
-      entry.revenue += s.total;
+      entry.revenue += netSales(s);
       entry.roomRevenue += s.timeCost;
-      entry.itemRevenue += s.total - s.timeCost;
+      entry.itemRevenue += netSales(s) - s.timeCost;
       map.set(y, entry);
     });
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]).map(([year, v]) => ({ year: String(year), ...v }));
@@ -128,7 +129,7 @@ export function AnalyticsPage() {
     const map = new Map<string, number>();
     monthSessions.forEach((s) => {
       const key = sessionDay(s);
-      map.set(key, (map.get(key) ?? 0) + s.total);
+      map.set(key, (map.get(key) ?? 0) + netSales(s));
     });
     return map;
   }, [monthSessions]);
@@ -180,7 +181,7 @@ export function AnalyticsPage() {
   const roomProfitData = useMemo(() => {
     const map = new Map<string, number>();
     monthSessions.forEach((s) => {
-      map.set(s.roomName, (map.get(s.roomName) ?? 0) + s.total);
+      map.set(s.roomName, (map.get(s.roomName) ?? 0) + netSales(s));
     });
     return Array.from(map.entries()).map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue).slice(0, 12);
   }, [monthSessions]);
@@ -228,7 +229,7 @@ export function AnalyticsPage() {
             <YAxis yAxisId="orders" orientation="right" tick={{ fontSize: 11 }} allowDecimals={false} />
             <Tooltip formatter={(v: number, name: string) => [name === "Orders" ? v : fmtMoney(v), name]} labelFormatter={(h) => `${String(h).padStart(2, "0")}:00`} />
             <Legend />
-            <Line yAxisId="revenue" type="monotone" dataKey="revenue" name="Total Revenue (EGP)" stroke="oklch(0.7 0.19 260)" strokeWidth={2.5} dot={false} />
+            <Line yAxisId="revenue" type="monotone" dataKey="revenue" name="Net Sales excl. VAT (EGP)" stroke="oklch(0.7 0.19 260)" strokeWidth={2.5} dot={false} />
             <Line yAxisId="revenue" type="monotone" dataKey="roomRevenue" name="Room Time Revenue (EGP)" stroke="oklch(0.65 0.24 305)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
             <Line yAxisId="revenue" type="monotone" dataKey="itemRevenue" name="Item/Beverage Revenue (EGP)" stroke="oklch(0.85 0.18 85)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
             <Line yAxisId="orders" type="monotone" dataKey="orders" name="Orders" stroke="oklch(0.78 0.2 155)" strokeWidth={2} dot={false} />
@@ -244,7 +245,7 @@ export function AnalyticsPage() {
         </div>
         <p className="text-xs text-muted-foreground mb-4">
           {new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })} — the highest-grossing day is labeled directly on the chart.
-          Total Revenue always combines Room Time and Item/Beverage sales.
+          Net Sales (excl. 14% VAT) always combines Room Time and Item/Beverage sales.
         </p>
         <ResponsiveContainer width="100%" height={340}>
           <LineChart data={dayOfMonthTotals} margin={{ top: 30, left: 8, right: 16 }}>
@@ -254,7 +255,7 @@ export function AnalyticsPage() {
             <Tooltip formatter={(v: number) => fmtMoney(v)} labelFormatter={(d) => `Day ${d}`} />
             <Legend />
             <Line
-              type="monotone" dataKey="revenue" name="Total Revenue (EGP)" stroke="oklch(0.78 0.2 155)" strokeWidth={2.5} dot={false}
+              type="monotone" dataKey="revenue" name="Net Sales excl. VAT (EGP)" stroke="oklch(0.78 0.2 155)" strokeWidth={2.5} dot={false}
               label={renderPeakLabel(peakDay.revenue, "oklch(0.78 0.2 155)")}
             />
             <Line type="monotone" dataKey="roomRevenue" name="Room Time Revenue (EGP)" stroke="oklch(0.65 0.24 305)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
@@ -280,7 +281,7 @@ export function AnalyticsPage() {
             <Tooltip formatter={(v: number) => fmtMoney(v)} />
             <Legend />
             <Line
-              type="monotone" dataKey="revenue" name="Total Revenue (EGP)" stroke="oklch(0.65 0.24 305)" strokeWidth={2.5} dot={{ r: 3 }}
+              type="monotone" dataKey="revenue" name="Net Sales excl. VAT (EGP)" stroke="oklch(0.65 0.24 305)" strokeWidth={2.5} dot={{ r: 3 }}
               label={renderPeakLabel(peakMonth.revenue, "oklch(0.65 0.24 305)")}
             />
             <Line type="monotone" dataKey="roomRevenue" name="Room Time Revenue (EGP)" stroke="oklch(0.7 0.19 260)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
@@ -307,7 +308,7 @@ export function AnalyticsPage() {
               <Tooltip formatter={(v: number) => fmtMoney(v)} />
               <Legend />
               <Line
-                type="monotone" dataKey="revenue" name="Total Revenue (EGP)" stroke="oklch(0.85 0.18 85)" strokeWidth={2.5} dot={{ r: 4 }}
+                type="monotone" dataKey="revenue" name="Net Sales excl. VAT (EGP)" stroke="oklch(0.85 0.18 85)" strokeWidth={2.5} dot={{ r: 4 }}
                 label={renderPeakLabel(peakYear.revenue, "oklch(0.6 0.15 85)")}
               />
               <Line type="monotone" dataKey="roomRevenue" name="Room Time Revenue (EGP)" stroke="oklch(0.7 0.19 260)" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />

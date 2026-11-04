@@ -1,5 +1,18 @@
 const { db, appendObject_ } = require("../db");
 
+// 14% Value Added Tax, charged ON TOP of the check (exclusive). Menu
+// prices, room rates and time charges are unchanged: the check's net
+// amount (drinks + food + time, after any discount) is the SUBTOTAL, VAT is
+// 14% of it, and the GRAND TOTAL (what the customer pays) is the sum.
+// Each figure is rounded to 2 decimals so Subtotal + VAT === Total exactly.
+const VAT_RATE = 0.14;
+function vatBreakdown_(netAmount) {
+  const subtotal = Math.round((Number(netAmount) || 0) * 100) / 100;
+  const vatAmount = Math.round(subtotal * VAT_RATE * 100) / 100;
+  const total = Math.round((subtotal + vatAmount) * 100) / 100;
+  return { subtotal, vatAmount, total, vatRate: VAT_RATE };
+}
+
 function newId_(prefix) {
   return prefix + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
 }
@@ -67,4 +80,4 @@ function pushActivity_(state, message) {
   state.activity = [{ ts: Date.now(), message: message }, ...(state.activity || [])].slice(0, 100);
 }
 
-module.exports = { newId_, logActivity_, pushActivity_ };
+module.exports = { VAT_RATE, vatBreakdown_, newId_, logActivity_, pushActivity_ };

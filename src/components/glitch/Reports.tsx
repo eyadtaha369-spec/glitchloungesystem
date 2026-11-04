@@ -7,6 +7,7 @@ import type { Shift, Session, LedgerEntry, PaymentSource } from "@/lib/glitch-st
 import { FileDown, TrendingUp, Boxes, History, Wallet, MapPin, Sunrise, CalendarCheck, AlertTriangle, Trash2, Plus, Edit2, X, ArrowRightLeft, HandCoins } from "lucide-react";
 import { ReceiptModal, ReopenCheckModal } from "./Rooms";
 import { SearchableMaterialSelect } from "./Procurement";
+import { sessionVat, netSales } from "@/lib/vat";
 import { businessDayBounds, cairoDateLabel, daysInMonthLabel } from "@/lib/business-day";
 
 // What counts as a real, same-day operational expense — used
@@ -343,7 +344,8 @@ function computeMonthFinancials(state: ReturnType<typeof useStore>["state"], mon
   const [y, m] = monthStr.split("-").map(Number);
   const monthLabel = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const monthShiftIds = new Set(state.shifts.filter((sh) => sh.openedAt >= from && sh.openedAt <= to).map((sh) => sh.id));
-  const revenue = filterByBusinessDay(state.sessions, monthShiftIds, from, to).reduce((a, s) => a + s.total, 0);
+  // Net sales (excl. 14% VAT): VAT is collected for the tax authority, not income.
+  const revenue = filterByBusinessDay(state.sessions, monthShiftIds, from, to).reduce((a, s) => a + netSales(s), 0);
   const operationalAndSupplier = [
     // Monthly-scope purchases move to fixedCosts below instead -- see
     // isMonthlyScopePurchase_ -- so they're excluded here to avoid
@@ -640,7 +642,7 @@ function TotalRevenueByDatePanel() {
     () => state.ledger.filter(isSettledSupplierPayment_).filter((l) => expenseMatchesRange_(l, rangeShiftIds, from, to, startDate, endDate)),
     [state.ledger, rangeShiftIds, from, to, startDate, endDate],
   );
-  const revenue = rangeSessions.reduce((a, s) => a + s.total, 0);
+  const revenue = rangeSessions.reduce((a, s) => a + netSales(s), 0); // net of 14% VAT
   const expensesTotal = rangeExpenseEntries.reduce((a, l) => a + Number(l.amount), 0) + rangeSupplierPayments.reduce((a, l) => a + Number(l.amount), 0);
   const netProfit = revenue - expensesTotal;
   const rangeLabel = formatRangeLabel(startDate, endDate);
@@ -808,15 +810,17 @@ function OrderHistoryPanel({ isAdmin, onViewCheck }: { isAdmin: boolean; onViewC
         rangeLabel,
         columns: [
           { header: "Order ID" }, { header: "Room/Table" }, { header: "Date & Time" }, { header: "Payment" },
-          { header: "Subtotal", align: "right" }, { header: "Discount", align: "right" }, { header: "Total EGP", align: "right" },
+          { header: "Subtotal", align: "right" }, { header: "Discount", align: "right" }, { header: "VAT 14%", align: "right" }, { header: "Grand Total EGP", align: "right" },
         ],
         rows: sortedSessions.map((s) => [
           s.id.slice(0, 12), s.roomName, new Date(s.endedAt).toLocaleString(), s.paymentMethod.replace(/_/g, " "),
-          fmtMoney(s.total + (s.discountAmount || 0)), s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—", fmtMoney(s.total),
+          fmtMoney(sessionVat(s).subtotal + (s.discountAmount || 0)), s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—", fmtMoney(sessionVat(s).vatAmount), fmtMoney(s.total),
         ]),
         summaryLines: [
           { label: "Orders", value: String(sortedSessions.length) },
-          { label: "Total Revenue", value: fmtMoney(sortedSessions.reduce((a, s) => a + s.total, 0)) },
+          { label: "Net Sales (Subtotal)", value: fmtMoney(sortedSessions.reduce((a, s) => a + netSales(s), 0)) },
+          { label: "VAT 14%", value: fmtMoney(sortedSessions.reduce((a, s) => a + sessionVat(s).vatAmount, 0)) },
+          { label: "Grand Total (incl. VAT)", value: fmtMoney(sortedSessions.reduce((a, s) => a + s.total, 0)) },
         ],
         filenameBase: "Order_History",
         startDate, endDate,
@@ -853,7 +857,8 @@ function OrderHistoryPanel({ isAdmin, onViewCheck }: { isAdmin: boolean; onViewC
                 <th className="pb-2 pt-3 pr-3">Payment</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Subtotal</th>
                 <th className="pb-2 pt-3 pr-3 text-right">Discount</th>
-                <th className="pb-2 pt-3 pr-3 text-right">Total EGP</th>
+                <th className="pb-2 pt-3 pr-3 text-right">VAT 14%</th>
+                <th className="pb-2 pt-3 pr-3 text-right">Grand Total EGP</th>
                 {isAdmin && <th className="pb-2 pt-3 pr-3 text-right">Actions</th>}
               </tr>
             </thead>
@@ -869,8 +874,9 @@ function OrderHistoryPanel({ isAdmin, onViewCheck }: { isAdmin: boolean; onViewC
                   <td className="py-2 pr-3">{s.roomName}</td>
                   <td className="py-2 pr-3 font-mono">{new Date(s.endedAt).toLocaleString()}</td>
                   <td className="py-2 pr-3 uppercase">{s.paymentMethod.replace(/_/g, " ")}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmtMoney(s.total + (s.discountAmount || 0))}</td>
+                  <td className="py-2 pr-3 text-right font-mono">{fmtMoney(sessionVat(s).subtotal + (s.discountAmount || 0))}</td>
                   <td className="py-2 pr-3 text-right font-mono text-[oklch(0.62_0.24_25)]">{s.discountAmount ? "-" + fmtMoney(s.discountAmount) : "—"}</td>
+                  <td className="py-2 pr-3 text-right font-mono">{fmtMoney(sessionVat(s).vatAmount)}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold">{fmtMoney(s.total)}</td>
                   {isAdmin && (
                     <td className="py-2 pr-3 text-right">
@@ -1811,6 +1817,7 @@ function BusinessDayPanel() {
   const bdShiftIds = new Set(bdShifts.map((sh) => sh.id));
   const bdSessions = state.sessions.filter((s) => s.shiftId && bdShiftIds.has(s.shiftId));
   const liveRevenue = bdSessions.reduce((a, s) => a + s.total, 0);
+  const liveVat = bdSessions.reduce((a, s) => a + sessionVat(s).vatAmount, 0);
   const closedHistory = state.businessDays.filter((b) => b.closedAt !== null);
 
   const canClose = !!state.businessDayId && !state.activeShiftId;
@@ -1856,6 +1863,7 @@ function BusinessDayPanel() {
           <div className="bg-black/5 rounded-lg p-3 border border-black/8 col-span-2">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Revenue So Far (Live)</div>
             <div className="text-lg font-mono font-bold mt-1 text-[oklch(0.78_0.2_155)]">{fmtMoney(liveRevenue)}</div>
+            <div className="text-[10px] font-mono text-muted-foreground mt-1">Net {fmtMoney(liveRevenue - liveVat)} + VAT 14% {fmtMoney(liveVat)}</div>
           </div>
         </div>
       ) : (
@@ -1977,7 +1985,7 @@ function MonthlyReconciliationDashboard({ selectedMonth, onMonthChange }: { sele
     [state.shifts, monthStart, monthEnd],
   );
   const totalRevenue = useMemo(
-    () => filterByBusinessDay(state.sessions, monthShiftIds, monthStart, monthEnd).reduce((a, s) => a + s.total, 0),
+    () => filterByBusinessDay(state.sessions, monthShiftIds, monthStart, monthEnd).reduce((a, s) => a + netSales(s), 0),
     [state.sessions, monthShiftIds, monthStart, monthEnd],
   );
 
@@ -3640,6 +3648,8 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
   // discrepancy in the first place, so this panel can never drift from
   // what was actually calculated at close time.
   const grossSales = sessions.reduce((a, s) => a + s.total, 0);
+  const shiftVat = sessions.reduce((a, s) => a + sessionVat(s).vatAmount, 0);
+  const shiftSubtotal = grossSales - shiftVat;
   const cashCollected = sessions.reduce((a, s) => a + s.cashAmount, 0);
   const digitalCollected = sessions.reduce((a, s) => a + s.visaAmount + s.instapayAmount, 0);
   const shiftLedger = state.ledger.filter((l) => l.shiftId === shift.id && l.status === "approved" && l.paidFromDrawer && l.direction === "outflow");
@@ -3680,7 +3690,9 @@ function ShiftCard({ shift, label, sessions }: { shift: Shift; label: string; se
           {/* 1. Total Gross Sales */}
           <div className="px-3 py-2">
             <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">Total Gross Sales — إجمالي المبيعات</div>
-            <div className="flex justify-between font-bold"><span>Room Time + Café/Beverage Orders</span><span>{fmtMoney(grossSales)}</span></div>
+            <div className="flex justify-between"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(shiftSubtotal)}</span></div>
+            <div className="flex justify-between"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(shiftVat)}</span></div>
+            <div className="flex justify-between font-bold"><span>Grand Total (الإجمالي النهائي)</span><span>{fmtMoney(grossSales)}</span></div>
           </div>
 
           {/* 2. Payment Channel Breakdown */}
@@ -4011,7 +4023,7 @@ function generateDailyReport(
 </table>
 <h3 style="margin-top:24px">Sessions (${sessions.length})</h3>
 <table>
-  <thead><tr><th>Room</th><th>End</th><th>Payment</th><th>Cash</th><th>Visa</th><th>InstaPay</th><th>Total</th></tr></thead>
+  <thead><tr><th>Room</th><th>End</th><th>Payment</th><th>Cash</th><th>Visa</th><th>InstaPay</th><th>Subtotal</th><th>VAT 14%</th><th>Grand Total</th></tr></thead>
   <tbody>
     ${sessions.map((s) => `<tr>
       <td>${s.roomName}</td>
@@ -4020,6 +4032,8 @@ function generateDailyReport(
       <td>${s.cashAmount.toFixed(2)} EGP</td>
       <td>${s.visaAmount.toFixed(2)} EGP</td>
       <td>${s.instapayAmount.toFixed(2)} EGP</td>
+      <td>${sessionVat(s).subtotal.toFixed(2)} EGP</td>
+      <td>${sessionVat(s).vatAmount.toFixed(2)} EGP</td>
       <td>${s.total.toFixed(2)} EGP</td>
     </tr>`).join("")}
   </tbody>

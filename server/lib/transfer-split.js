@@ -1,4 +1,4 @@
-const { pushActivity_ } = require("./util");
+const { pushActivity_, vatBreakdown_ } = require("./util");
 const { consumeFifo_ } = require("./state");
 const { effectiveDurationSec_, PAYMENT_METHODS, computeDiscount_, computeTimeCost_ } = require("./rooms");
 
@@ -167,7 +167,9 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
     discountAmount = 0;
     discountLabel = null;
   }
-  splitTotal = preDiscountSplitTotal - discountAmount;
+  // 14% VAT on top of this sub-bill: Subtotal + VAT = Grand Total.
+  const splitVat = vatBreakdown_(preDiscountSplitTotal - discountAmount);
+  splitTotal = splitVat.total;
 
   let cashAmount = 0, visaAmount = 0, instapayAmount = 0;
   if (method === "cash") {
@@ -192,7 +194,7 @@ function bizSplitBill_(state, batches, roomId, mode, items, customAmount, paymen
   const splitSession = {
     id: "split-" + now, orderNumber: state.orderCounter, roomId: room.id, roomName: room.name + " (Split)",
     startedAt: now, endedAt: now, durationSec: 0, timeCost: 0, orders: splitOrders,
-    ordersCost: preDiscountSplitTotal, total: splitTotal, cogs, discountAmount, discountLabel,
+    ordersCost: preDiscountSplitTotal, total: splitTotal, subtotal: splitVat.subtotal, vatAmount: splitVat.vatAmount, vatRate: splitVat.vatRate, cogs, discountAmount, discountLabel,
     splitBill: true, paymentMethod: method, cashAmount, visaAmount, instapayAmount, shiftId: state.activeShiftId || null,
   };
 
