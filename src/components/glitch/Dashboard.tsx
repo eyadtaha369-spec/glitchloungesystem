@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts, isLowStock } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
+import { DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
 
 export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () => void }) {
@@ -157,31 +157,6 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
           </div>
         </div>
       )}
-
-      {/* Analytics grid */}
-      <div className="grid grid-cols-1 gap-4">
-        {/* Activity feed */}
-        <div className="glass rounded-2xl p-6 flex flex-col">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-[oklch(0.7_0.19_260)]" />
-            <h2 className="text-lg font-semibold">{t("dashboard.activityFeed")}</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2 max-h-[420px] pr-1">
-            {state.activity.length === 0 ? (
-              <div className="text-sm text-muted-foreground font-mono">{t("dashboard.noActivityYet")}</div>
-            ) : (
-              state.activity.slice(0, 30).map((a) => (
-                <div key={a.id} className="text-sm p-3 rounded-lg bg-white/60 border border-black/8 hover:border-[oklch(0.7_0.19_260/0.35)] transition">
-                  <div className="text-foreground">{a.message}</div>
-                  <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-wider">
-                    {new Date(a.ts).toLocaleTimeString()}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
