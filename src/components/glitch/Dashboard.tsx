@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { netSales } from "@/lib/vat";
 import { useStore, fmtMoney, computeShiftFinancials, upcomingBookingAlerts, isLowStock } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { Activity, DollarSign, Gamepad2, AlertTriangle, Circle, Wallet, CreditCard, Smartphone, Receipt, TrendingUp, TrendingDown, CheckCircle2, History, Phone, PartyPopper } from "lucide-react";
 import { ShiftBar } from "./ShiftBar";
 
 export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () => void }) {
-  const { state, computeElapsed, updateEventBooking } = useStore();
+  const { state, updateEventBooking } = useStore();
   const { t } = useLanguage();
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(id); }, []);
@@ -33,17 +32,6 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
       setMarkingComplete(null);
     }
   };
-
-  const revByRoom = state.rooms.map((r) => {
-    const past = state.sessions.filter((s) => s.roomId === r.id).reduce((a, s) => a + netSales(s), 0);
-    let live = 0;
-    if (r.status === "active" && r.startedAt) {
-      const dur = computeElapsed(r);
-      live = (dur / 3600) * r.hourlyRate + r.orders.reduce((a, o) => a + o.qty * o.price, 0);
-    }
-    return { room: r, total: past + live, live };
-  });
-  const maxRev = Math.max(1, ...revByRoom.map((x) => x.total));
 
   return (
     <div className="space-y-6">
@@ -171,46 +159,7 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
       )}
 
       {/* Analytics grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue chart */}
-        <div className="lg:col-span-2 glass rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-lg font-semibold">{t("dashboard.revenueByRoom")}</h2>
-              <p className="text-xs text-muted-foreground font-mono uppercase tracking-widest mt-0.5">{t("dashboard.completedPlusLive")}</p>
-            </div>
-            <div className="text-xs text-muted-foreground font-mono">{t("dashboard.max")} {fmtMoney(maxRev)}</div>
-          </div>
-          <div className="space-y-3">
-            {revByRoom.map(({ room, total, live }) => {
-              const pct = (total / maxRev) * 100;
-              return (
-                <div key={room.id} className="flex items-center gap-3">
-                  <div className={`w-16 text-xs font-mono ${room.isVip ? "text-black" : "text-muted-foreground"}`}>
-                    {room.name}
-                  </div>
-                  <div className="flex-1 h-3 bg-white/70 rounded-full overflow-hidden relative">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        room.isVip
-                          ? "bg-gradient-to-r from-black to-[oklch(0.65_0.24_305)]"
-                          : "bg-gradient-to-r from-[oklch(0.7_0.19_260)] to-[oklch(0.7_0.19_260)]"
-                      }`}
-                      style={{ width: `${pct}%` }}
-                    />
-                    {live > 0 && (
-                      <div className="absolute inset-y-0 right-1 flex items-center">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.78_0.2_155)] animate-pulse-glow" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="w-24 text-right text-sm font-mono">{fmtMoney(total)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 gap-4">
         {/* Activity feed */}
         <div className="glass rounded-2xl p-6 flex flex-col">
           <div className="flex items-center gap-2 mb-4">

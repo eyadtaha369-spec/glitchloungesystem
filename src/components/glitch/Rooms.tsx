@@ -1473,9 +1473,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 </div>
               )}
 
-              <div className="text-center py-2">
-                <div className="text-xs uppercase tracking-widest text-muted-foreground">Total EGP</div>
-                <div className="text-6xl font-mono font-black mt-2">{fmtMoney(checkoutPreDiscountTotal)}</div>
+              <div className="rounded-2xl border border-black/10 bg-white/60 p-4 space-y-1 font-mono text-base">
+                <div className="flex justify-between"><span>Subtotal <span dir="rtl" className="text-xs">(الإجمالي الفرعي)</span></span><span>{fmtMoney(checkoutSubtotal)}</span></div>
+                <div className="flex justify-between"><span>VAT 14% <span dir="rtl" className="text-xs">(ضريبة القيمة المضافة 14%)</span></span><span>{fmtMoney(checkoutVat)}</span></div>
+                <div className="text-center pt-3 border-t border-black/15">
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground">Grand Total EGP <span dir="rtl">(الإجمالي النهائي)</span></div>
+                  <div className="text-6xl font-black mt-1">{fmtMoney(checkoutTotal)}</div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 no-print">
