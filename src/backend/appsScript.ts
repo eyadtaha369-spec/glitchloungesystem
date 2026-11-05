@@ -2,6 +2,9 @@
 // shared secret used to authenticate with the Google Apps Script web app.
 // The secret lives only in Vercel env vars and only this server ever sends it.
 
+import { getCurrentUser } from "./session";
+import { redactForRole } from "./redact";
+
 export async function callAppsScript<T = unknown>(
   action: string,
   payload: Record<string, unknown> = {},
@@ -71,5 +74,9 @@ export async function callAppsScript<T = unknown>(
   if (!res.ok || (json?.error !== undefined && json?.ok === undefined)) {
     throw new Error(String(json?.error ?? `Apps Script error (status ${res.status})`));
   }
-  return json as T;
+  // Role-based data protection: anyone who is not a signed-in admin gets
+  // the response with sales history / revenue aggregates stripped out.
+  // The role comes from the signed session cookie, never from the payload.
+  const caller = await getCurrentUser();
+  return redactForRole(json as T, caller?.role ?? null);
 }

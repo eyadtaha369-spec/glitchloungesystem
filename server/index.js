@@ -17,6 +17,7 @@ const express = require("express");
 const cors = require("cors");
 const { readObjects_, updateObjectById_, appendObject_, deleteObjectById_, db, KNOWN_TABLES } = require("./db");
 const { newId_, logActivity_ } = require("./lib/util");
+const { redactForRole_ } = require("./lib/redact");
 const { login_, roleForUsername_, requireRole_, getAccounts_, addAccount_, updateAccount_, deleteAccount_ } = require("./lib/auth");
 const {
   getState_, setState_, withStockView_,
@@ -46,8 +47,12 @@ const app = express();
 app.use(cors()); // other registers on the LAN need to reach this
 app.use(express.json({ limit: "5mb" }));
 
+// Role of whoever sent the request being handled right now (handlers run
+// synchronously, one at a time). Anyone who is not an admin gets sales
+// history / revenue aggregates stripped from the response.
+let callerRole_ = null;
 function json_(obj) {
-  return obj;
+  return redactForRole_(obj, callerRole_);
 }
 
 // The correct business-day label for an expense: whenever it's tied to
@@ -2449,6 +2454,7 @@ app.post("/", (req, res) => {
     return;
   }
   try {
+    callerRole_ = body.username ? roleForUsername_(body.username) : null;
     const result = handler(body);
     res.status(200).json(result);
   } catch (err) {

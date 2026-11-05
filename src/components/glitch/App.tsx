@@ -3,7 +3,7 @@ import { StoreProvider, useStore } from "@/lib/glitch-store";
 import { LanguageProvider, useLanguage } from "@/lib/i18n/LanguageContext";
 import receiptLogo from "@/assets/glitch-logo-mark.png";
 import { Login } from "./Login";
-import { Sidebar, type View } from "./Sidebar";
+import { Sidebar, CASHIER_VIEWS, type View } from "./Sidebar";
 import { Dashboard } from "./Dashboard";
 import { RoomsPage, LoungePage } from "./Rooms";
 import { InventoryPage } from "./Inventory";
@@ -17,6 +17,7 @@ import { AuditLogPage } from "./AuditLog";
 import { StaffOrdersPage } from "./StaffOrders";
 import { LeaderboardPage } from "./Leaderboard";
 import { AnalyticsPage } from "./Analytics";
+import { OwnerReportPage } from "./OwnerReport";
 import { BookingsPage } from "./Bookings";
 import { Gatekeeper } from "./Gatekeeper";
 import { Lock } from "lucide-react";
@@ -24,8 +25,11 @@ import { Lock } from "lucide-react";
 function Shell() {
   const { state, ready, activeShift } = useStore();
   const { dir, t } = useLanguage();
-  const [view, setView] = useState<View>("dashboard");
+  const [requestedView, setView] = useState<View>("dashboard");
   const isAdmin = state.currentUser?.role === "admin";
+  // A cashier can only ever be on the live POS screens -- never the
+  // dashboard or any report -- so anything else falls back to Rooms.
+  const view: View = isAdmin || CASHIER_VIEWS.includes(requestedView) ? requestedView : "rooms";
 
   // Warm the browser's image cache for the receipt logo as early as
   // possible — the actual bug this fixes: window.print() firing before a
@@ -60,7 +64,7 @@ function Shell() {
   // until they've started a geofence-verified shift right here.
   if (!isAdmin && !activeShift) return <Gatekeeper />;
 
-  const locked = !isAdmin && (view === "inventory" || view === "users" || view === "reports" || view === "setup" || view === "voids" || view === "audit" || view === "analytics");
+  const locked = !isAdmin && !CASHIER_VIEWS.includes(view);
 
   return (
     <div className="min-h-screen" dir={dir}>
@@ -87,6 +91,7 @@ function Shell() {
             : view === "leaderboard" ? <LeaderboardPage />
             : view === "bookings" ? <BookingsPage onNavigateToRooms={() => setView("rooms")} />
             : view === "analytics" ? <AnalyticsPage />
+            : view === "ownerReport" ? <OwnerReportPage />
             : <UsersPage />}
         </div>
       </main>

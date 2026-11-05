@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw, Menu, X, Trophy, BarChart3, PartyPopper } from "lucide-react";
+import { LayoutDashboard, Gamepad2, Package, Users, LogOut, FileBarChart, ShoppingCart, Settings2, ShieldAlert, Activity, Sofa, UserCog, Languages, Receipt, Wifi, WifiOff, RefreshCw, Menu, X, Trophy, BarChart3, PartyPopper, Lock } from "lucide-react";
 import { useStore, upcomingBookingAlerts } from "@/lib/glitch-store";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
 
-export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit" | "leaderboard" | "analytics" | "bookings";
+// The ONLY screens a cashier can reach: the live POS (rooms/tables, lounge)
+// and creating staff orders. No dashboard, history or reports of any kind.
+export const CASHIER_VIEWS: View[] = ["rooms", "lounge", "staffOrders"];
 
-const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
+export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit" | "leaderboard" | "analytics" | "bookings" | "ownerReport";
+
+const items: { id: View; labelKey: TranslationKey; label?: string; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }[] = [
   { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { id: "rooms", labelKey: "nav.rooms", icon: Gamepad2 },
   { id: "lounge", labelKey: "nav.lounge", icon: Sofa },
@@ -22,6 +26,7 @@ const items: { id: View; labelKey: TranslationKey; icon: React.ComponentType<{ c
   { id: "setup", labelKey: "nav.setup", icon: Settings2, adminOnly: true },
   { id: "reports", labelKey: "nav.reports", icon: FileBarChart, adminOnly: true },
   { id: "analytics", labelKey: "nav.analytics", icon: BarChart3, adminOnly: true },
+  { id: "ownerReport", labelKey: "nav.reports", label: "Owner Report", icon: Lock, adminOnly: true },
   { id: "users", labelKey: "nav.users", icon: Users, adminOnly: true },
 ];
 
@@ -81,7 +86,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
       </div>
 
       <nav className="sidebar-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
-        {items.filter((i) => !i.adminOnly || isAdmin).map((item) => {
+        {items.filter((i) => (isAdmin ? true : CASHIER_VIEWS.includes(i.id))).map((item) => {
           const Icon = item.icon;
           const active = view === item.id;
           return (
@@ -95,7 +100,7 @@ export function Sidebar({ view, onChange }: { view: View; onChange: (v: View) =>
               }`}
             >
               <Icon className={`w-4 h-4 ${active ? "text-[oklch(0.7_0.19_260)]" : ""}`} />
-              <span>{t(item.labelKey)}</span>
+              <span>{item.label ?? t(item.labelKey)}</span>
               {item.id === "bookings" && bookingAlertCount > 0 ? (
                 <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold text-white bg-[oklch(0.62_0.24_25)] animate-pulse-red shadow-[0_0_10px_oklch(0.62_0.24_25/0.7)]">
                   {bookingAlertCount}

@@ -151,8 +151,40 @@ function checkGeofence_(state, lat, lng) {
   return null;
 }
 
+// Role of whoever sent the request being handled right now (set in
+// doPost). Anyone who is not an admin gets sales history / revenue
+// aggregates stripped from the response (defense in depth -- the web
+// server layer enforces the same rule before anything reaches a browser).
+var CALLER_ROLE_ = null;
+
+function redactStateForCashier_(state) {
+  if (!state || typeof state !== "object") return state;
+  const s = Object.assign({}, state);
+  const active = Array.isArray(s.shifts) ? s.shifts.filter(function (sh) { return sh.id === s.activeShiftId; })[0] : null;
+  s.sessions = [];
+  s.businessDays = [];
+  s.activity = [];
+  s.cashRecords = [];
+  s.shifts = active ? [Object.assign({}, active, { expectedCash: null, closingActualCash: null, discrepancy: null })] : [];
+  return s;
+}
+
+function redactForRole_(obj, role) {
+  if (role === "admin" || !obj || typeof obj !== "object") return obj;
+  const out = Object.assign({}, obj);
+  if (out.state) out.state = redactStateForCashier_(out.state);
+  if (out.orphaned && typeof out.orphaned === "object") {
+    out.orphaned = Object.assign({}, out.orphaned, { total: 0, sessionsTotal: 0, expensesTotal: 0 });
+  }
+  if ("total" in out && "count" in out) out.total = 0;
+  if (out.closedShift && typeof out.closedShift === "object") {
+    out.closedShift = Object.assign({}, out.closedShift, { expectedCash: null, discrepancy: null, closingActualCash: null });
+  }
+  return out;
+}
+
 function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(redactForRole_(obj, CALLER_ROLE_))).setMimeType(ContentService.MimeType.JSON);
 }
 
 function requireRole_(username, allowedRoles) {
@@ -2527,6 +2559,14 @@ function doPost(e) {
   if (!body.secret || body.secret !== getSecret_()) {
     return json_({ error: "forbidden" });
   }
+
+  CALLER_ROLE_ = null;
+  try {
+    if (body.username) {
+      const callerRow = accountsRows_().rows.filter(function (r) { return r[0] === body.username; })[0];
+      CALLER_ROLE_ = callerRow ? callerRow[2] : null;
+    }
+  } catch (err) { CALLER_ROLE_ = null; }
 
   // Handled outside the lock — receipt upload to Drive is slow I/O and
   // shouldn't stall unrelated requests while it runs.

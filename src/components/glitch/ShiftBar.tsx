@@ -218,7 +218,7 @@ export function OrphanedSessionsPrompt({ info, onClose }: {
       <div className="w-full max-w-sm glass-strong rounded-2xl border-2 border-[oklch(0.85_0.18_85/0.6)] p-6" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-bold mb-2">Unassigned sales found</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Found {parts.join(" and ")} (Total: {fmtMoney(info.total)}) recorded while no shift was active — likely
+          Found {parts.join(" and ")}{info.total > 0 ? ` (Total: ${fmtMoney(info.total)})` : ""} recorded while no shift was active — likely
           from a checkout that happened before this shift was opened. Attach them to this new shift so they count
           toward its revenue?
         </p>
