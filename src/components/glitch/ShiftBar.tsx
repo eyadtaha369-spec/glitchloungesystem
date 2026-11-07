@@ -124,7 +124,7 @@ export function ShiftBar() {
             Since {new Date(activeShift.openedAt).toLocaleTimeString()} · Opening ${activeShift.openingBalance.toFixed(2)}
           </p>
         </div>
-        {isAdmin && (
+        {true && (
           <button
             onClick={() => setEndOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[oklch(0.62_0.24_25/0.15)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold text-sm hover:bg-[oklch(0.62_0.24_25/0.25)] transition"

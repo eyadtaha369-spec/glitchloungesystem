@@ -488,11 +488,16 @@ const handlers = {
   },
 
   endShift(body) {
-    // Admin-only, no exceptions — confirmed explicitly, including the
-    // operational tradeoff that a cashier working alone cannot end their
-    // own shift and needs an admin to do it.
-    const role = requireRole_(body.username, ["admin"]);
+    // Admins can end any shift; a cashier can end only the shift they
+    // opened themselves (owner decision: cashiers open AND close shifts).
+    const role = requireRole_(body.username, ["admin", "cashier"]);
     const state0 = getState_();
+    if (role !== "admin") {
+      const open = readShifts_().find((sh) => sh.id === state0.activeShiftId);
+      if (!open || open.cashierUsername !== body.username) {
+        return { ok: false, error: "Only the cashier who opened this shift (or an admin) can end it.", state: withStockView_(state0) };
+      }
+    }
     const shiftIdBefore = state0.activeShiftId;
     const ledger = readObjects_("Ledger");
     const result = bizCloseActiveShift_(state0, readSessions_(), ledger, readShifts_(), body.actualCash, false, body.lat, body.lng);

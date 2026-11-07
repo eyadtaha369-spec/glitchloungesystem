@@ -15,6 +15,7 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
   // as before — only the Daily Financial Reconciliation panel and the
   // Expenses History table beneath it are scoped to the active shift,
   // via computeShiftFinancials/state.shiftExpenses.
+  const isAdmin = state.currentUser?.role === "admin";
   const roomsOnly = state.rooms.filter((r) => r.zone === "room");
   const activeRooms = roomsOnly.filter((r) => r.status === "active");
   const available = roomsOnly.length - activeRooms.length;
@@ -44,6 +45,9 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
 
       <DailyReconciliationPanel />
 
+      {/* A cashier gets only the shift controls and the Daily Financial
+          Reconciliation for their own open shift -- nothing business-wide. */}
+      {!isAdmin ? null : (<>
       <ShiftExpensesHistoryPanel />
 
       {/* Metric cards */}
@@ -157,6 +161,7 @@ export function Dashboard({ onNavigateToBookings }: { onNavigateToBookings?: () 
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }
@@ -309,6 +314,7 @@ function DailyReconciliationPanel() {
       </div>
 
       <div className="mt-4 flex items-center gap-3 flex-wrap">
+        {state.currentUser?.role === "admin" && (<>
         <button
           onClick={() => void handleSave()}
           disabled={!hasActualCash || saving || !state.activeShiftId}
@@ -320,6 +326,7 @@ function DailyReconciliationPanel() {
         <button onClick={handleToggleHistory} className="ms-auto flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80">
           <History className="w-3.5 h-3.5" /> {t("dashboard.reconciliationHistory")} {historyOpen ? "▲" : "▼"}
         </button>
+        </>)}
       </div>
 
       {historyOpen && (

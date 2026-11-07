@@ -6,7 +6,7 @@ function redactStateForCashier_(state) {
   if (!state || typeof state !== "object") return state;
   const s = Object.assign({}, state);
   const active = Array.isArray(s.shifts) ? s.shifts.find((sh) => sh.id === s.activeShiftId) : null;
-  s.sessions = [];
+  s.sessions = Array.isArray(s.sessions) && s.activeShiftId ? s.sessions.filter((x) => x.shiftId === s.activeShiftId) : [];
   s.businessDays = [];
   s.activity = [];
   s.cashRecords = [];
@@ -22,9 +22,6 @@ function redactForRole_(obj, role) {
     out.orphaned = Object.assign({}, out.orphaned, { total: 0, sessionsTotal: 0, expensesTotal: 0 });
   }
   if ("total" in out && "count" in out) out.total = 0;
-  if (out.closedShift && typeof out.closedShift === "object") {
-    out.closedShift = Object.assign({}, out.closedShift, { expectedCash: null, discrepancy: null, closingActualCash: null });
-  }
   return out;
 }
 

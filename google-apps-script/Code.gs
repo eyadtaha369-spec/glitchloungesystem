@@ -161,7 +161,7 @@ function redactStateForCashier_(state) {
   if (!state || typeof state !== "object") return state;
   const s = Object.assign({}, state);
   const active = Array.isArray(s.shifts) ? s.shifts.filter(function (sh) { return sh.id === s.activeShiftId; })[0] : null;
-  s.sessions = [];
+  s.sessions = Array.isArray(s.sessions) && s.activeShiftId ? s.sessions.filter(function (x) { return x.shiftId === s.activeShiftId; }) : [];
   s.businessDays = [];
   s.activity = [];
   s.cashRecords = [];
@@ -177,9 +177,6 @@ function redactForRole_(obj, role) {
     out.orphaned = Object.assign({}, out.orphaned, { total: 0, sessionsTotal: 0, expensesTotal: 0 });
   }
   if ("total" in out && "count" in out) out.total = 0;
-  if (out.closedShift && typeof out.closedShift === "object") {
-    out.closedShift = Object.assign({}, out.closedShift, { expectedCash: null, discrepancy: null, closingActualCash: null });
-  }
   return out;
 }
 
@@ -3301,9 +3298,16 @@ function doPost(e) {
         return json_({ ok: true, count: attachFound.count, total: attachFound.sessionsTotal + attachFound.expensesTotal, state: withStockView_(getState_()) });
       }
       case "endShift": {
-        // Admin-only, no exceptions — confirmed explicitly.
-        const role = requireRole_(body.username, ["admin"]);
+        // Admins can end any shift; a cashier can end only the shift they
+        // opened themselves (owner decision: cashiers open AND close shifts).
+        const role = requireRole_(body.username, ["admin", "cashier"]);
         const state0 = getState_();
+        if (role !== "admin") {
+          const openShift = readShifts_().filter(function (sh) { return sh.id === state0.activeShiftId; })[0];
+          if (!openShift || openShift.cashierUsername !== body.username) {
+            return json_({ ok: false, error: "Only the cashier who opened this shift (or an admin) can end it.", state: withStockView_(state0) });
+          }
+        }
         const geoErr = checkGeofence_(state0, body.lat, body.lng);
         if (geoErr) {
           logActivity_({

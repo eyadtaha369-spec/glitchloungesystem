@@ -19,7 +19,9 @@ export function redactStateForCashier(state: AnyRecord): AnyRecord {
   if (!state || typeof state !== "object") return state;
   const s: AnyRecord = { ...state };
   const active = Array.isArray(s.shifts) ? s.shifts.find((sh: AnyRecord) => sh.id === s.activeShiftId) : null;
-  s.sessions = [];        // every paid check (the sales history)
+  // Only checks of the currently OPEN shift stay (that is what the cashier's
+  // Daily Financial Reconciliation is computed from) -- never any history.
+  s.sessions = Array.isArray(s.sessions) && s.activeShiftId ? s.sessions.filter((x: AnyRecord) => x.shiftId === s.activeShiftId) : [];
   s.businessDays = [];    // daily revenue / profit roll-ups
   s.activity = [];        // activity feed text quotes checkout amounts
   s.cashRecords = [];     // cash drawer history
@@ -40,8 +42,5 @@ export function redactForRole<T>(json: T, role: string | null | undefined): T {
     out.orphaned = { ...out.orphaned, total: 0, sessionsTotal: 0, expensesTotal: 0 };
   }
   if ("total" in out && ("count" in out)) out.total = 0;
-  if (out.closedShift && typeof out.closedShift === "object") {
-    out.closedShift = { ...out.closedShift, expectedCash: null, discrepancy: null, closingActualCash: null };
-  }
   return out as T;
 }

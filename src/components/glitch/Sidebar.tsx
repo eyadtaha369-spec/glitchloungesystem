@@ -5,9 +5,10 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
 
-// The ONLY screens a cashier can reach: the live POS (rooms/tables, lounge)
-// and creating staff orders. No dashboard, history or reports of any kind.
-export const CASHIER_VIEWS: View[] = ["rooms", "lounge", "staffOrders"];
+// The ONLY screens a cashier can reach: the live POS (rooms/tables, lounge),
+// birthday bookings, staff orders, and a Dashboard that shows just the shift
+// controls + Daily Financial Reconciliation of their own open shift.
+export const CASHIER_VIEWS: View[] = ["dashboard", "rooms", "lounge", "bookings", "staffOrders"];
 
 export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit" | "leaderboard" | "analytics" | "bookings" | "ownerReport";
 
