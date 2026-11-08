@@ -20,10 +20,11 @@ import { AnalyticsPage } from "./Analytics";
 import { OwnerReportPage } from "./OwnerReport";
 import { BookingsPage } from "./Bookings";
 import { Gatekeeper } from "./Gatekeeper";
+import { ShiftHandover } from "./ShiftHandover";
 import { Lock } from "lucide-react";
 
 function Shell() {
-  const { state, ready, activeShift } = useStore();
+  const { state, ready, activeShift, handover } = useStore();
   const { dir, t } = useLanguage();
   const [requestedView, setView] = useState<View>("dashboard");
   const isAdmin = state.currentUser?.role === "admin";
@@ -62,6 +63,9 @@ function Shell() {
 
   // Cashiers cannot see or reach ANY POS screen — Rooms, Dashboard, nothing —
   // until they've started a geofence-verified shift right here.
+  // Just closed a shift: show the Z-report, then force a sign-out so the
+  // next cashier logs in with their own account and opening cash.
+  if (!isAdmin && handover) return <ShiftHandover />;
   if (!isAdmin && !activeShift) return <Gatekeeper />;
 
   const locked = !isAdmin && !CASHIER_VIEWS.includes(view);

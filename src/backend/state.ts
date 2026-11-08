@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callAppsScript } from "./appsScript";
 import { requireUser, requireAdmin } from "./session";
-import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot, DailyReconciliation, Room } from "@/lib/types";
+import type { AppState, MenuItem, Session, PaymentMethod, BusinessDay, InventorySnapshot, DailyReconciliation, Room, Shift, LedgerEntry } from "@/lib/types";
 
 export const getStateFn = createServerFn({ method: "GET" }).handler(async () => {
   const user = await requireUser();
@@ -251,7 +251,7 @@ export const endShiftFn = createServerFn({ method: "POST" })
   .validator((d: { actualCash: number; lat?: number; lng?: number }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
-    return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("endShift", {
+    return callAppsScript<{ ok: boolean; error?: string; state: AppState; zReport?: { shift: Shift; sessions: Session[]; ledger: LedgerEntry[] } | null }>("endShift", {
       ...data,
       username: user.username,
     });

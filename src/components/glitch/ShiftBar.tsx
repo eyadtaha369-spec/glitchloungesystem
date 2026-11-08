@@ -56,11 +56,9 @@ export function ShiftBar() {
     // No thermal printer involved — this is purely a browser download,
     // generated fresh from this shift's own sessions/ledger rather than
     // needing anything uploaded or stored ahead of time.
-    if (res.closedShift) {
-      const closed = res.closedShift;
-      const shiftSessions = state.sessions.filter((s) => s.shiftId === closed.id);
-      const shiftLedger = state.ledger.filter((l) => l.shiftId === closed.id);
-      const { blob, filename } = generateShiftReportPdf({ shift: closed, sessions: shiftSessions, ledger: shiftLedger });
+    // Cashiers get their Z-report on the handover screen; admins download it here.
+    if (res.zReport && isAdmin) {
+      const { blob, filename } = generateShiftReportPdf({ shift: res.zReport.shift, sessions: res.zReport.sessions, ledger: res.zReport.ledger });
       downloadBlob(blob, filename);
     }
     setEndOpen(false);
@@ -90,7 +88,7 @@ export function ShiftBar() {
         )}
         <div className="flex items-center gap-3">
           <div className="flex-1">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Opening Balance</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Opening Cash / العهدة المبدئية</label>
             <input
               type="number" step="0.01" value={openingBalance}
               onChange={(e) => setOpeningBalance(e.target.value)}

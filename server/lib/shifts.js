@@ -117,12 +117,12 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
   if (!state.businessDayId) {
     const bdId = "bday-" + now;
     appendObject_("BusinessDays", {
-      id: bdId, label: formatDateLabel_(now), openedAt: now, closedAt: null,
+      id: bdId, label: businessDayLabelForTs_(now), openedAt: now, closedAt: null,
       totalRevenue: 0, totalCash: 0, totalVisa: 0, totalInstapay: 0, totalExpenses: 0, netProfit: 0,
       shiftCount: 0, closedBy: null,
     });
     state.businessDayId = bdId;
-    pushActivity_(state, "New business day opened (" + formatDateLabel_(now) + ")");
+    pushActivity_(state, "New business day opened (" + businessDayLabelForTs_(now) + ")");
   }
   const id = "shift-" + now;
   const shift = {

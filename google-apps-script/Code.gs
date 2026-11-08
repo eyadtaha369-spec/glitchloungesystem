@@ -1628,12 +1628,12 @@ function bizOpenShift_(state, username, openingBalance, lat, lng) {
   if (!state.businessDayId) {
     const bdId = "bday-" + now;
     appendObject_("BusinessDays", {
-      id: bdId, label: formatDateLabel_(now), openedAt: now, closedAt: null,
+      id: bdId, label: businessDayLabelForTs_(now), openedAt: now, closedAt: null,
       totalRevenue: 0, totalCash: 0, totalVisa: 0, totalInstapay: 0, totalExpenses: 0, netProfit: 0,
       shiftCount: 0, closedBy: null,
     });
     state.businessDayId = bdId;
-    pushActivity_(state, "New business day opened (" + formatDateLabel_(now) + ")");
+    pushActivity_(state, "New business day opened (" + businessDayLabelForTs_(now) + ")");
   }
   const id = "shift-" + now;
   const shift = {
@@ -3262,6 +3262,19 @@ function doPost(e) {
           });
           return json_({ ok: false, error: geoErr, state: withStockView_(state0) });
         }
+        // Business-day grouping (8 AM -> 8 AM cycle): a shift opened after
+        // the current business day's cycle ended starts a NEW business day;
+        // the old one is closed and totalled automatically. Shifts opened
+        // within the same cycle share one day.
+        if (state0.businessDayId && !state0.activeShiftId) {
+          const staleBd = readObjects_("BusinessDays").filter(function (b) { return b.id === state0.businessDayId; })[0];
+          if (staleBd && businessDayLabelForTs_(staleBd.openedAt) !== businessDayLabelForTs_(Date.now())) {
+            const rolled = bizCloseBusinessDay_(state0, readSessions_(), readShifts_(), readObjects_("Ledger"), "auto (8 AM rollover)");
+            if (rolled.ok) {
+              logActivity_({ actorUsername: body.username, actorRole: role, actionType: "BUSINESS_DAY_CLOSED", description: "Business day auto-closed at the 8 AM cycle — " + rolled.totalRevenue.toFixed(2) + " EGP revenue across " + rolled.shiftCount + " shift(s)" });
+            }
+          }
+        }
         const result = bizOpenShift_(state0, body.username, body.openingBalance, body.lat, body.lng);
         let orphaned = null;
         if (result.ok) {
@@ -3329,7 +3342,16 @@ function doPost(e) {
             after: closed ? { expectedCash: closed.expectedCash, closingActualCash: closed.closingActualCash, discrepancy: closed.discrepancy, lat: body.lat, lng: body.lng } : null,
           });
         }
-        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+        // Z-report for THIS shift only, returned beside the redacted state.
+        let zReport = null;
+        if (result.ok && result.closedShift) {
+          zReport = {
+            shift: readShifts_().filter(function (sh) { return sh.id === shiftIdBefore; })[0],
+            sessions: readSessions_().filter(function (s) { return s.shiftId === shiftIdBefore; }),
+            ledger: readObjects_("Ledger").filter(function (l) { return l.shiftId === shiftIdBefore; }),
+          };
+        }
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state), zReport: zReport });
       }
 
       case "saveDailyReconciliation": {

@@ -158,6 +158,9 @@ interface StoreContextValue {
   lastSyncedAt: number | null;
   login: (u: string, p: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  // Set when a CASHIER closes their shift: carries that shift's own Z-report
+  // data so the handover screen can show it. Cleared on sign-out.
+  handover: { shift: Shift; sessions: Session[]; ledger: LedgerEntry[] } | null;
   // adminPassword is the currently logged-in admin's own password,
   // re-confirmed on the spot before the account is created -- see
   // addAccountFn/addAccount_ for why.
@@ -204,7 +207,7 @@ interface StoreContextValue {
   activeShift: Shift | null;
   openShift: (openingBalance: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; orphaned?: { count: number; sessionsCount: number; expensesCount: number; total: number } | null }>;
   attachOrphanedToShift: () => Promise<{ ok: boolean; error?: string; count?: number; total?: number }>;
-  endShift: (actualCash: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; closedShift?: Shift }>;
+  endShift: (actualCash: number, coords: { lat: number; lng: number } | null) => Promise<{ ok: boolean; error?: string; closedShift?: Shift; zReport?: { shift: Shift; sessions: Session[]; ledger: LedgerEntry[] } | null }>;
   forceEndShift: (actualCash?: number) => Promise<void>;
   closeBusinessDay: () => Promise<{ ok: boolean; error?: string }>;
   resetForProduction: (password: string) => Promise<{ ok: boolean; error?: string }>;
@@ -456,6 +459,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [eventBookings, setEventBookings] = useState<EventBooking[]>([]);
   const [restockLog, setRestockLog] = useState<RestockLogEntry[]>([]);
+  const [handover, setHandover] = useState<{ shift: Shift; sessions: Session[]; ledger: LedgerEntry[] } | null>(null);
   const [wasteInvoices, setWasteInvoices] = useState<WasteInvoice[]>([]);
   const [inventorySnapshotMonths, setInventorySnapshotMonths] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
@@ -630,6 +634,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await logoutFn();
+    setHandover(null);
     setCurrentUser(null);
     setAccounts([]);
     setMaterials([]); setSuppliers([]); setRecurringExpenses([]); setLedger([]); setPendingApprovals([]); setVoidRequests([]); setActivityLogs([]); setStaffOrders([]); setRestockLog([]);
@@ -1686,9 +1691,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Strict reset: once a shift closes, wipe any locally-cached view of
       // it immediately so the next shift never glimpses the previous one's
       // numbers, even for the instant before the fresh state arrives.
+      const z = res.zReport ?? null;
+      // Cashiers get the handover screen (their own Z-report + sign-out);
+      // set it BEFORE the state update so the app never flashes the
+      // "open a new shift" gate for the outgoing cashier.
+      if (res.ok && z && z.shift && currentUser?.role !== "admin") setHandover(z);
       setAppState(res.state);
-      const closedShift = res.state.shifts.find((sh) => sh.id === closingShiftId);
-      return { ok: res.ok, error: res.error, closedShift };
+      const closedShift = z?.shift ?? res.state.shifts.find((sh) => sh.id === closingShiftId);
+      return { ok: res.ok, error: res.error, closedShift, zReport: z };
     });
   };
   const forceEndShift: StoreContextValue["forceEndShift"] = async (actualCash) => {
@@ -1789,7 +1799,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const activeShift = appState.shifts.find((s) => s.id === appState.activeShiftId) ?? null;
 
   const value: StoreContextValue = {
-    state, ready, connectionStatus, lastSyncedAt, login, logout, addAccount, updateAccount, deleteAccount,
+    state, ready, connectionStatus, lastSyncedAt, login, logout, handover, addAccount, updateAccount, deleteAccount,
     setRoomRate, renameRoom, addOwnerTable, deleteOwnerTable, setRoomAvatar, startRoom, endRoom, pauseRoom, resumeRoom, logWasteMarketing, nextKotNumber, extendRoomTime, switchRateMode, transferOrderItem, reopenSession, moveSessionToShift, recalculateClosedShift, saveDailyReconciliation, getDailyReconciliationHistory, addOrder, setOrderLineQty, setOrderLineNote, markOrdersPrintedToKitchen, removeOrderLine,
     addMenuItem, updateMenuItem, deleteMenuItem, setActualCash, canFulfill,
     computeElapsed, isPending, activeShift, openShift, attachOrphanedToShift, endShift, forceEndShift, closeBusinessDay, resetForProduction, resetKeepingInventoryAndLedger, resetInventory, rolloverInventory, inventorySnapshotMonths, refreshInventorySnapshotMonths, getInventorySnapshotsForMonth,

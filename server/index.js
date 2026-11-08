@@ -438,6 +438,21 @@ const handlers = {
     // exists to verify a cashier is physically at a specific venue over
     // the public internet; on a local network you already control, it
     // doesn't add anything. Leave geofenceEnabled off in local state.
+    // Business-day grouping (8 AM -> 8 AM cycle): a shift opened after the
+    // current business day's cycle has ended starts a NEW business day;
+    // the old one is closed and totalled automatically. Shifts opened within
+    // the same cycle (any number of cashier handovers) share one day.
+    if (state0.businessDayId && !state0.activeShiftId) {
+      const bd = readBusinessDays_().find((b) => b.id === state0.businessDayId);
+      if (bd && businessDayLabelForTs_(bd.openedAt) !== businessDayLabelForTs_(Date.now())) {
+        const rolled = bizCloseBusinessDay_(state0, readSessions_(), readShifts_(), readObjects_("Ledger"), "auto (8 AM rollover)");
+        if (rolled.ok) {
+          updateObjectById_("BusinessDays", rolled.businessDayId, rolled.updates);
+          state0.businessDayId = null;
+          logActivity_({ actorUsername: body.username, actorRole: role, actionType: "BUSINESS_DAY_CLOSED", description: "Business day auto-closed at the 8 AM cycle — " + rolled.totalRevenue.toFixed(2) + " EGP revenue across " + rolled.shiftCount + " shift(s)" });
+        }
+      }
+    }
     const result = bizOpenShift_(state0, body.username, body.openingBalance, body.lat, body.lng);
     let orphaned = null;
     if (result.ok) {
@@ -510,7 +525,20 @@ const handlers = {
         after: closed ? { expectedCash: closed.expectedCash, closingActualCash: closed.closingActualCash, discrepancy: closed.discrepancy } : null,
       });
     }
-    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+    // Z-report for THIS shift only (its own orders, cash/card totals and
+    // drawer variance). Returned alongside the (redacted) state so the
+    // closing cashier gets their own report without any access to other
+    // shifts' history.
+    let zReport = null;
+    if (result.ok && result.closedShift) {
+      const closedRow = readShifts_().find((sh) => sh.id === shiftIdBefore);
+      zReport = {
+        shift: closedRow,
+        sessions: readSessions_().filter((s) => s.shiftId === shiftIdBefore),
+        ledger: readObjects_("Ledger").filter((l) => l.shiftId === shiftIdBefore),
+      };
+    }
+    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state), zReport });
   },
 
   // Computes fresh server-side (authoritative — never trusts a
@@ -1975,6 +2003,7 @@ Object.assign(handlers, {
     const result = bizCloseBusinessDay_(state0, readSessions_(), readShifts_(), readObjects_("Ledger"), body.username);
     if (!result.ok) return { ok: false, error: result.error, state: withStockView_(state0) };
     updateObjectById_("BusinessDays", result.businessDayId, result.updates);
+    result.state.businessDayId = null; // closed day must not keep collecting new shifts
     setState_(result.state);
     logActivity_({
       actorUsername: body.username, actorRole: "admin", actionType: "BUSINESS_DAY_CLOSED",

@@ -68,7 +68,7 @@ export const translations = {
     endShift: { en: "End Shift", ar: "إنهاء الشيفت" },
     activeShift: { en: "Active Shift", ar: "الشيفت الحالي" },
     noActiveShift: { en: "No Active Shift", ar: "لا يوجد شيفت نشط" },
-    openingBalance: { en: "Opening Balance", ar: "الرصيد الافتتاحي" },
+    openingBalance: { en: "Opening Cash / العهدة المبدئية", ar: "العهدة المبدئية" },
     expectedCash: { en: "Expected Cash", ar: "النقد المتوقع" },
     actualCash: { en: "Actual Cash Counted", ar: "النقد الفعلي المعدود" },
     discrepancy: { en: "Discrepancy", ar: "الفرق" },
