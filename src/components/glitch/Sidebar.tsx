@@ -6,9 +6,9 @@ import type { TranslationKey } from "@/lib/i18n/translations";
 import logo from "@/assets/glitch-logo.jpg";
 
 // The ONLY screens a cashier can reach: the live POS (rooms/tables, lounge),
-// birthday bookings, staff orders, and a Dashboard that shows just the shift
+// birthday bookings, procurement (restock + supplier invoices), staff orders, and a Dashboard that shows just the shift
 // controls + Daily Financial Reconciliation of their own open shift.
-export const CASHIER_VIEWS: View[] = ["dashboard", "rooms", "lounge", "bookings", "staffOrders"];
+export const CASHIER_VIEWS: View[] = ["dashboard", "rooms", "lounge", "bookings", "procurement", "staffOrders"];
 
 export type View = "dashboard" | "rooms" | "lounge" | "inventory" | "procurement" | "unpaidExpenses" | "staffOrders" | "setup" | "users" | "reports" | "voids" | "audit" | "leaderboard" | "analytics" | "bookings" | "ownerReport";
 
@@ -18,7 +18,7 @@ const items: { id: View; labelKey: TranslationKey; label?: string; icon: React.C
   { id: "lounge", labelKey: "nav.lounge", icon: Sofa },
   { id: "bookings", labelKey: "nav.bookings", icon: PartyPopper },
   { id: "leaderboard", labelKey: "nav.leaderboard", icon: Trophy, adminOnly: true },
-  { id: "procurement", labelKey: "nav.procurement", icon: ShoppingCart, adminOnly: true },
+  { id: "procurement", labelKey: "nav.procurement", label: "Procurement / المشتريات", icon: ShoppingCart },
   { id: "unpaidExpenses", labelKey: "nav.unpaidExpenses", icon: Receipt, adminOnly: true },
   { id: "staffOrders", labelKey: "nav.staffOrders", icon: UserCog },
   { id: "inventory", labelKey: "nav.inventory", icon: Package, adminOnly: true },

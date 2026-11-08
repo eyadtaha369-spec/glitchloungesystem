@@ -54,7 +54,7 @@ function Shell() {
   // stay above every early return in this component — hooks can never
   // be called conditionally.
   useEffect(() => {
-    if (!isAdmin && (view === "procurement" || view === "unpaidExpenses" || view === "leaderboard")) setView("rooms");
+    if (!isAdmin && (view === "unpaidExpenses" || view === "leaderboard")) setView("rooms");
   }, [isAdmin, view]);
 
   if (!ready) return null;

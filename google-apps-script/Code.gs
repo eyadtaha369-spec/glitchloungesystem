@@ -6115,7 +6115,9 @@ function handleSubmitPurchase_(body) {
   lock.waitLock(30000);
   try {
     const amount = Number(body.qty) * Number(body.unitCost);
-    const isAdmin = role === "admin";
+    // Cashiers' restocks / supplier purchases apply immediately (stock
+    // updates and negative balances clear), attributed to their username.
+    const isAdmin = role === "admin" || role === "cashier";
     const ts = targetShift ? targetShift.closedAt - 1000 : Date.now();
     // Monthly Consolidated: deliberately untied from any shift and
     // never touches drawer math, exactly like

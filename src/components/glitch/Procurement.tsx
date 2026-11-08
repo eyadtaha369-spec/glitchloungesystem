@@ -44,7 +44,7 @@ export function ProcurementPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Procurement</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Procurement <span dir="rtl" className="font-semibold">/ المشتريات</span></h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono uppercase tracking-widest">
           Log Purchases &amp; Expenses
         </p>
@@ -54,13 +54,13 @@ export function ProcurementPage() {
         <div className="glass rounded-2xl p-4 border border-black/40 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-black shrink-0 mt-0.5" />
           <p className="text-sm text-muted-foreground">
-            Your submissions go to <strong className="text-foreground">Pending Approval</strong>. Stock and cash are not affected until an admin reviews and approves the receipt.
+            Restocked items and supplier invoices you log here <strong className="text-foreground">update inventory immediately</strong> — any negative (بالسالب) balance for that item is cleared automatically. Everything is recorded under your name.
           </p>
         </div>
       )}
 
-      <SubmitPurchaseForm />
-      <SupplierAccountsPanel />
+      <SubmitPurchaseForm isAdmin={isAdmin} />
+      {isAdmin ? <SupplierAccountsPanel /> : <CashierProcurementRecords />}
 
       {isAdmin && <PendingApprovals />}
       {isAdmin && <PurchaseHistory />}
@@ -68,7 +68,7 @@ export function ProcurementPage() {
   );
 }
 
-function SubmitPurchaseForm() {
+function SubmitPurchaseForm({ isAdmin }: { isAdmin: boolean }) {
   const [tab, setTab] = useState<"stockedBatch" | "expenses" | "supplierInvoice" | "advances">("stockedBatch");
   return (
     <div className="glass rounded-2xl p-6">
@@ -77,13 +77,13 @@ function SubmitPurchaseForm() {
         <h2 className="text-lg font-semibold">Log a Purchase</h2>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-        {([
-          ["stockedBatch", TYPE_LABEL.stockedBatch],
+      <div className={`grid grid-cols-2 ${isAdmin ? "md:grid-cols-4" : ""} gap-2 mb-4`}>
+        {(([
+          ["stockedBatch", isAdmin ? TYPE_LABEL.stockedBatch : "Restock Inventory / تسجيل مخزون"],
           ["expenses", "Expenses"],
           ["supplierInvoice", "Supplier Invoice"],
           ["advances", "السلف والخصومات الشهرية"],
-        ] as const).map(([t, label]) => (
+        ] as const).filter(([t]) => isAdmin || t === "stockedBatch" || t === "supplierInvoice")).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -2491,6 +2491,61 @@ function ReportModal({ entries, materials, onClose }: {
             Print
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// Cashier-safe procurement records: only the current shift's drawer-paid
+// purchases and the recent restock log -- no totals, balances, or reports.
+function CashierProcurementRecords() {
+  const { state } = useStore();
+  const matName = (id: string | null | undefined) => state.materials.find((m) => m.id === id)?.name ?? "";
+  const shiftPurchases = state.shiftExpenses
+    .filter((l) => l.type === "stockedBatch" || l.type === "dailyFresh" || l.type === "supplierInvoice" || !!l.materialId)
+    .sort((a, b) => b.ts - a.ts);
+  const restocks = [...state.restockLog].sort((a, b) => b.ts - a.ts).slice(0, 25);
+  return (
+    <div className="space-y-6">
+      <div className="glass rounded-2xl p-4 sm:p-6 overflow-x-auto">
+        <h2 className="text-lg font-semibold mb-3">This shift's purchases <span dir="rtl">/ مشتريات الوردية</span></h2>
+        <table className="w-full text-sm font-mono min-w-[480px]">
+          <thead><tr className="text-[10px] uppercase tracking-widest text-muted-foreground text-left">
+            <th className="pb-2 pr-3">Time</th><th className="pb-2 pr-3">Item</th><th className="pb-2 pr-3 text-right">Qty</th><th className="pb-2 text-right">Amount</th>
+          </tr></thead>
+          <tbody>
+            {shiftPurchases.map((l) => (
+              <tr key={l.id} className="border-t border-black/8">
+                <td className="py-2 pr-3">{new Date(l.ts).toLocaleTimeString()}</td>
+                <td className="py-2 pr-3">{matName(l.materialId) || l.description || l.category}</td>
+                <td className="py-2 pr-3 text-right">{l.qty ?? "—"}</td>
+                <td className="py-2 text-right">{fmtMoney(l.amount)}</td>
+              </tr>
+            ))}
+            {shiftPurchases.length === 0 && <tr><td colSpan={4} className="py-5 text-center text-muted-foreground">No purchases paid from the drawer this shift.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="glass rounded-2xl p-4 sm:p-6 overflow-x-auto">
+        <h2 className="text-lg font-semibold mb-3">Recent restocks <span dir="rtl">/ آخر عمليات التوريد</span></h2>
+        <table className="w-full text-sm font-mono min-w-[480px]">
+          <thead><tr className="text-[10px] uppercase tracking-widest text-muted-foreground text-left">
+            <th className="pb-2 pr-3">Date</th><th className="pb-2 pr-3">Item</th><th className="pb-2 pr-3 text-right">Added</th><th className="pb-2 pr-3 text-right">New total</th><th className="pb-2">By</th>
+          </tr></thead>
+          <tbody>
+            {restocks.map((r) => (
+              <tr key={r.id} className="border-t border-black/8">
+                <td className="py-2 pr-3">{new Date(r.ts).toLocaleString()}</td>
+                <td className="py-2 pr-3">{r.materialName}</td>
+                <td className="py-2 pr-3 text-right">+{r.qtyAdded}</td>
+                <td className="py-2 pr-3 text-right">{r.newTotal}</td>
+                <td className="py-2">{r.performedBy}</td>
+              </tr>
+            ))}
+            {restocks.length === 0 && <tr><td colSpan={5} className="py-5 text-center text-muted-foreground">No restocks yet.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );

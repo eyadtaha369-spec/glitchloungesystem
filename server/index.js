@@ -1303,7 +1303,10 @@ Object.assign(handlers, {
     }
     const receiptUrl = body.receiptBase64 ? saveReceiptLocally_(body.receiptBase64, "receipt-" + Date.now() + ".jpg") : null;
     const amount = Number(body.qty) * Number(body.unitCost);
-    const isAdmin = role === "admin";
+    // Cashiers log restocks / supplier purchases during their shift and
+    // stock must update immediately (clearing any negative balance), so
+    // they are applied right away, attributed to the cashier's username.
+    const isAdmin = role === "admin" || role === "cashier";
     const ts = targetShift ? targetShift.closedAt - 1000 : Date.now();
     // Monthly Consolidated: deliberately untied from any shift and
     // never touches drawer math, exactly like recordSupplierPayment's
