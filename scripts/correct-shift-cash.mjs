@@ -35,11 +35,18 @@ const st = await call("getState", { username });
 const shifts = (st.state?.shifts ?? st.shifts ?? []);
 // Cairo is UTC+2 in November (no DST then); match the closing second exactly.
 const target = Date.parse(`${date}T${time}+02:00`);
-const hits = shifts.filter((s) => s.cashierUsername === cashier && s.closedAt && Math.abs(s.closedAt - target) < 1500);
+const same = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+const cairoDay = (ts) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+const hits = shifts.filter((s) => same(s.cashierUsername, cashier) && s.closedAt && Math.abs(s.closedAt - target) < 1500);
 if (hits.length !== 1) {
-  console.log(`Found ${hits.length} matching shifts (need exactly 1). ${cashier}'s closed shifts that day:`);
-  for (const s of shifts.filter((s) => s.cashierUsername === cashier && s.closedAt && new Date(s.closedAt).toISOString().slice(0, 10) === date))
-    console.log(" ", s.id, new Date(s.closedAt).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }), "counted", s.closingActualCash, "expected", s.expectedCash);
+  console.log(`Found ${hits.length} matching shifts (need exactly 1). The server returned ${shifts.length} shifts in total.`);
+  console.log("Cashier names seen:", [...new Set(shifts.map((s) => s.cashierUsername))].join(", ") || "(none)");
+  console.log(`Closed shifts on ${date} (Cairo date):`);
+  for (const s of shifts.filter((s) => s.closedAt && cairoDay(s.closedAt) === date))
+    console.log(" ", s.id, s.cashierUsername, new Date(s.closedAt).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }), "counted", s.closingActualCash, "expected", s.expectedCash);
+  const last = shifts.filter((s) => s.closedAt).sort((a, b) => b.closedAt - a.closedAt).slice(0, 3);
+  console.log("Latest closed shifts the server knows:");
+  for (const s of last) console.log(" ", s.id, s.cashierUsername, new Date(s.closedAt).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }));
   process.exit(1);
 }
 const s = hits[0];
