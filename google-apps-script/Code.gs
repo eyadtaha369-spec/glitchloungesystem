@@ -3397,6 +3397,41 @@ function doPost(e) {
         return json_({ ok: true, state: withStockView_(getState_()) });
       }
 
+      // Admin-only correction of a CLOSED shift's counted cash. Needs the
+      // admin password, typed confirmation, a written reason and the shift's
+      // expected + old counted cash (guards against hitting the wrong shift).
+      // The old/new values are written to the activity log for audit.
+      case "correctShiftCash": {
+        requireRole_(body.username, ["admin"]);
+        if (body.confirmText !== "CORRECT") return json_({ ok: false, error: "Type CORRECT exactly to confirm." });
+        const ccAuth = login_(body.username, body.password);
+        if (!ccAuth.ok || ccAuth.role !== "admin") return json_({ ok: false, error: "Password incorrect — nothing was changed." });
+        const ccReason = String(body.reason || "").trim();
+        if (ccReason.length < 5) return json_({ ok: false, error: "A written reason is required for the audit log." });
+        const ccNew = Number(body.newClosingActualCash);
+        if (!isFinite(ccNew) || ccNew < 0) return json_({ ok: false, error: "newClosingActualCash must be a number >= 0." });
+        const ccShift = readObjects_("Shifts").filter(function (sh) { return sh.id === body.shiftId; })[0];
+        if (!ccShift) return json_({ ok: false, error: "Shift not found." });
+        if (!ccShift.closedAt) return json_({ ok: false, error: "That shift is still open — only closed shifts can be corrected." });
+        if (Math.abs(Number(ccShift.expectedCash) - Number(body.expectedCashCheck)) > 0.01) {
+          return json_({ ok: false, error: "Expected cash on this shift is " + Number(ccShift.expectedCash).toFixed(2) + ", not " + body.expectedCashCheck + " — wrong shift? Nothing was changed." });
+        }
+        if (Math.abs(Number(ccShift.closingActualCash) - Number(body.oldClosingActualCash)) > 0.01) {
+          return json_({ ok: false, error: "Recorded counted cash is " + Number(ccShift.closingActualCash).toFixed(2) + ", not " + body.oldClosingActualCash + " — already corrected? Nothing was changed." });
+        }
+        const ccBefore = { closingActualCash: ccShift.closingActualCash, expectedCash: ccShift.expectedCash, discrepancy: ccShift.discrepancy };
+        const ccAfter = { closingActualCash: ccNew, expectedCash: ccShift.expectedCash, discrepancy: Math.round((ccNew - Number(ccShift.expectedCash)) * 100) / 100 };
+        updateObjectById_("Shifts", ccShift.id, { closingActualCash: ccAfter.closingActualCash, discrepancy: ccAfter.discrepancy });
+        logActivity_({
+          actorUsername: body.username, actorRole: "admin", actionType: "SHIFT_CASH_CORRECTED", shiftId: ccShift.id,
+          description: body.username + " corrected counted cash of " + ccShift.cashierUsername + "'s closed shift " + ccShift.id +
+            " from " + ccBefore.closingActualCash.toFixed(2) + " to " + ccNew.toFixed(2) + " EGP (discrepancy " +
+            Number(ccBefore.discrepancy).toFixed(2) + " → " + ccAfter.discrepancy.toFixed(2) + " EGP). Reason: " + ccReason,
+          before: ccBefore, after: ccAfter,
+        });
+        return json_({ ok: true, before: ccBefore, after: ccAfter, state: withStockView_(getState_()) });
+      }
+
       // Admin-only: inserts an expense directly into an ALREADY-CLOSED
       // shift's expense log (not the active shift), then re-runs that
       // shift's expected-cash/discrepancy calculation so every

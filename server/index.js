@@ -593,6 +593,42 @@ const handlers = {
     });
     return { ok: true, state: withStockView_(getState_()) };
   },
+
+  // Admin-only correction of a CLOSED shift's counted cash (e.g. a typing
+  // mistake at closing). Never silent: needs the admin password, a typed
+  // confirmation, a written reason and the shift's expected cash (so the
+  // wrong shift can't be hit by accident). The original counted value and
+  // the old/new discrepancy are written to the activity log.
+  correctShiftCash(body) {
+    requireRole_(body.username, ["admin"]);
+    if (body.confirmText !== "CORRECT") return { ok: false, error: "Type CORRECT exactly to confirm." };
+    const auth = login_(body.username, body.password);
+    if (!auth.ok || auth.role !== "admin") return { ok: false, error: "Password incorrect — nothing was changed." };
+    const reason = String(body.reason || "").trim();
+    if (reason.length < 5) return { ok: false, error: "A written reason is required for the audit log." };
+    const newCash = Number(body.newClosingActualCash);
+    if (!Number.isFinite(newCash) || newCash < 0) return { ok: false, error: "newClosingActualCash must be a number ≥ 0." };
+    const shift = readObjects_("Shifts").find((sh) => sh.id === body.shiftId);
+    if (!shift) return { ok: false, error: "Shift not found." };
+    if (!shift.closedAt) return { ok: false, error: "That shift is still open — only closed shifts can be corrected." };
+    if (Math.abs(Number(shift.expectedCash) - Number(body.expectedCashCheck)) > 0.01) {
+      return { ok: false, error: "Expected cash on this shift is " + Number(shift.expectedCash).toFixed(2) + ", not " + body.expectedCashCheck + " — wrong shift? Nothing was changed." };
+    }
+    if (Math.abs(Number(shift.closingActualCash) - Number(body.oldClosingActualCash)) > 0.01) {
+      return { ok: false, error: "Recorded counted cash is " + Number(shift.closingActualCash).toFixed(2) + ", not " + body.oldClosingActualCash + " — already corrected? Nothing was changed." };
+    }
+    const before = { closingActualCash: shift.closingActualCash, expectedCash: shift.expectedCash, discrepancy: shift.discrepancy };
+    const after = { closingActualCash: newCash, expectedCash: shift.expectedCash, discrepancy: Math.round((newCash - Number(shift.expectedCash)) * 100) / 100 };
+    updateObjectById_("Shifts", shift.id, { closingActualCash: after.closingActualCash, discrepancy: after.discrepancy });
+    logActivity_({
+      actorUsername: body.username, actorRole: "admin", actionType: "SHIFT_CASH_CORRECTED", shiftId: shift.id,
+      description: body.username + " corrected counted cash of " + shift.cashierUsername + "'s closed shift " + shift.id +
+        " from " + before.closingActualCash.toFixed(2) + " to " + newCash.toFixed(2) + " EGP (discrepancy " +
+        Number(before.discrepancy).toFixed(2) + " → " + after.discrepancy.toFixed(2) + " EGP). Reason: " + reason,
+      before, after,
+    });
+    return { ok: true, before, after, state: withStockView_(getState_()) };
+  },
 };
 
 // ---- Local receipt storage (replaces Google Drive upload) ----
