@@ -1395,9 +1395,9 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 ))}
 
                 <div className="border-t border-dashed border-black/40 mt-3 pt-2 receipt-block receipt-total">
-                  <div className="flex justify-between text-sm"><span>Subtotal (الإجمالي الفرعي)</span><span className="font-mono">{fmtMoney(checkoutSubtotal)}</span></div>
-                  <div className="flex justify-between text-sm"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span className="font-mono">{fmtMoney(checkoutVat)}</span></div>
-                  <div className="flex justify-between text-base font-bold mt-1"><span>Grand Total (الإجمالي النهائي)</span><span className="font-mono">{fmtMoney(checkoutTotal)}</span></div>
+                  <div className="flex justify-between text-sm"><span>Subtotal</span><span className="font-mono">{fmtMoney(checkoutSubtotal)}</span></div>
+                  <div className="flex justify-between text-sm"><span>VAT 14%</span><span className="font-mono">{fmtMoney(checkoutVat)}</span></div>
+                  <div className="flex justify-between text-lg font-black mt-1"><span>TOTAL</span><span className="font-mono">{fmtMoney(checkoutTotal)}</span></div>
                 </div>
                 <div className="text-center text-[10px] uppercase tracking-widest mt-3 opacity-70">
                   Preview — payment not yet collected
@@ -1989,9 +1989,7 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
             </>
           )}
 
-          <div className="flex justify-between border-t border-dashed border-black/40 mt-3 pt-2 text-sm font-bold">
-            <span>Subtotal</span><span>{fmtMoney(session.timeCost + session.ordersCost)}</span>
-          </div>
+          <div className="border-t border-dashed border-black/40 mt-3" />
           {session.timeDiscountAmount > 0 && (
             <div className="flex justify-between text-xs text-black receipt-line">
               <span>{session.timeDiscountLabel ?? "Time Discount"}</span><span>-{fmtMoney(session.timeDiscountAmount)}</span>
@@ -2011,9 +2009,9 @@ export function ReceiptModal({ session, onClose, onReopen }: { session: Session;
             const v = sessionVat(session);
             return (
               <div className="border-t border-double border-black/25 mt-2 pt-2 receipt-block receipt-total">
-                <div className="flex justify-between text-sm"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(v.subtotal)}</span></div>
-                <div className="flex justify-between text-sm"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(v.vatAmount)}</span></div>
-                <div className="flex justify-between text-base font-bold mt-1"><span>GRAND TOTAL (الإجمالي النهائي)</span><span>{fmtMoney(v.total)}</span></div>
+                <div className="flex justify-between text-sm"><span>Subtotal</span><span>{fmtMoney(v.subtotal)}</span></div>
+                <div className="flex justify-between text-sm"><span>VAT 14%</span><span>{fmtMoney(v.vatAmount)}</span></div>
+                <div className="flex justify-between text-lg font-black mt-1"><span>TOTAL</span><span>{fmtMoney(v.total)}</span></div>
               </div>
             );
           })()}
@@ -3158,9 +3156,7 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
             </div>
             {splitReceipt.discountAmount > 0 && (
               <>
-                <div className="flex justify-between border-t border-dashed border-black/20 mt-2 pt-1 text-xs">
-                  <span>Subtotal</span><span>{fmtMoney(splitReceipt.ordersCost)}</span>
-                </div>
+                <div className="border-t border-dashed border-black/20 mt-2" />
                 <div className="flex justify-between text-xs text-black receipt-line">
                   <span>{splitReceipt.discountLabel ?? "Discount"}</span><span>-{fmtMoney(splitReceipt.discountAmount)}</span>
                 </div>
@@ -3170,9 +3166,9 @@ function SplitModal({ room, onClose }: { room: Room; onClose: () => void }) {
               const v = sessionVat(splitReceipt);
               return (
                 <div className="border-t border-double border-black/25 mt-3 pt-2 receipt-block receipt-total">
-                  <div className="flex justify-between text-sm"><span>Subtotal (الإجمالي الفرعي)</span><span>{fmtMoney(v.subtotal)}</span></div>
-                  <div className="flex justify-between text-sm"><span>VAT 14% (ضريبة القيمة المضافة 14%)</span><span>{fmtMoney(v.vatAmount)}</span></div>
-                  <div className="flex justify-between text-base font-bold mt-1"><span>SUB-BILL TOTAL (الإجمالي النهائي)</span><span>{fmtMoney(v.total)}</span></div>
+                  <div className="flex justify-between text-sm"><span>Subtotal</span><span>{fmtMoney(v.subtotal)}</span></div>
+                  <div className="flex justify-between text-sm"><span>VAT 14%</span><span>{fmtMoney(v.vatAmount)}</span></div>
+                  <div className="flex justify-between text-lg font-black mt-1"><span>TOTAL</span><span>{fmtMoney(v.total)}</span></div>
                 </div>
               );
             })()}
