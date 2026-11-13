@@ -379,6 +379,25 @@ function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 56 }: { name: string
   );
 }
 
+// Lines that live in room.orders but are NOT food/drinks (carried-over room
+// charges from a transfer, split-payment credits, frozen room time).
+const NON_ITEM_ORDER_PREFIXES = ["transfer-charge-", "partial-payment", "split-credit-", "room-time"];
+function hasFoodOrDrinks(room: Room): boolean {
+  return room.orders.some((o) => o.qty > 0 && !NON_ITEM_ORDER_PREFIXES.some((p) => String(o.menuItemId).startsWith(p)));
+}
+// UI-only alert: shown next to the name of an occupied room/table that has
+// no food or drink on its check yet. Disappears as soon as one is added.
+function NoOrdersBadge({ room }: { room: Room }) {
+  if (room.status !== "active" || room.zone === "waste" || hasFoodOrDrinks(room)) return null;
+  return (
+    <span
+      title="No drinks/food ordered yet"
+      aria-label="No drinks/food ordered yet"
+      className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-400 text-black text-[13px] font-black leading-none shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-pulse"
+    >!</span>
+  );
+}
+
 const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTargets }: { room: Room; elapsed: number; onCheckout: (s: Session) => void; transferTargets: Room[] }) {
   const { state, deleteOwnerTable } = useStore();
   const isAdmin = state.currentUser?.role === "admin";
@@ -453,7 +472,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           >
             <div className="absolute top-4 left-4 right-4 h-14 rounded-2xl bg-white/[0.03] pointer-events-none" />
             <div className="relative flex items-center justify-between mb-2">
-              <h3 className="text-3xl font-black tracking-wide truncate" style={{ color: "#e9d18f" }}>{room.name}</h3>
+              <h3 className="flex items-center gap-2 text-3xl font-black tracking-wide truncate" style={{ color: "#e9d18f" }}>{room.name}<NoOrdersBadge room={room} /></h3>
               {room.isOwnerTable && (
                 <span className="shrink-0 flex flex-col items-center gap-0.5" style={{ color: "#D4AF37" }}>
                   <Crown className="w-5 h-5" />
@@ -544,6 +563,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
           <h3 className="flex items-center gap-1.5 text-base font-bold tracking-wide truncate text-white">
             {room.isVip && <Crown className="w-4 h-4 shrink-0" style={{ color: "#D4AF37" }} />}
             {room.name}
+            <NoOrdersBadge room={room} />
           </h3>
           <span
             className="shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
