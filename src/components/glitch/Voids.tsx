@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore, fmtMoney, VOID_REASON_LABELS } from "@/lib/glitch-store";
 import type { VoidRequest, VoidReason } from "@/lib/glitch-store";
+import { VoidReceiptPrint, type VoidReceiptData } from "./VoidReceipt";
 import { ShieldAlert, CheckCircle2, XCircle, Clock, Printer, AlertTriangle, Settings } from "lucide-react";
 
 function startOfDay(ts: number) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
@@ -223,10 +224,30 @@ function UnapprovedVoidsPanel({ requests }: { requests: VoidRequest[] }) {
 }
 
 function PendingVoidsPanel({ requests }: { requests: VoidRequest[] }) {
-  const { approveVoid, denyVoid } = useStore();
+  const { approveVoid, denyVoid, state } = useStore();
+  const [voidReceipt, setVoidReceipt] = useState<VoidReceiptData | null>(null);
+  const approveAndPrint = async (v: VoidRequest) => {
+    const res = await approveVoid(v.id);
+    if (!res.ok) return;
+    const who = state.currentUser?.username ?? "unknown";
+    setVoidReceipt({
+      ts: Date.now(),
+      voidedBy: who,
+      approvedBy: who,
+      requestedBy: v.cashierUsername,
+      location: v.roomName,
+      orderRef: "Open check (" + v.roomName + ")",
+      items: [{ qty: v.qty, name: v.itemName, unitPrice: v.unitPrice }],
+      amount: v.billValue,
+      reason: VOID_REASON_LABELS[v.reason as VoidReason] ?? String(v.reason),
+      waiter: v.waiterName || null,
+      status: "APPROVED",
+    });
+  };
 
   return (
     <div className="glass rounded-2xl p-6 border border-black/40">
+      {voidReceipt && <VoidReceiptPrint receipt={voidReceipt} onDone={() => setVoidReceipt(null)} />}
       <div className="flex items-center gap-2 mb-4">
         <Clock className="w-5 h-5 text-black" />
         <h2 className="text-lg font-semibold">Pending Void Approvals</h2>
@@ -249,7 +270,7 @@ function PendingVoidsPanel({ requests }: { requests: VoidRequest[] }) {
               <div><span className="uppercase tracking-widest text-[10px]">Status</span><div className="text-black">Pending Approval</div></div>
             </div>
             <div className="flex items-center gap-2 mt-3">
-              <button onClick={() => approveVoid(v.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">
+              <button onClick={() => void approveAndPrint(v)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)]">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Approve
               </button>
               <button onClick={() => denyVoid(v.id)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-black/5 border border-black/10 hover:bg-[oklch(0.62_0.24_25/0.15)]">

@@ -11,6 +11,7 @@ import roomIcon7 from "@/assets/room-icons/room-7.webp";
 import roomIcon8 from "@/assets/room-icons/room-8.webp";
 import roomIconVip from "@/assets/room-icons/room-vip.webp";
 import { printSmart } from "@/lib/print";
+import { VoidReceiptPrint, type VoidReceiptData } from "./VoidReceipt";
 import { vatBreakdown, sessionVat } from "@/lib/vat";
 import { useStore, fmtDuration, fmtMoney, round2, computeTimeCost, computeCurrentSegmentElapsed, formatOrderLineName, MODIFIER_GROUPS, VOID_REASON_LABELS, WASTE_MARKETING_REASON_LABELS, MENU_CATEGORIES, type Room, type Session, type PaymentMethod, type VoidReason, type WasteMarketingReason, type MenuCategory, type MenuItem } from "@/lib/glitch-store";
 import { Play, Square, Pause, Plus, Minus, Printer, X, Crown, Gamepad2, Banknote, CreditCard, ShieldAlert, MessageSquare, Check, ChefHat, ArrowRightLeft, SplitSquareHorizontal, Clock, Edit2, Trash2 } from "lucide-react";
@@ -2328,14 +2329,32 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
   const [result, setResult] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [confirmingUnapproved, setConfirmingUnapproved] = useState(false);
+  const [voidReceipt, setVoidReceipt] = useState<VoidReceiptData | null>(null);
 
   const submit = async (approvingAdminUsername?: string, approvingAdminPassword?: string, routeUnapproved?: boolean) => {
     if (!reason) { setResult({ kind: "err", text: "Select a reason." }); return; }
     if (!waiterName.trim()) { setResult({ kind: "err", text: "Waiter name is required for the audit log." }); return; }
     setSubmitting(true);
     try {
+      // Snapshot the line BEFORE the void changes the check, for the void receipt.
+      const liveRoom = state.rooms.find((r) => r.id === roomId);
+      const line = liveRoom?.orders.find((o) => o.menuItemId === menuItemId);
+      const unitPrice = line?.price ?? 0;
       const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim(), approvingAdminUsername, approvingAdminPassword, routeUnapproved });
       if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Void request failed" }); return; }
+      const who = state.currentUser?.username ?? "unknown";
+      setVoidReceipt({
+        ts: Date.now(),
+        voidedBy: who,
+        approvedBy: approvingAdminUsername ?? (isAdmin ? who : null),
+        location: roomName,
+        orderRef: "Open check (" + roomName + ")",
+        items: [{ qty, name: itemName, unitPrice }],
+        amount: Math.round(qty * unitPrice * 100) / 100,
+        reason: VOID_REASON_LABELS[reason as VoidReason] ?? String(reason),
+        waiter: waiterName.trim(),
+        status: routeUnapproved ? "UNAPPROVED - ADMIN REVIEW" : isAdmin || approvingAdminUsername ? "APPROVED" : "PENDING ADMIN APPROVAL",
+      });
       setResult({
         kind: "ok",
         text: routeUnapproved
@@ -2344,14 +2363,16 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             ? "Cancelled immediately" + (approvingAdminUsername ? ` — authorized by admin ${approvingAdminUsername}.` : ".")
             : "Sent for admin approval — this item stays on the bill and in Expected Cash until approved.",
       });
-      setTimeout(onClose, 1400);
+      // Closing now happens after the mandatory void receipt has printed.
     } finally {
       setSubmitting(false);
     }
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={onClose}>
+    <>
+    {voidReceipt && <VoidReceiptPrint receipt={voidReceipt} onDone={onClose} />}
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={voidReceipt ? undefined : onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
           <div className="flex items-center gap-2 font-mono uppercase tracking-widest text-xs text-[oklch(0.62_0.24_25)]">
@@ -2469,7 +2490,8 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
           }}
         />
       )}
-    </div>,
+    </div>
+    </>,
     document.body,
   );
 }
