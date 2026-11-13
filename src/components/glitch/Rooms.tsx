@@ -382,7 +382,9 @@ function OwnerAvatar({ name, avatarUrl: uploadedUrl, size = 56 }: { name: string
 
 // Lines that live in room.orders but are NOT food/drinks (carried-over room
 // charges from a transfer, split-payment credits, frozen room time).
-const NON_ITEM_ORDER_PREFIXES = ["transfer-charge-", "partial-payment", "split-credit-", "room-time"];
+// "item-water" is the free default bottle put on every new check automatically,
+// so it doesn't count as the customer ordering something.
+const NON_ITEM_ORDER_PREFIXES = ["transfer-charge-", "partial-payment", "split-credit-", "room-time", "item-water"];
 function hasFoodOrDrinks(room: Room): boolean {
   return room.orders.some((o) => o.qty > 0 && !NON_ITEM_ORDER_PREFIXES.some((p) => String(o.menuItemId).startsWith(p)));
 }
@@ -396,6 +398,13 @@ function NoOrdersBadge({ room }: { room: Room }) {
       aria-label="No drinks/food ordered yet"
       className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-400 text-black text-[13px] font-black leading-none shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-pulse"
     >!</span>
+  );
+}
+
+function BirthdayBadge({ room }: { room: Room }) {
+  if (room.status !== "active" || !room.isBirthday) return null;
+  return (
+    <span title="Birthday booking" className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-pink-500/20 border border-pink-500/60 text-pink-600 text-[10px] font-bold uppercase tracking-wide">🎂 Birthday</span>
   );
 }
 
@@ -565,6 +574,7 @@ const RoomCard = memo(function RoomCard({ room, elapsed, onCheckout, transferTar
             {room.isVip && <Crown className="w-4 h-4 shrink-0" style={{ color: "#D4AF37" }} />}
             {room.name}
             <NoOrdersBadge room={room} />
+            <BirthdayBadge room={room} />
           </h3>
           <span
             className="shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
@@ -717,13 +727,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
     setTimeout(() => setWarn(null), 3000);
   };
 
-  const handleStart = async (rateMode?: "single" | "multi") => {
+  const handleStart = async (rateMode?: "single" | "multi", birthday?: boolean) => {
     if (room.zone === "room" && !rateMode) {
       setPickingRateToStart(true);
       return;
     }
     setPickingRateToStart(false);
-    const r = await startRoom(room.id, rateMode);
+    const r = await startRoom(room.id, rateMode, { birthday: !!birthday });
     if (!r.ok) flashWarn(r.error ?? "Could not start room");
   };
 
@@ -1280,7 +1290,7 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {room.status === "available" ? (
           pickingRateToStart ? (
-            <div className="flex-1 flex items-center gap-2">
+            <div className="flex-1 flex flex-wrap items-center gap-2">
               <button
                 onClick={() => handleStart("single")}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[oklch(0.78_0.2_155/0.2)] border border-[oklch(0.78_0.2_155/0.5)] text-[oklch(0.78_0.2_155)] font-bold uppercase tracking-wider text-xs"
@@ -1292,6 +1302,13 @@ const RoomDetailModal = memo(function RoomDetailModal({ room, elapsed, onCheckou
                 className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[oklch(0.7_0.19_260/0.2)] border border-[oklch(0.7_0.19_260/0.5)] text-[oklch(0.7_0.19_260)] font-bold uppercase tracking-wider text-xs"
               >
                 Multi {fmtMoney(room.multiRate)}/hr
+              </button>
+              <button
+                onClick={() => handleStart("multi", true)}
+                title="Standard room rate + Birthday decoration added to the check"
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-pink-500/15 border border-pink-500/50 text-pink-600 font-bold uppercase tracking-wide text-xs"
+              >
+                🎂 Birthday · {fmtMoney(room.multiRate)}/hr + ديكور عيد ميلاد
               </button>
               <button onClick={() => setPickingRateToStart(false)} className="text-muted-foreground hover:text-[#2b2416] px-2"><X className="w-4 h-4" /></button>
             </div>

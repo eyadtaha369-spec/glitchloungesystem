@@ -25,7 +25,7 @@ const {
   consumeFifo_, restoreFifo_, writeBatchesBack_,
 } = require("./lib/state");
 const {
-  bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
+  bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, ensureBirthdayItem_, bizAddOrder_, bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_,
   bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_, bizTransferOrderItem_,
 } = require("./lib/rooms");
 const { formatDateLabel_, businessDayLabelForTs_, cairoMiddayTimestamp_, bizOpenShift_, bizCloseActiveShift_, bizRecalculateClosedShift_, bizFindOrphanedSessions_, bizAttachOrphanedToShift_ } = require("./lib/shifts");
@@ -115,17 +115,40 @@ const handlers = {
 
   startRoom(body) {
     requireRole_(body.username, ["admin", "cashier"]);
-    const result = bizStartRoom_(getState_(), body.roomId, body.rateMode);
+    const state0 = getState_();
+    const wasActive = !!(state0.rooms.find((r) => r.id === body.roomId) || {}).status && state0.rooms.find((r) => r.id === body.roomId).status === "active";
+    const wantsBirthday = !!body.birthday && !wasActive;
+    const birthdayItem = wantsBirthday ? ensureBirthdayItem_(state0) : null; // seeds the menu item if missing
+    const result = bizStartRoom_(state0, body.roomId, body.rateMode, { birthday: wantsBirthday });
+    let finalState = result.state;
     if (result.ok) {
       setState_(result.state);
       const room = result.state.rooms.find((r) => r.id === body.roomId);
       logActivity_({
         actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_STARTED",
         location: room ? room.name : body.roomId, shiftId: result.state.activeShiftId,
-        description: (room ? room.name : body.roomId) + " session started" + (room && room.rateMode ? " (" + room.rateMode + " @ " + room.hourlyRate + " EGP/hr)" : ""),
+        description: (room ? room.name : body.roomId) + " session started" + (room && room.isBirthday ? " [BIRTHDAY]" : "") + (room && room.rateMode ? " (" + room.rateMode + " @ " + room.hourlyRate + " EGP/hr)" : ""),
       });
+      // Birthday: put 1x the decoration on the check through the normal
+      // add-order path (same stock deduction, VAT and totals as any item).
+      if (room && room.isBirthday && birthdayItem) {
+        const batches = readObjects_("Batches");
+        const add = bizAddOrder_(getState_(), batches, body.roomId, birthdayItem.id, 1);
+        if (add.ok) {
+          setState_(add.state);
+          writeBatchesBack_(batches, add.touchedBatchIds);
+          (add.newBatches || []).forEach((b) => appendObject_("Batches", b));
+          finalState = add.state;
+          logActivity_({
+            actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_ADDED",
+            location: room.name, shiftId: add.state.activeShiftId,
+            description: "Added 1x " + birthdayItem.name + " to " + room.name + " (Birthday session)",
+            before: { qty: 0 }, after: { qty: 1 },
+          });
+        }
+      }
     }
-    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+    return json_({ ok: result.ok, error: result.error || null, state: withStockView_(finalState) });
   },
 
   extendRoomTime(body) {

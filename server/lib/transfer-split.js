@@ -25,7 +25,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   state.rooms = state.rooms.map((r) => {
     if (r.id === sourceId) {
       return Object.assign({}, r, {
-        status: "available", startedAt: null, orders: [], hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode,
+        status: "available", isBirthday: false, startedAt: null, orders: [], hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode,
         isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [], transferredFrom: null,
       });
     }

@@ -148,6 +148,7 @@ export interface Room {
   singleRate: number; // configurable base rate — Single mode (room zone only)
   multiRate: number; // configurable base rate — Multi mode (room zone only)
   rateMode: "single" | "multi" | null; // which rate is active for the current session
+  isBirthday?: boolean; // current session was started as a Birthday booking (standard Multi pricing + decoration item)
   status: "available" | "active";
   startedAt: number | null;
   orders: OrderLine[];

@@ -80,12 +80,31 @@ function currentSegmentElapsedSec_(room, totalElapsedSec) {
   return Math.max(0, totalElapsedSec - frozenSec);
 }
 
-function bizStartRoom_(state, roomId, rateMode) {
+// Birthday sessions: standard (Multi) room pricing + 1x this menu item put on
+// the check automatically. The item is looked up by id, then by its Arabic
+// name (an admin may have created it by hand), and seeded with a default
+// price only if neither exists -- after which the admin can change its price
+// in the normal Menu settings and new Birthday sessions pick it up.
+const BIRTHDAY_ITEM_ID = "item-birthday-decor";
+const BIRTHDAY_ITEM_NAME = "ديكور عيد ميلاد";
+const BIRTHDAY_ITEM_DEFAULT_PRICE = 150;
+function ensureBirthdayItem_(state) {
+  let item = state.menu.find((m) => m.id === BIRTHDAY_ITEM_ID) || state.menu.find((m) => (m.name || "").trim() === BIRTHDAY_ITEM_NAME || (m.nameAr || "").trim() === BIRTHDAY_ITEM_NAME);
+  if (!item) {
+    item = { id: BIRTHDAY_ITEM_ID, name: BIRTHDAY_ITEM_NAME, nameAr: BIRTHDAY_ITEM_NAME, price: BIRTHDAY_ITEM_DEFAULT_PRICE, category: "Extras", ingredients: [] };
+    state.menu = state.menu.concat([item]);
+  }
+  return item;
+}
+
+function bizStartRoom_(state, roomId, rateMode, opts) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before starting a room.", state };
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status === "active") return { ok: true, state };
   let hourlyRate = 0;
   let mode = null;
+  const birthday = !!(opts && opts.birthday) && room.zone === "room";
+  if (birthday) rateMode = "multi"; // birthday bookings run on the standard (Multi) room rate
   if (room.zone === "room") {
     if (rateMode !== "single" && rateMode !== "multi") {
       return { ok: false, error: "Select a Single or Multi rate to start this room.", state };
@@ -97,9 +116,9 @@ function bizStartRoom_(state, roomId, rateMode) {
   const waterItem = state.menu.find((m) => m.id === "item-water");
   const initialOrders = waterItem ? [{ menuItemId: waterItem.id, name: waterItem.name, qty: 1, price: waterItem.price }] : [];
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate, rateMode: mode, timeAdjustmentSec: 0, isPaused: false, pausedAt: null, pausedDurationSec: 0, rateSegments: [] }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate, rateMode: mode, isBirthday: birthday, timeAdjustmentSec: 0, isPaused: false, pausedAt: null, pausedDurationSec: 0, rateSegments: [] }) : r
   );
-  pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ " + hourlyRate + " EGP/hr)" : ""));
+  pushActivity_(state, room.name + " session started" + (birthday ? " [BIRTHDAY]" : "") + (mode ? " (" + mode + " @ " + hourlyRate + " EGP/hr)" : ""));
   return { ok: true, state };
 }
 
@@ -477,7 +496,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
       room.rateMode ? [{ rateMode: room.rateMode, hourlyRate: room.hourlyRate, durationSec: currentSegmentElapsedSec_(room, durationSec) }] : []
     ),
   };
-  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0 }) : r));
+  state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, { status: "available", isBirthday: false, startedAt: null, orders: [], cogsAccrued: 0 }) : r));
   const paymentLabel = method === "mixed_cash_visa" ? "Cash " + cashAmount.toFixed(2) + " EGP + Visa " + visaAmount.toFixed(2) + " EGP"
     : method === "mixed_cash_instapay" ? "Cash " + cashAmount.toFixed(2) + " EGP + InstaPay " + instapayAmount.toFixed(2) + " EGP"
     : method;
@@ -525,7 +544,7 @@ function bizEndRoomAsStaffOrder_(state, roomId, staffName, frozenAt) {
   };
 
   state.rooms = state.rooms.map((r) => (r.id === roomId ? Object.assign({}, r, {
-    status: "available", startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
+    status: "available", isBirthday: false, startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
     isPaused: false, pausedAt: null, pausedDurationSec: 0, transferredFrom: null,
   }) : r));
   pushActivity_(state, room.name + " closed as Staff Order for " + trimmedName + " — " + totalAmount.toFixed(2) + " EGP (excluded from revenue)");
@@ -620,7 +639,7 @@ function bizTransferOrderItem_(state, sourceRoomId, targetRoomId, menuItemId, qt
 }
 
 module.exports = {
-  PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, bizCanFulfill_, bizAddOrder_,
+  PAYMENT_METHODS, effectiveDurationSec_, bizSetRoomRate_, bizRenameRoom_, bizAddOwnerTable_, bizDeleteOwnerTable_, bizStartRoom_, ensureBirthdayItem_, BIRTHDAY_ITEM_ID, bizCanFulfill_, bizAddOrder_,
   bizSetOrderLineQty_, bizSetOrderLineNote_, bizMarkOrdersPrintedToKitchen_, bizExtendRoomTime_, bizSwitchRateMode_, bizReopenSession_, bizPauseRoom_, bizResumeRoom_, bizLogWasteMarketing_, bizEndRoom_, bizEndRoomAsStaffOrder_,
   bizTransferOrderItem_,
   WASTE_MARKETING_REASONS, computeDiscount_, computeTimeCost_, currentSegmentElapsedSec_,

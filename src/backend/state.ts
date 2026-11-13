@@ -29,7 +29,7 @@ export const getDailyReconciliationHistoryFn = createServerFn({ method: "GET" })
 });
 
 export const startRoomFn = createServerFn({ method: "POST" })
-  .validator((d: { roomId: string; rateMode?: "single" | "multi" }) => d)
+  .validator((d: { roomId: string; rateMode?: "single" | "multi"; birthday?: boolean }) => d)
   .handler(async ({ data }) => {
     const user = await requireUser();
     return callAppsScript<{ ok: boolean; error?: string; state: AppState }>("startRoom", {

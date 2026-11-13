@@ -533,12 +533,32 @@ function bizDeleteOwnerTable_(state, roomId) {
   return { ok: true, state: state, room: room };
 }
 
-function bizStartRoom_(state, roomId, rateMode) {
+// Birthday sessions: standard (Multi) room pricing + 1x this menu item put on
+// the check automatically. Looked up by id, then by its Arabic name (an admin
+// may have created it by hand), and seeded with a default price only if
+// neither exists -- afterwards the admin changes the price in Menu settings
+// and new Birthday sessions pick it up.
+const BIRTHDAY_ITEM_ID = "item-birthday-decor";
+const BIRTHDAY_ITEM_NAME = "ديكور عيد ميلاد";
+const BIRTHDAY_ITEM_DEFAULT_PRICE = 150;
+function ensureBirthdayItem_(state) {
+  let item = state.menu.filter(function (m) { return m.id === BIRTHDAY_ITEM_ID; })[0] ||
+    state.menu.filter(function (m) { return String(m.name || "").trim() === BIRTHDAY_ITEM_NAME || String(m.nameAr || "").trim() === BIRTHDAY_ITEM_NAME; })[0];
+  if (!item) {
+    item = { id: BIRTHDAY_ITEM_ID, name: BIRTHDAY_ITEM_NAME, nameAr: BIRTHDAY_ITEM_NAME, price: BIRTHDAY_ITEM_DEFAULT_PRICE, category: "Extras", ingredients: [] };
+    state.menu = state.menu.concat([item]);
+  }
+  return item;
+}
+
+function bizStartRoom_(state, roomId, rateMode, opts) {
   if (!state.activeShiftId) return { ok: false, error: "No active shift — open a shift before starting a room.", state: state };
   const room = state.rooms.find((r) => r.id === roomId);
   if (!room || room.status === "active") return { ok: true, state: state };
   let hourlyRate = 0;
   let mode = null;
+  const birthday = !!(opts && opts.birthday) && room.zone === "room";
+  if (birthday) rateMode = "multi"; // birthday bookings run on the standard (Multi) room rate
   if (room.zone === "room") {
     if (rateMode !== "single" && rateMode !== "multi") {
       return { ok: false, error: "Select a Single or Multi rate to start this room.", state: state };
@@ -554,9 +574,9 @@ function bizStartRoom_(state, roomId, rateMode) {
   const waterItem = state.menu.find((m) => m.id === "item-water");
   const initialOrders = waterItem ? [{ menuItemId: waterItem.id, name: waterItem.name, qty: 1, price: waterItem.price }] : [];
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate: hourlyRate, rateMode: mode, timeAdjustmentSec: 0, isPaused: false, pausedAt: null, pausedDurationSec: 0, rateSegments: [] }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "active", startedAt: now, orders: initialOrders, hourlyRate: hourlyRate, rateMode: mode, isBirthday: birthday, timeAdjustmentSec: 0, isPaused: false, pausedAt: null, pausedDurationSec: 0, rateSegments: [] }) : r
   );
-  pushActivity_(state, room.name + " session started" + (mode ? " (" + mode + " @ " + hourlyRate + " EGP/hr)" : ""));
+  pushActivity_(state, room.name + " session started" + (birthday ? " [BIRTHDAY]" : "") + (mode ? " (" + mode + " @ " + hourlyRate + " EGP/hr)" : ""));
   return { ok: true, state: state };
 }
 
@@ -1225,7 +1245,7 @@ function bizEndRoom_(state, batches, roomId, splitBill, paymentMethod, cashAmoun
     ),
   };
   state.rooms = state.rooms.map((r) =>
-    r.id === roomId ? Object.assign({}, r, { status: "available", startedAt: null, orders: [], cogsAccrued: 0, reopenedFrom: null }) : r
+    r.id === roomId ? Object.assign({}, r, { status: "available", isBirthday: false, startedAt: null, orders: [], cogsAccrued: 0, reopenedFrom: null }) : r
   );
   // NOTE: the session is NOT added to state.sessions here anymore — it's
   // persisted directly to the dedicated Sessions sheet by the "endRoom"
@@ -1270,7 +1290,7 @@ function bizEndRoomAsStaffOrder_(state, roomId, staffName, frozenAt) {
 
   state.rooms = state.rooms.map(function (r) {
     return r.id === roomId ? Object.assign({}, r, {
-      status: "available", startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
+      status: "available", isBirthday: false, startedAt: null, orders: [], cogsAccrued: 0, rateSegments: [], timeAdjustmentSec: 0,
       isPaused: false, pausedAt: null, pausedDurationSec: 0, transferredFrom: null, reopenedFrom: null,
     }) : r;
   });
@@ -1320,7 +1340,7 @@ function bizTransferZone_(state, sourceId, targetId, rateMode) {
   state.rooms = state.rooms.map((r) => {
     if (r.id === sourceId) {
       return Object.assign({}, r, {
-        status: "available", startedAt: null, orders: [],
+        status: "available", isBirthday: false, startedAt: null, orders: [],
         hourlyRate: 0, rateMode: r.zone === "room" ? null : r.rateMode,
         isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0, rateSegments: [], transferredFrom: null,
       });
@@ -1916,7 +1936,7 @@ function resetForProduction_(username, password) {
   const state = getState_();
   state.rooms = state.rooms.map(function (r) {
     return Object.assign({}, r, {
-      status: "available", startedAt: null, orders: [],
+      status: "available", isBirthday: false, startedAt: null, orders: [],
       isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
       hourlyRate: 0, rateMode: null, splitInvoiceNumber: null, transferredFrom: null,
     });
@@ -1961,7 +1981,7 @@ function resetKeepingInventoryAndLedger_(username, password) {
   const state = getState_();
   state.rooms = state.rooms.map(function (r) {
     return Object.assign({}, r, {
-      status: "available", startedAt: null, orders: [],
+      status: "available", isBirthday: false, startedAt: null, orders: [],
       isPaused: false, pausedAt: null, pausedDurationSec: 0, timeAdjustmentSec: 0,
       hourlyRate: 0, rateMode: null, splitInvoiceNumber: null, transferredFrom: null,
     });
@@ -2767,17 +2787,42 @@ function doPost(e) {
 
       case "startRoom": {
         requireRole_(body.username, ["admin", "cashier"]);
-        const result = bizStartRoom_(getState_(), body.roomId, body.rateMode);
+        const state0 = getState_();
+        const roomPre = state0.rooms.filter(function (r) { return r.id === body.roomId; })[0];
+        const wantsBirthday = !!body.birthday && !(roomPre && roomPre.status === "active");
+        const birthdayItem = wantsBirthday ? ensureBirthdayItem_(state0) : null; // seeds the menu item if missing
+        const result = bizStartRoom_(state0, body.roomId, body.rateMode, { birthday: wantsBirthday });
+        let finalState = result.state;
         if (result.ok) {
           setState_(result.state);
           const room = result.state.rooms.find((r) => r.id === body.roomId);
           logActivity_({
             actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ROOM_STARTED",
             location: room ? room.name : body.roomId, shiftId: result.state.activeShiftId,
-            description: (room ? room.name : body.roomId) + " session started" + (room && room.rateMode ? " (" + room.rateMode + " @ " + room.hourlyRate + " EGP/hr)" : ""),
+            description: (room ? room.name : body.roomId) + " session started" + (room && room.isBirthday ? " [BIRTHDAY]" : "") + (room && room.rateMode ? " (" + room.rateMode + " @ " + room.hourlyRate + " EGP/hr)" : ""),
           });
+          // Birthday: put 1x the decoration on the check through the normal add-order path.
+          if (room && room.isBirthday && birthdayItem) {
+            const batches = readObjects_("Batches");
+            const add = bizAddOrder_(getState_(), batches, body.roomId, birthdayItem.id, 1);
+            if (add.ok) {
+              setState_(add.state);
+              add.touchedBatchIds.forEach(function (id) {
+                const b = batches.find(function (x) { return x.id === id; });
+                if (b) updateObjectById_("Batches", id, { qtyRemaining: b.qtyRemaining });
+              });
+              (add.newBatches || []).forEach(function (nb) { appendObject_("Batches", nb); });
+              finalState = add.state;
+              logActivity_({
+                actorUsername: body.username, actorRole: roleForUsername_(body.username), actionType: "ITEM_ADDED",
+                location: room.name, shiftId: add.state.activeShiftId,
+                description: "Added 1x " + birthdayItem.name + " to " + room.name + " (Birthday session)",
+                before: { qty: 0 }, after: { qty: 1 },
+              });
+            }
+          }
         }
-        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(result.state) });
+        return json_({ ok: result.ok, error: result.error || null, state: withStockView_(finalState) });
       }
       case "nextKotNumber": {
         requireRole_(body.username, ["admin", "cashier"]);

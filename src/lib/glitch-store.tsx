@@ -175,7 +175,7 @@ interface StoreContextValue {
   addOwnerTable: (name?: string) => Promise<{ ok: boolean; error?: string; room?: Room }>;
   deleteOwnerTable: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   setRoomAvatar: (roomId: string, avatarDataUrl: string) => Promise<{ ok: boolean; error?: string }>;
-  startRoom: (roomId: string, rateMode?: "single" | "multi") => Promise<{ ok: boolean; error?: string }>;
+  startRoom: (roomId: string, rateMode?: "single" | "multi", opts?: { birthday?: boolean }) => Promise<{ ok: boolean; error?: string }>;
   endRoom: (roomId: string, splitBill: boolean, paymentMethod: PaymentMethod, cashAmount?: number, secondaryAmount?: number, frozenAt?: number, discount?: { timeDiscountType?: "fixed" | "percent"; timeDiscountValue?: number; ordersDiscountType?: "fixed" | "percent"; ordersDiscountValue?: number }, timeSplitOverride?: { singleHours: number; singleMinutes: number; multiHours: number; multiMinutes: number }) => Promise<{ session: Session | null; error?: string }>;
   pauseRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   logWasteMarketing: (roomId: string, reason: string, note?: string) => Promise<{ ok: boolean; error?: string }>;
@@ -723,18 +723,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     });
   };
-  const startRoom: StoreContextValue["startRoom"] = async (roomId, rateMode) => {
+  const startRoom: StoreContextValue["startRoom"] = async (roomId, rateMode, opts) => {
     return withPending(`startRoom:${roomId}`, async () => {
       const now = Date.now();
       setAppState((prev) => ({
         ...prev,
         rooms: prev.rooms.map((r) => {
           if (r.id !== roomId || r.status === "active") return r;
-          const rate = r.zone === "room" ? (rateMode === "multi" ? r.multiRate : r.singleRate) : 0;
-          return { ...r, status: "active", startedAt: now, orders: [], hourlyRate: rate, rateMode: r.zone === "room" ? (rateMode ?? null) : null };
+          const birthday = !!opts?.birthday && r.zone === "room";
+          const mode = birthday ? "multi" : rateMode;
+          const rate = r.zone === "room" ? (mode === "multi" ? r.multiRate : r.singleRate) : 0;
+          return { ...r, status: "active", startedAt: now, orders: [], hourlyRate: rate, rateMode: r.zone === "room" ? (mode ?? null) : null, isBirthday: birthday };
         }),
       }));
-      const res = await startRoomFn({ data: { roomId, rateMode } });
+      const res = await startRoomFn({ data: { roomId, rateMode, birthday: !!opts?.birthday } });
       setAppState(res.state);
       return { ok: res.ok, error: res.error };
     });
