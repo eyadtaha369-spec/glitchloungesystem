@@ -2347,31 +2347,51 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
   const [authOpen, setAuthOpen] = useState(false);
   const [confirmingUnapproved, setConfirmingUnapproved] = useState(false);
   const [voidReceipt, setVoidReceipt] = useState<VoidReceiptData | null>(null);
+  // Snapshot of the bill line taken when the modal opens -- i.e. BEFORE any void
+  // (this one or a previous click) can remove it -- so the receipt never depends
+  // on the item still being on the bill.
+  const lineSnapshot = useRef<{ unitPrice: number; name: string } | null>(null);
+  if (lineSnapshot.current === null) {
+    const l0 = state.rooms.find((r) => r.id === roomId)?.orders.find((o) => o.menuItemId === menuItemId);
+    lineSnapshot.current = { unitPrice: l0?.price ?? 0, name: l0?.name ?? itemName };
+  }
+  const submitLocked = useRef(false);
 
   const submit = async (approvingAdminUsername?: string, approvingAdminPassword?: string, routeUnapproved?: boolean) => {
     if (!reason) { setResult({ kind: "err", text: "Select a reason." }); return; }
     if (!waiterName.trim()) { setResult({ kind: "err", text: "Waiter name is required for the audit log." }); return; }
+    // One void per modal: once it went through, a second click would hit the
+    // server with an item that is no longer on the bill ("not on this table's
+    // current bill"), so every submit path is locked while one is in flight
+    // or already done.
+    if (submitLocked.current || voidReceipt) return;
+    submitLocked.current = true;
     setSubmitting(true);
     try {
-      // Snapshot the line BEFORE the void changes the check, for the void receipt.
-      const liveRoom = state.rooms.find((r) => r.id === roomId);
-      const line = liveRoom?.orders.find((o) => o.menuItemId === menuItemId);
-      const unitPrice = line?.price ?? 0;
-      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim(), approvingAdminUsername, approvingAdminPassword, routeUnapproved });
-      if (!res.ok) { setResult({ kind: "err", text: res.error ?? "Void request failed" }); return; }
+      // Build the whole receipt payload BEFORE the API call, while the item is
+      // still on the bill (falls back to the open-time snapshot if it already moved).
+      const liveLine = state.rooms.find((r) => r.id === roomId)?.orders.find((o) => o.menuItemId === menuItemId);
+      const unitPrice = liveLine?.price ?? lineSnapshot.current!.unitPrice;
+      const itemLabel = liveLine?.name ?? lineSnapshot.current!.name;
       const who = state.currentUser?.username ?? "unknown";
-      setVoidReceipt({
+      const receiptPayload: VoidReceiptData = {
         ts: Date.now(),
         voidedBy: who,
         approvedBy: approvingAdminUsername ?? (isAdmin ? who : null),
         location: roomName,
         orderRef: "Open check (" + roomName + ")",
-        items: [{ qty, name: itemName, unitPrice }],
+        items: [{ qty, name: itemLabel, unitPrice }],
         amount: Math.round(qty * unitPrice * 100) / 100,
         reason: VOID_REASON_LABELS[reason as VoidReason] ?? String(reason),
         waiter: waiterName.trim(),
         status: routeUnapproved ? "UNAPPROVED - ADMIN REVIEW" : isAdmin || approvingAdminUsername ? "APPROVED" : "PENDING ADMIN APPROVAL",
-      });
+      };
+      const res = await requestVoid({ roomId, menuItemId, qty, reason, waiterName: waiterName.trim(), approvingAdminUsername, approvingAdminPassword, routeUnapproved });
+      if (!res.ok) { submitLocked.current = false; setResult({ kind: "err", text: res.error ?? "Void request failed" }); return; }
+      // Print immediately (all three paths: normal request, admin authorization,
+      // and "Remove Now, Review Later") from the pre-captured payload.
+      receiptPayload.ts = Date.now();
+      setVoidReceipt(receiptPayload);
       setResult({
         kind: "ok",
         text: routeUnapproved
@@ -2388,7 +2408,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
 
   return createPortal(
     <>
-    {voidReceipt && <VoidReceiptPrint receipt={voidReceipt} onDone={onClose} />}
+    {voidReceipt && <VoidReceiptPrint receipt={voidReceipt} onDone={() => setTimeout(onClose, 800)} />}
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm no-print" onClick={voidReceipt ? undefined : onClose}>
       <div className="w-full max-w-sm glass-strong rounded-2xl border border-[oklch(0.62_0.24_25/0.4)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
@@ -2460,14 +2480,14 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
             <>
               <button
                 onClick={() => setConfirmingUnapproved(true)}
-                disabled={submitting}
+                disabled={submitting || !!voidReceipt}
                 className="px-4 py-2 rounded-lg text-sm bg-black/5 border border-black/10 text-muted-foreground hover:bg-[oklch(0.62_0.24_25/0.1)] hover:text-[oklch(0.62_0.24_25)] disabled:opacity-60"
               >
                 No Admin Available
               </button>
               <button
                 onClick={() => setAuthOpen(true)}
-                disabled={submitting}
+                disabled={submitting || !!voidReceipt}
                 className="px-4 py-2 rounded-lg text-sm bg-black/15 border border-black/50 text-white font-semibold disabled:opacity-60"
               >
                 Get Admin Approval Now
@@ -2479,7 +2499,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
               <button onClick={() => setConfirmingUnapproved(false)} className="px-4 py-2 rounded-lg text-sm bg-black/5 hover:bg-black/8 border border-black/10">Back</button>
               <button
                 onClick={() => submit(undefined, undefined, true)}
-                disabled={submitting}
+                disabled={submitting || !!voidReceipt}
                 className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.6)] text-[oklch(0.62_0.24_25)] font-bold disabled:opacity-60"
               >
                 {submitting ? "Removing..." : "Confirm — Remove Now, Review Later"}
@@ -2488,7 +2508,7 @@ function VoidRequestModal({ roomId, roomName, menuItemId, itemName, maxQty, onCl
           ) : (
             <button
               onClick={() => submit()}
-              disabled={submitting}
+              disabled={submitting || !!voidReceipt}
               className="px-4 py-2 rounded-lg text-sm bg-[oklch(0.62_0.24_25/0.2)] border border-[oklch(0.62_0.24_25/0.5)] text-[oklch(0.62_0.24_25)] font-semibold disabled:opacity-60"
             >
               {submitting ? "Submitting..." : isAdmin ? "Void Now" : "Submit for Approval"}
