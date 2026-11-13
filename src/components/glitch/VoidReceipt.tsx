@@ -24,15 +24,32 @@ function fmtStamp(ts: number): string {
     d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+// Resolves once the logo is loaded (max 1.5s) and the receipt DOM has painted,
+// so a print started right after setState includes everything.
+export async function waitForReceiptPaint(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const img = new Image();
+    const t = setTimeout(resolve, 1500);
+    img.onload = img.onerror = () => { clearTimeout(t); resolve(); };
+    img.src = logo;
+    if (img.complete) { clearTimeout(t); resolve(); }
+  });
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+}
+
 // Thermal "VOID RECEIPT". Rendered off-screen (portaled to <body> like every
 // other receipt) and printed automatically on mount through the same
 // printSmart() path as normal receipts. English-only, single-line rows.
-export function VoidReceiptPrint({ receipt, onDone }: { receipt: VoidReceiptData; onDone: () => void }) {
+export function VoidReceiptPrint({ receipt, onDone, autoPrint = true }: { receipt: VoidReceiptData; onDone: () => void; autoPrint?: boolean }) {
   const fired = useRef(false);
   useEffect(() => {
-    if (fired.current) return;
+    // autoPrint=false: the caller prints directly inside its own click flow.
+    if (!autoPrint || fired.current) return;
     fired.current = true;
-    let cancelled = false;
+    // NOTE: no "cancelled" flag on cleanup. React StrictMode (dev) runs this
+    // effect, runs its cleanup, then skips the second run because of
+    // fired.current -- a cancel flag set by that cleanup silently killed the
+    // print every time. The print must always run exactly once per receipt.
     (async () => {
       // Wait for the logo so it is in the printout, but never block forever.
       await new Promise<void>((resolve) => {
@@ -43,11 +60,9 @@ export function VoidReceiptPrint({ receipt, onDone }: { receipt: VoidReceiptData
         if (img.complete) { clearTimeout(t); resolve(); }
       });
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      if (cancelled) return;
       try { await printSmart(); } catch (err) { console.error("Void receipt print failed:", err); }
       onDone();
     })();
-    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
