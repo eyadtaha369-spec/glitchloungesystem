@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useStore, fmtMoney } from "@/lib/glitch-store";
+import { ShiftZReceiptPrint } from "./ShiftZReceipt";
 import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
-import { FileDown, LogOut, CheckCircle2 } from "lucide-react";
+import { FileDown, LogOut, CheckCircle2, Printer } from "lucide-react";
 import logo from "@/assets/glitch-logo.jpg";
 
 // Shown to a cashier right after they close their shift. Contains ONLY that
@@ -9,6 +11,8 @@ import logo from "@/assets/glitch-logo.jpg";
 // account and enters their own opening cash (العهدة المبدئية).
 export function ShiftHandover() {
   const { handover, logout } = useStore();
+  // The 80mm Z-report prints automatically the moment the shift is closed.
+  const [printing, setPrinting] = useState(true);
   if (!handover) return null;
   const { shift, sessions, ledger } = handover;
   const cash = sessions.reduce((a, s) => a + s.cashAmount, 0);
@@ -32,6 +36,7 @@ export function ShiftHandover() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
+      {printing && <ShiftZReceiptPrint data={handover} onDone={() => setPrinting(false)} />}
       <div className="w-full max-w-md glass-strong rounded-2xl border border-black/10 p-6 sm:p-8">
         <div className="flex flex-col items-center text-center mb-5">
           <img src={logo} alt="GLITCH" className="w-14 h-14 rounded-full mb-3" />
@@ -56,6 +61,9 @@ export function ShiftHandover() {
 
         <button onClick={download} className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-white/70 border border-black/15 font-semibold text-sm hover:bg-white">
           <FileDown className="w-4 h-4" /> Download Z-report (PDF)
+        </button>
+        <button onClick={() => setPrinting(true)} disabled={printing} className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-white/70 border border-black/15 font-semibold text-sm hover:bg-white disabled:opacity-50">
+          <Printer className="w-4 h-4" /> Print Z-report again (80mm)
         </button>
         <button onClick={() => logout()} className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-black text-white font-semibold text-sm">
           <LogOut className="w-4 h-4" /> Sign out — hand over to next cashier

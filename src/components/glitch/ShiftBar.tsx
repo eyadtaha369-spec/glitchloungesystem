@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ShiftZReceiptPrint } from "./ShiftZReceipt";
+import type { Shift, Session, LedgerEntry } from "@/lib/types";
 import { createPortal } from "react-dom";
 import { useStore, fmtMoney, captureGeolocation } from "@/lib/glitch-store";
 import { generateShiftReportPdf, downloadBlob } from "@/lib/shift-report-pdf";
@@ -12,6 +14,7 @@ export function ShiftBar() {
   const [endOpen, setEndOpen] = useState(false);
   const [actualCash, setActualCash] = useState("0");
   const [locating, setLocating] = useState(false);
+  const [zPrint, setZPrint] = useState<{ shift: Shift; sessions: Session[]; ledger: LedgerEntry[] } | null>(null);
   const [closedSummary, setClosedSummary] = useState<{ expected: number; actual: number; discrepancy: number } | null>(null);
   const [orphanedPrompt, setOrphanedPrompt] = useState<{ count: number; sessionsCount: number; expensesCount: number; total: number } | null>(null);
 
@@ -60,6 +63,8 @@ export function ShiftBar() {
     if (res.zReport && isAdmin) {
       const { blob, filename } = generateShiftReportPdf({ shift: res.zReport.shift, sessions: res.zReport.sessions, ledger: res.zReport.ledger });
       downloadBlob(blob, filename);
+      // Mandatory 80mm thermal Z-report, printed automatically on close.
+      setZPrint(res.zReport);
     }
     setEndOpen(false);
     setActualCash("0");
@@ -68,6 +73,7 @@ export function ShiftBar() {
   if (!activeShift) {
     return (
       <>
+      {zPrint && <ShiftZReceiptPrint data={zPrint} onDone={() => setZPrint(null)} />}
       <div className="glass rounded-2xl p-6 border border-[oklch(0.7_0.19_260/0.4)]">
         <div className="flex items-center gap-2 mb-3">
           <Lock className="w-5 h-5 text-[oklch(0.7_0.19_260)]" />
@@ -112,6 +118,7 @@ export function ShiftBar() {
 
   return (
     <div className="glass rounded-2xl p-6 border border-[oklch(0.78_0.2_155/0.4)]">
+      {zPrint && <ShiftZReceiptPrint data={zPrint} onDone={() => setZPrint(null)} />}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
