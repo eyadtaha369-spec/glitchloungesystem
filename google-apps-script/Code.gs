@@ -3360,11 +3360,8 @@ function doPost(e) {
         // opened themselves (owner decision: cashiers open AND close shifts).
         const role = requireRole_(body.username, ["admin", "cashier"]);
         const state0 = getState_();
-        if (role !== "admin") {
-          const openShift = readShifts_().filter(function (sh) { return sh.id === state0.activeShiftId; })[0];
-          if (!openShift || String(openShift.cashierUsername).toLowerCase() !== String(body.username).toLowerCase()) {
-            return json_({ ok: false, error: "Only the cashier who opened this shift (or an admin) can end it.", state: withStockView_(state0) });
-          }
+        if (!state0.activeShiftId) {
+          return json_({ ok: false, error: "There is no open shift to end.", state: withStockView_(state0) });
         }
         const geoErr = checkGeofence_(state0, body.lat, body.lng);
         if (geoErr) {

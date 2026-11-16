@@ -18,9 +18,8 @@ export function ShiftBar() {
   const [closedSummary, setClosedSummary] = useState<{ expected: number; actual: number; discrepancy: number } | null>(null);
   const [orphanedPrompt, setOrphanedPrompt] = useState<{ count: number; sessionsCount: number; expensesCount: number; total: number } | null>(null);
 
-  // The backend only lets the opener (or an admin) end a shift, so only
-  // show the End Shift button to them instead of a button that errors.
-  const canEnd = !!activeShift && (isAdmin || activeShift.cashierUsername.toLowerCase() === (state.currentUser?.username ?? "").toLowerCase());
+  // Admins and cashiers can both close the open shift.
+  const canEnd = !!activeShift;
   const shiftSessions = activeShift ? state.sessions.filter((s) => s.shiftId === activeShift.id) : [];
   const cashSalesOnly = shiftSessions.reduce((a, s) => a + s.cashAmount, 0);
   const shiftRevenue = shiftSessions.reduce((a, s) => a + s.total, 0);
@@ -132,11 +131,6 @@ export function ShiftBar() {
             Since {new Date(activeShift.openedAt).toLocaleTimeString()} · Opening ${activeShift.openingBalance.toFixed(2)}
           </p>
         </div>
-        {!canEnd && (
-          <div className="text-xs text-muted-foreground max-w-xs text-end">
-            This shift was opened by <strong>{activeShift.cashierUsername}</strong>. Only the person who opened it, or an admin, can close it.
-          </div>
-        )}
         {canEnd && (
           <button
             onClick={() => setEndOpen(true)}

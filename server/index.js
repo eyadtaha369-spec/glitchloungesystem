@@ -526,15 +526,12 @@ const handlers = {
   },
 
   endShift(body) {
-    // Admins can end any shift; a cashier can end only the shift they
-    // opened themselves (owner decision: cashiers open AND close shifts).
+    // Admins and cashiers can both end the currently open shift (owner decision:
+    // the cashier working the shift closes it, even if an admin opened it).
     const role = requireRole_(body.username, ["admin", "cashier"]);
     const state0 = getState_();
-    if (role !== "admin") {
-      const open = readShifts_().find((sh) => sh.id === state0.activeShiftId);
-      if (!open || String(open.cashierUsername).toLowerCase() !== String(body.username).toLowerCase()) {
-        return { ok: false, error: "Only the cashier who opened this shift (or an admin) can end it.", state: withStockView_(state0) };
-      }
+    if (!state0.activeShiftId) {
+      return { ok: false, error: "There is no open shift to end.", state: withStockView_(state0) };
     }
     const shiftIdBefore = state0.activeShiftId;
     const ledger = readObjects_("Ledger");
