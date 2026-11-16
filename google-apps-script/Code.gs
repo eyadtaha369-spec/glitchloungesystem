@@ -3362,7 +3362,7 @@ function doPost(e) {
         const state0 = getState_();
         if (role !== "admin") {
           const openShift = readShifts_().filter(function (sh) { return sh.id === state0.activeShiftId; })[0];
-          if (!openShift || openShift.cashierUsername !== body.username) {
+          if (!openShift || String(openShift.cashierUsername).toLowerCase() !== String(body.username).toLowerCase()) {
             return json_({ ok: false, error: "Only the cashier who opened this shift (or an admin) can end it.", state: withStockView_(state0) });
           }
         }

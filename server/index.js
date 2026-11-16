@@ -532,7 +532,7 @@ const handlers = {
     const state0 = getState_();
     if (role !== "admin") {
       const open = readShifts_().find((sh) => sh.id === state0.activeShiftId);
-      if (!open || open.cashierUsername !== body.username) {
+      if (!open || String(open.cashierUsername).toLowerCase() !== String(body.username).toLowerCase()) {
         return { ok: false, error: "Only the cashier who opened this shift (or an admin) can end it.", state: withStockView_(state0) };
       }
     }
